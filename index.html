@@ -781,9 +781,21 @@ function totals(){let val=0,cost=0;syms().forEach(a=>{const s=statOf(a);if(s.q>1
 /* ---- daily portfolio series (real) ---- */
 function days(){const o=[],d=new Date(START+'T00:00:00Z');const endIso=NOW()>TODAY?NOW():TODAY;const e=new Date(endIso+'T00:00:00Z');
   while(d<=e){o.push(d.toISOString().slice(0,10));d.setUTCDate(d.getUTCDate()+1);}return o;}
-function seriesUSD(coin){const ss=coin==='ALL'?syms():[coin];
+function seriesUSD(coin){
+  if(coin!=='ALL'){
+    // Single-coin selection shows the coin's actual PRICE, not your position's
+    // dollar value (qty × price) — the latter looked exactly like a price chart
+    // (same shape, since it's just price scaled by a constant) but with wrong
+    // absolute numbers, which is exactly what was reported as "wrong crypto shown".
+    return days().map(d=>{
+      const last=NOW()>TODAY?NOW():TODAY;
+      const p=d===last?pxUsd(coin):histPx(coin,d);
+      return{x:d,y:p};
+    });
+  }
+  const ss=syms();
   return days().map(d=>{const last=NOW()>TODAY?NOW():TODAY;let v=0;ss.forEach(a=>{let p=histPx(a,d);if(d===last)p=pxUsd(a);v+=qtyOf(a,d)*p;});
-    if(coin==='ALL')v+=interestEUR(d)*(state.fx||FX0);return {x:d,y:v};});}
+    v+=interestEUR(d)*(state.fx||FX0);return {x:d,y:v};});}
 function seriesCcy(coin){const u=seriesUSD(coin);if(state.ccy==='USD')return u;const f=state.fx||FX0;return u.map(p=>({x:p.x,y:p.y/f}));}
 function clipRange(s){if(state.range==='ALL')return s;const now=new Date(NOW()>TODAY?NOW():TODAY);let from=new Date(START);
   if(state.range==='1M')from=new Date(now-30*864e5);if(state.range==='3M')from=new Date(now-90*864e5);
