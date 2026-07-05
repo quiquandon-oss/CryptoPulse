@@ -616,6 +616,31 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         </div>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="sosoEtfList"></div>
       </div>
+
+      <!-- ═══ TEMPORARY: Telegram Alert Config status view (read-only) ═══
+           Verifies the Google Apps Script + Telegram alert pipeline is reading
+           the right values — remove this whole <div> once confirmed working.
+           TelegramChatID deliberately not displayed (no reason to surface it here). -->
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-semibold">Alert Config (Telegram) — test view</h3>
+          <span class="text-xs text-mutet" id="alertConfigStatus">—</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-line text-left text-mutet text-xs uppercase tracking-wide">
+                <th class="py-2 pr-3 font-medium">Asset</th>
+                <th class="py-2 pr-3 font-medium text-right">Target Price</th>
+                <th class="py-2 pr-3 font-medium text-right">Sentiment Threshold</th>
+                <th class="py-2 pr-3 font-medium text-center">Enabled</th>
+                <th class="py-2 pr-3 font-medium text-right">Last Alerted</th>
+              </tr>
+            </thead>
+            <tbody id="alertConfigBody"></tbody>
+          </table>
+        </div>
+      </div>
     </section>
 
     <!-- =============== SETTINGS =============== -->
@@ -1357,7 +1382,11 @@ function wireRadar(){
 const SENT_HALF_LIFE_HOURS=6;     // an event counts half as much every 6h
 const SENT_DEDUP_WINDOW_MIN=15;   // near-identical events within this window = counted once
 const SENT_CATEGORIES=['Crypto','Equities','Macroeconomics','Geopolitics','Regulatory','On-Chain','Technical'];
-const SENTIMENT_CSV_URL='https://docs.google.com/spreadsheets/d/e/2PACX-1vSDmlI4MxH2USmwRF5DbR6qNI4W7Knp-6i1DucVTR-HGNBCri0W4l3hK2iTj7r8R551FHPeyRqwABUJ/pub?output=csv';
+const SENTIMENT_CSV_URL='https://docs.google.com/spreadsheets/d/e/2PACX-1vSDmlI4MxH2USmwRF5DbR6qNI4W7Knp-6i1DucVTR-HGNBCri0W4l3hK2iTj7r8R551FHPeyRqwABUJ/pub?gid=1481611720&single=true&output=csv';
+// TODO: replace with the real Publish-to-web CSV link for the "AlertConfig" tab specifically
+// (File → Share → Publish to web → select the AlertConfig tab → CSV). This is a different
+// tab/gid than SENTIMENT_CSV_URL above, so it needs its own separate publish action.
+const ALERTCONFIG_CSV_URL='https://docs.google.com/spreadsheets/d/e/2PACX-1vSDmlI4MxH2USmwRF5DbR6qNI4W7Knp-6i1DucVTR-HGNBCri0W4l3hK2iTj7r8R551FHPeyRqwABUJ/pub?gid=874405685&single=true&output=csv';
 
 // Shared state so other tabs can use the latest combined sentiment (Gemini + ETF)
 // without re-fetching: calcBottomScore() reads lastSentimentIndex as a contrarian
@@ -1620,6 +1649,51 @@ async function initSentimentTab(){
     $('#sosoNewsList').innerHTML='';
     $('#sosoNewsStatus').textContent='Error: '+(err && err.message ? err.message : String(err));
   }
+
+  // ---- TEMPORARY: Alert Config status (Telegram pipeline test view) ----
+  try{
+    const rows=await fetchAlertConfig();
+    renderAlertConfig(rows);
+    $('#alertConfigStatus').textContent=`${rows.length} row(s)`;
+  }catch(err){
+    console.error('Error fetching AlertConfig:',err);
+    $('#alertConfigBody').innerHTML='';
+    $('#alertConfigStatus').textContent='Error: '+(err && err.message ? err.message : String(err));
+  }
+}
+// Fetches the AlertConfig tab (read-only test view — see the TODO on ALERTCONFIG_CSV_URL
+// above). Reuses the same parseCsv() already built for the sentiment tracker sheet.
+async function fetchAlertConfig(){
+  const res=await fetch(ALERTCONFIG_CSV_URL);
+  if(!res.ok)throw new Error('AlertConfig fetch responded '+res.status);
+  const text=await res.text();
+  const table=parseCsv(text);
+  const header=table[0]||[];
+  const idx=name=>header.findIndex(h=>h.trim().toLowerCase()===name.toLowerCase());
+  const iAsset=idx('Asset'),iTarget=idx('TargetPrice'),iThresh=idx('SentimentThreshold'),iEnabled=idx('Enabled'),iLast=idx('LastAlerted');
+  return table.slice(1).filter(r=>r.length&&r[iAsset]).map(r=>({
+    asset:r[iAsset]||'',
+    targetPrice:r[iTarget]||'',
+    sentimentThreshold:r[iThresh]||'',
+    enabled:(r[iEnabled]||'').trim().toUpperCase()==='TRUE',
+    lastAlerted:r[iLast]||'—',
+  }));
+}
+function renderAlertConfig(rows){
+  const host=$('#alertConfigBody');if(!host)return;
+  if(!rows.length){host.innerHTML='<tr><td colspan="5" class="py-3 text-mutet text-xs">No rows found.</td></tr>';return;}
+  host.innerHTML=rows.map(r=>{
+    // Flags blank SentimentThreshold explicitly — this is the exact gap we found:
+    // a blank cell silently blocks any alert for a coin with real sentiment data.
+    const threshBlank=!r.sentimentThreshold.trim();
+    return`<tr class="border-b border-line/50">
+      <td class="py-2 pr-3 font-medium">${r.asset}</td>
+      <td class="py-2 pr-3 text-right tnum">${r.targetPrice||'—'}</td>
+      <td class="py-2 pr-3 text-right tnum ${threshBlank?'text-down':''}">${threshBlank?'⚠ blank':r.sentimentThreshold}</td>
+      <td class="py-2 pr-3 text-center">${r.enabled?'✅':'—'}</td>
+      <td class="py-2 pr-3 text-right text-mutet text-xs">${r.lastAlerted}</td>
+    </tr>`;
+  }).join('');
 }
 // Fetches SoSoValue's news feed (all currencies, pre-filtered by category server-side),
 // then filters client-side down to items that mention one of our tracked coins.
