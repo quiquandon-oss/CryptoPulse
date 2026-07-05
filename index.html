@@ -256,6 +256,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <button id="goDca" class="text-sm font-semibold bg-neon/15 hover:bg-neon/25 text-neon border border-neon/30 rounded-lg px-3 py-1.5 transition">+ DCA</button>
       </div>
       <div id="alertsBanner" class="hidden mb-3 rounded-xl border border-neon/40 bg-neon/10 px-3 py-2 text-xs font-semibold text-neon"></div>
+      <p class="text-[10px] text-mutet mb-3" id="tgSendStatus"></p>
       <p class="text-[10px] text-mutet mb-3">🤖 Signal = rule-based score from RSI, your cost basis, 30d trend &amp; Fear/Greed — not financial advice.</p>
       <div id="holdingCards" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4"></div>
     </section>
@@ -2536,21 +2537,39 @@ const TG_BOT_TOKEN='8645774831:AAFF8tjInBOdmEjIiJ4jazmGd3AWi8-gh-I';
 const TG_CHAT_ID='8481279979';
 const TG_ALERT_COOLDOWN_MS=6*60*60000; // 6h — same cooldown convention already used on the Apps Script side
 async function sendTelegramPriceAlert(asset,hit){
+  const statusEl=$('#tgSendStatus');
   const key='cp2_tg_alert_'+asset+'_'+hit.dir;
   const last=+(localStorage.getItem(key)||0);
-  if(Date.now()-last<TG_ALERT_COOLDOWN_MS)return; // already alerted recently for this exact direction
+  if(Date.now()-last<TG_ALERT_COOLDOWN_MS){
+    if(statusEl)statusEl.textContent=`Telegram: ${asset} ${hit.dir} alert on cooldown (last sent ${Math.round((Date.now()-last)/60000)}m ago)`;
+    return;
+  }
   const name=(META[asset]||{name:asset}).name;
   const isBelow=hit.dir==='below';
   const emoji=isBelow?'🟢':'🔴';
   const label=isBelow?'BUY ZONE — dropped below':'TARGET REACHED — rose above';
   const text=`${emoji} <b>${label}</b>\n${name} (${asset}) is now ${money(hit.p,pdec(hit.p))}, past your threshold of ${money(hit.thr,pdec(hit.thr))}.`;
+  const url=`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`;
+  const body=JSON.stringify({chat_id:TG_CHAT_ID,text,parse_mode:'HTML'});
   try{
-    await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`,{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({chat_id:TG_CHAT_ID,text,parse_mode:'HTML'})
-    });
-    localStorage.setItem(key,String(Date.now()));
-  }catch(e){console.error('Telegram price alert failed for '+asset+':',e);}
+    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body});
+    const respText=await res.text();
+    if(statusEl)statusEl.textContent=`Telegram: ${asset} ${hit.dir} — HTTP ${res.status} — ${respText.slice(0,120)}`;
+    if(res.ok)localStorage.setItem(key,String(Date.now()));
+  }catch(e){
+    // Same defensive fallback that fixed the Apps Script CORS issue earlier — if the
+    // normal request is blocked, try no-cors so it can at least be sent, even though
+    // we then can't read whether it actually succeeded.
+    console.error('Telegram price alert failed (normal mode) for '+asset+':',e);
+    try{
+      await fetch(url,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body});
+      if(statusEl)statusEl.textContent=`Telegram: ${asset} ${hit.dir} — sent via no-cors fallback (normal mode blocked: ${e.message}) — check your Telegram to confirm`;
+      localStorage.setItem(key,String(Date.now()));
+    }catch(e2){
+      if(statusEl)statusEl.textContent=`Telegram: ${asset} ${hit.dir} — FAILED both modes — ${e2.message}`;
+      console.error('Telegram price alert failed (no-cors fallback too) for '+asset+':',e2);
+    }
+  }
 }
 function renderAlertsBanner(){
   const host=$('#alertsBanner');if(!host)return;
