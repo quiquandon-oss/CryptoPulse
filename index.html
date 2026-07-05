@@ -1253,6 +1253,76 @@ function renderRadarFromCache(sym){
     renderRadarHeatmap(c.weekly);
   }
 }
+// ---- Weekly trend signal (Tuesday→Tuesday week, per explicit choice) ----
+// Reuses the SAME day-of-week/hour-block seasonal grid already computed by
+// analyzeWeeklyHeatmap — that grid is indexed by calendar day-of-week, so it's
+// valid regardless of which day a "week" is considered to start on; no need to
+// duplicate the seasonal computation for a different week-anchor.
+// Returns a "seasonal residual": how far this week's prices have run relative to
+// this week's OWN average, compared to what the 90-day heatmap says is NORMAL for
+// these same day/hour slots. Negative = running cheaper than seasonally typical
+// for this point in the week. This is a residual, not a probability — deliberately
+// not dressed up with false precision.
+function computeWeeklyTrendPct(prices,grid){
+  if(!prices?.length||!grid)return null;
+  const now=new Date();
+  const daysSinceTue=(now.getDay()+7-2)%7; // Tuesday = day 2 (Sunday=0)
+  const weekStart=new Date(now);weekStart.setDate(now.getDate()-daysSinceTue);weekStart.setHours(0,0,0,0);
+  const thisWeek=prices.filter(([ts])=>ts>=weekStart.getTime());
+  if(thisWeek.length<3)return null; // not enough of this week elapsed yet to say anything honest
+  const weekAvg=thisWeek.reduce((a,[,p])=>a+p,0)/thisWeek.length;
+  let typicalSum=0,typicalN=0,actualRelSum=0;
+  thisWeek.forEach(([ts,p])=>{
+    const d=new Date(ts);
+    const cell=grid[d.getDay()]?.[Math.floor(d.getHours()/3)];
+    if(cell&&cell.pct!=null){typicalSum+=cell.pct;typicalN++;}
+    actualRelSum+=(p/weekAvg-1)*100;
+  });
+  if(!typicalN)return null;
+  return(actualRelSum/thisWeek.length)-(typicalSum/typicalN);
+}
+// ---- DCA sizing: BTC + LINK only, per explicit scope ----
+// Weights allocation toward whichever coin is further below YOUR OWN average cost
+// (not a market-wide average) — buying below your own cost mechanically pulls your
+// average down; buying above it pushes it up. A coin currently above its own cost
+// gets zero allocation this cycle. Total budget scales with the existing Bottom
+// Signal score (0-100), between the user's stated €50-500 monthly range.
+function computeDcaSuggestions(){
+  const coins=['BTC','LINK'];
+  const discounts={};
+  coins.forEach(sym=>{
+    const cost=avg(sym),price=pxNow(sym);
+    discounts[sym]=cost>0?(price-cost)/cost*100:0;
+  });
+  const belowCost=coins.filter(sym=>discounts[sym]<0);
+  const bottomScore=(typeof calcBottomScore==='function')?calcBottomScore().score:50;
+  const totalBudget=Math.max(50,Math.min(500,50+450*(bottomScore/100)));
+  const sumAbs=belowCost.reduce((a,sym)=>a+Math.abs(discounts[sym]),0);
+  const alloc={};
+  coins.forEach(sym=>{alloc[sym]=(discounts[sym]<0&&sumAbs>0)?totalBudget*(Math.abs(discounts[sym])/sumAbs):0;});
+  return{discounts,totalBudget,alloc,bottomScore};
+}
+// ---- Sync computed metrics to the Sheet, for Apps Script to read ----
+// CryptoPulse computes (it already has the 90-day history in cache); Apps Script
+// just reads the finished numbers — same division of labor as the heatmap. This is
+// a no-op until ALERTCONFIG_WRITE_URL is actually deployed (see the Gemini prompt).
+const ALERTCONFIG_WRITE_URL='REPLACE_ME_WITH_APPS_SCRIPT_EXEC_URL';
+const ALERT_WRITE_SECRET='404bcdd6ab8588a3e4daf5c45e00ec3b';
+async function syncDcaMetricsToSheet(){
+  if(ALERTCONFIG_WRITE_URL.includes('REPLACE_ME'))return;
+  try{await ensureRadarData('BTC');await ensureRadarData('LINK');}catch(e){/* proceed with whatever cache already exists */}
+  const dca=computeDcaSuggestions();
+  for(const sym of['BTC','LINK']){
+    const cache=state.radar.cache[sym];
+    const trendPct=cache?.weekly?computeWeeklyTrendPct(cache.prices,cache.weekly.grid):null;
+    const body={secret:ALERT_WRITE_SECRET,asset:sym,avgCost:avg(sym),weeklyTrendPct:trendPct==null?0:trendPct,suggestedDcaEUR:Math.round(dca.alloc[sym]||0)};
+    try{
+      // text/plain avoids a CORS preflight (OPTIONS) that Apps Script Web Apps
+      // handle poorly — a known gotcha, not an oversight.
+      await fetch(ALERTCONFIG_WRITE_URL,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(body)});
+    }catch(e){console.error('Failed to sync DCA metrics for '+sym+':',e);}
+  }
+}
 function renderRadarHeatmap(weekly){
   const host=$('#radarHeatmap');if(!host||!weekly)return;
   const order=[1,2,3,4,5,6,0]; // Mon..Sun for a more natural reading order
@@ -1648,6 +1718,14 @@ async function initSentimentTab(){
     console.error('Error fetching SoSoValue news:',err);
     $('#sosoNewsList').innerHTML='';
     $('#sosoNewsStatus').textContent='Error: '+(err && err.message ? err.message : String(err));
+  }
+
+  // ---- Sync computed DCA metrics (BTC/LINK) to the Sheet for Apps Script to read ----
+  // No-op until ALERTCONFIG_WRITE_URL is deployed — see the Gemini prompt for this.
+  try{
+    await syncDcaMetricsToSheet();
+  }catch(err){
+    console.error('Error syncing DCA metrics to Sheet:',err);
   }
 
   // ---- TEMPORARY: Alert Config status (Telegram pipeline test view) ----
