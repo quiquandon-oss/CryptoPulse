@@ -2526,9 +2526,36 @@ function checkAlert(a){
   if(al.above!=null&&al.above!==''&&p>=+al.above)return{dir:'above',thr:+al.above,p};
   return null;
 }
+// ---- Direct browser→Telegram price alerts ----
+// Calls Telegram's Bot API straight from the browser (no Apps Script/cron in the
+// loop) — this is what makes it immediate, at the honest cost of only firing while
+// this tab is open, same limitation as the browser-notification feature in Radar.
+// Telegram messages have no color support at all — emoji + bold is the closest
+// real equivalent, not a euphemism for actual color.
+const TG_BOT_TOKEN='8645774831:AAFF8tjInBOdmEjIiJ4jazmGd3AWi8-gh-I';
+const TG_CHAT_ID='8481279979';
+const TG_ALERT_COOLDOWN_MS=6*60*60000; // 6h — same cooldown convention already used on the Apps Script side
+async function sendTelegramPriceAlert(asset,hit){
+  const key='cp2_tg_alert_'+asset+'_'+hit.dir;
+  const last=+(localStorage.getItem(key)||0);
+  if(Date.now()-last<TG_ALERT_COOLDOWN_MS)return; // already alerted recently for this exact direction
+  const name=(META[asset]||{name:asset}).name;
+  const isBelow=hit.dir==='below';
+  const emoji=isBelow?'🟢':'🔴';
+  const label=isBelow?'BUY ZONE — dropped below':'TARGET REACHED — rose above';
+  const text=`${emoji} <b>${label}</b>\n${name} (${asset}) is now ${money(hit.p,pdec(hit.p))}, past your threshold of ${money(hit.thr,pdec(hit.thr))}.`;
+  try{
+    await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({chat_id:TG_CHAT_ID,text,parse_mode:'HTML'})
+    });
+    localStorage.setItem(key,String(Date.now()));
+  }catch(e){console.error('Telegram price alert failed for '+asset+':',e);}
+}
 function renderAlertsBanner(){
   const host=$('#alertsBanner');if(!host)return;
   const hits=syms().filter(a=>qtyOf(a)>1e-12).map(a=>({a,hit:checkAlert(a)})).filter(o=>o.hit);
+  hits.forEach(o=>sendTelegramPriceAlert(o.a,o.hit)); // fire-and-forget; cooldown handles repeat suppression
   if(!hits.length){host.classList.add('hidden');return;}
   host.classList.remove('hidden');
   const m=a=>(META[a]||{name:a}).name;
