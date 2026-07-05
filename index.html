@@ -2544,6 +2544,13 @@ async function sendTelegramPriceAlert(asset,hit){
     if(statusEl)statusEl.textContent=`Telegram: ${asset} ${hit.dir} alert on cooldown (last sent ${Math.round((Date.now()-last)/60000)}m ago)`;
     return;
   }
+  // Set the cooldown IMMEDIATELY, before the network call — not after it resolves.
+  // Fixes a real check-then-act race: if render() fires again (60s timer, tab switch,
+  // refresh button, or a second browser tab) while the first call is still awaiting
+  // its fetch, the old code would let a second call slip through the same cooldown
+  // check before the first had written anything — producing duplicate/near-simultaneous
+  // sends, exactly what happened here.
+  localStorage.setItem(key,String(Date.now()));
   const name=(META[asset]||{name:asset}).name;
   const isBelow=hit.dir==='below';
   const emoji=isBelow?'🟢':'🔴';
@@ -2555,7 +2562,7 @@ async function sendTelegramPriceAlert(asset,hit){
     const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body});
     const respText=await res.text();
     if(statusEl)statusEl.textContent=`Telegram: ${asset} ${hit.dir} — HTTP ${res.status} — ${respText.slice(0,120)}`;
-    if(res.ok)localStorage.setItem(key,String(Date.now()));
+    if(!res.ok)localStorage.removeItem(key); // failed — don't block a real retry next cycle
   }catch(e){
     // Same defensive fallback that fixed the Apps Script CORS issue earlier — if the
     // normal request is blocked, try no-cors so it can at least be sent, even though
@@ -2564,10 +2571,10 @@ async function sendTelegramPriceAlert(asset,hit){
     try{
       await fetch(url,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body});
       if(statusEl)statusEl.textContent=`Telegram: ${asset} ${hit.dir} — sent via no-cors fallback (normal mode blocked: ${e.message}) — check your Telegram to confirm`;
-      localStorage.setItem(key,String(Date.now()));
     }catch(e2){
       if(statusEl)statusEl.textContent=`Telegram: ${asset} ${hit.dir} — FAILED both modes — ${e2.message}`;
       console.error('Telegram price alert failed (no-cors fallback too) for '+asset+':',e2);
+      localStorage.removeItem(key); // both attempts failed outright — allow a retry next cycle
     }
   }
 }
