@@ -626,6 +626,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <h3 class="text-sm font-semibold">Alert Config (Telegram) — test view</h3>
           <span class="text-xs text-mutet" id="alertConfigStatus">—</span>
         </div>
+        <p class="text-xs text-mutet mb-3" id="dcaSyncStatus">Sync status: —</p>
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead>
@@ -633,6 +634,9 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
                 <th class="py-2 pr-3 font-medium">Asset</th>
                 <th class="py-2 pr-3 font-medium text-right">Target Price</th>
                 <th class="py-2 pr-3 font-medium text-right">Sentiment Threshold</th>
+                <th class="py-2 pr-3 font-medium text-right">Avg Cost</th>
+                <th class="py-2 pr-3 font-medium text-right">Weekly Trend</th>
+                <th class="py-2 pr-3 font-medium text-right">Suggested DCA</th>
                 <th class="py-2 pr-3 font-medium text-center">Enabled</th>
                 <th class="py-2 pr-3 font-medium text-right">Last Alerted</th>
               </tr>
@@ -1306,12 +1310,14 @@ function computeDcaSuggestions(){
 // CryptoPulse computes (it already has the 90-day history in cache); Apps Script
 // just reads the finished numbers — same division of labor as the heatmap. This is
 // a no-op until ALERTCONFIG_WRITE_URL is actually deployed (see the Gemini prompt).
-const ALERTCONFIG_WRITE_URL='REPLACE_ME_WITH_APPS_SCRIPT_EXEC_URL';
+const ALERTCONFIG_WRITE_URL='https://script.google.com/macros/s/AKfycbwutUzRvBVMjWDMGnxXkhyaPbE-d0lJ2vTlXBKy8OfGUgJekAmUKxn1N_5szDV6aU6o/exec';
 const ALERT_WRITE_SECRET='404bcdd6ab8588a3e4daf5c45e00ec3b';
 async function syncDcaMetricsToSheet(){
-  if(ALERTCONFIG_WRITE_URL.includes('REPLACE_ME'))return;
+  const statusEl=$('#dcaSyncStatus');
+  if(ALERTCONFIG_WRITE_URL.includes('REPLACE_ME')){if(statusEl)statusEl.textContent='Sync status: not configured';return;}
   try{await ensureRadarData('BTC');await ensureRadarData('LINK');}catch(e){/* proceed with whatever cache already exists */}
   const dca=computeDcaSuggestions();
+  const results=[];
   for(const sym of['BTC','LINK']){
     const cache=state.radar.cache[sym];
     const trendPct=cache?.weekly?computeWeeklyTrendPct(cache.prices,cache.weekly.grid):null;
@@ -1319,9 +1325,18 @@ async function syncDcaMetricsToSheet(){
     try{
       // text/plain avoids a CORS preflight (OPTIONS) that Apps Script Web Apps
       // handle poorly — a known gotcha, not an oversight.
-      await fetch(ALERTCONFIG_WRITE_URL,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(body)});
-    }catch(e){console.error('Failed to sync DCA metrics for '+sym+':',e);}
+      const res=await fetch(ALERTCONFIG_WRITE_URL,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(body)});
+      // Apps Script Web Apps can return an "opaque" response to fetch() depending on
+      // redirect/CORS behavior — if so we genuinely can't read status or body, and
+      // should say so honestly rather than assume success.
+      if(res.type==='opaque'){results.push(`${sym}: sent (response opaque — can't confirm from browser, check the table below)`);}
+      else{
+        const text=await res.text();
+        results.push(`${sym}: HTTP ${res.status} — ${text.slice(0,80)}`);
+      }
+    }catch(e){results.push(`${sym}: FAILED — ${e.message}`);console.error('Failed to sync DCA metrics for '+sym+':',e);}
   }
+  if(statusEl)statusEl.textContent='Sync status: '+results.join(' | ');
 }
 function renderRadarHeatmap(weekly){
   const host=$('#radarHeatmap');if(!host||!weekly)return;
@@ -1749,17 +1764,21 @@ async function fetchAlertConfig(){
   const header=table[0]||[];
   const idx=name=>header.findIndex(h=>h.trim().toLowerCase()===name.toLowerCase());
   const iAsset=idx('Asset'),iTarget=idx('TargetPrice'),iThresh=idx('SentimentThreshold'),iEnabled=idx('Enabled'),iLast=idx('LastAlerted');
+  const iAvgCost=idx('AvgCost'),iTrend=idx('WeeklyTrendPct'),iDca=idx('SuggestedDcaEUR');
   return table.slice(1).filter(r=>r.length&&r[iAsset]).map(r=>({
     asset:r[iAsset]||'',
     targetPrice:r[iTarget]||'',
     sentimentThreshold:r[iThresh]||'',
+    avgCost:iAvgCost>=0?(r[iAvgCost]||''):'',
+    weeklyTrendPct:iTrend>=0?(r[iTrend]||''):'',
+    suggestedDcaEUR:iDca>=0?(r[iDca]||''):'',
     enabled:(r[iEnabled]||'').trim().toUpperCase()==='TRUE',
     lastAlerted:r[iLast]||'—',
   }));
 }
 function renderAlertConfig(rows){
   const host=$('#alertConfigBody');if(!host)return;
-  if(!rows.length){host.innerHTML='<tr><td colspan="5" class="py-3 text-mutet text-xs">No rows found.</td></tr>';return;}
+  if(!rows.length){host.innerHTML='<tr><td colspan="8" class="py-3 text-mutet text-xs">No rows found.</td></tr>';return;}
   host.innerHTML=rows.map(r=>{
     // Flags blank SentimentThreshold explicitly — this is the exact gap we found:
     // a blank cell silently blocks any alert for a coin with real sentiment data.
@@ -1768,6 +1787,9 @@ function renderAlertConfig(rows){
       <td class="py-2 pr-3 font-medium">${r.asset}</td>
       <td class="py-2 pr-3 text-right tnum">${r.targetPrice||'—'}</td>
       <td class="py-2 pr-3 text-right tnum ${threshBlank?'text-down':''}">${threshBlank?'⚠ blank':r.sentimentThreshold}</td>
+      <td class="py-2 pr-3 text-right tnum">${r.avgCost||'—'}</td>
+      <td class="py-2 pr-3 text-right tnum">${r.weeklyTrendPct||'—'}</td>
+      <td class="py-2 pr-3 text-right tnum">${r.suggestedDcaEUR?'€'+r.suggestedDcaEUR:'—'}</td>
       <td class="py-2 pr-3 text-center">${r.enabled?'✅':'—'}</td>
       <td class="py-2 pr-3 text-right text-mutet text-xs">${r.lastAlerted}</td>
     </tr>`;
