@@ -1323,17 +1323,14 @@ async function syncDcaMetricsToSheet(){
     const trendPct=cache?.weekly?computeWeeklyTrendPct(cache.prices,cache.weekly.grid):null;
     const body={secret:ALERT_WRITE_SECRET,asset:sym,avgCost:avg(sym),weeklyTrendPct:trendPct==null?0:trendPct,suggestedDcaEUR:Math.round(dca.alloc[sym]||0)};
     try{
-      // text/plain avoids a CORS preflight (OPTIONS) that Apps Script Web Apps
-      // handle poorly — a known gotcha, not an oversight.
-      const res=await fetch(ALERTCONFIG_WRITE_URL,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(body)});
-      // Apps Script Web Apps can return an "opaque" response to fetch() depending on
-      // redirect/CORS behavior — if so we genuinely can't read status or body, and
-      // should say so honestly rather than assume success.
-      if(res.type==='opaque'){results.push(`${sym}: sent (response opaque — can't confirm from browser, check the table below)`);}
-      else{
-        const text=await res.text();
-        results.push(`${sym}: HTTP ${res.status} — ${text.slice(0,80)}`);
-      }
+      // mode:'no-cors' — Apps Script Web Apps internally redirect to a
+      // script.googleusercontent.com URL for the actual response, which often lacks
+      // the CORS headers fetch() needs, causing a hard "Failed to fetch" before we
+      // can read anything at all (confirmed: this exact symptom, identical on both
+      // coins). no-cors avoids that block entirely, at the cost of never being able
+      // to read the response — success can only be confirmed via the table below.
+      await fetch(ALERTCONFIG_WRITE_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain'},body:JSON.stringify(body)});
+      results.push(`${sym}: sent (no-cors — check table below to confirm)`);
     }catch(e){results.push(`${sym}: FAILED — ${e.message}`);console.error('Failed to sync DCA metrics for '+sym+':',e);}
   }
   if(statusEl)statusEl.textContent='Sync status: '+results.join(' | ');
