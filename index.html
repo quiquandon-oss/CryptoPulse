@@ -473,6 +473,16 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <p class="font-semibold text-sm" id="radarWindow">Analyzing…</p>
           <p class="text-xs text-mutet mt-0.5" id="radarReliability">—</p>
         </div>
+        <!-- Per-coin sentiment, pulled from the same combined Gemini+ETF index computed
+             on the Sentiment tab — filtered to just this coin's rows. Stays "No data yet"
+             until the Sentiment tab has loaded at least once this session. -->
+        <div class="bg-panel2 rounded-xl p-3 flex items-center justify-between gap-3">
+          <div>
+            <p class="text-xs text-mutet mb-1">Sentiment (<span id="radarSentimentCoin">—</span>)</p>
+            <p class="tnum font-bold text-lg" id="radarSentimentScore">—</p>
+          </div>
+          <span class="text-xs font-semibold px-3 py-1.5 rounded-full whitespace-nowrap" id="radarSentimentLabel">Open Sentiment tab first</span>
+        </div>
         <div class="bg-panel2 rounded-xl p-3">
           <div class="flex items-center justify-between mb-2 flex-wrap gap-1">
             <p class="text-xs text-mutet">Weekly heatmap — 90d hourly history · <b class="text-gray-300">darker green = historically cheaper</b></p>
@@ -515,12 +525,12 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       </div>
     </section>
 
-    <!-- =============== SENTIMENT ENGINE (contexte marché — Google Sheet / Gemini) =============== -->
+    <!-- =============== SENTIMENT ENGINE (market context — Google Sheet / Gemini) =============== -->
     <section id="v-sentiment" class="hidden space-y-4">
       <div class="rounded-2xl border border-line bg-panel p-5 space-y-4">
         <div>
           <h2 class="font-semibold mb-1">Sentiment Engine</h2>
-          <p class="text-xs text-mutet max-w-md">Agrège les notifications classées par Gemini (géopolitique, macro, régulation, on-chain, technique...) en un indice de sentiment pondéré par récence et impact. Données en direct depuis ta Google Sheet, dédupliquées et pondérées par ancienneté (demi-vie 6h).</p>
+          <p class="text-xs text-mutet max-w-md">Aggregates notifications classified by Gemini (geopolitics, macro, regulation, on-chain, technical...) into a sentiment index weighted by recency and impact. Live data from your Google Sheet, deduplicated and weighted by age (6h half-life).</p>
         </div>
 
         <!-- Jauge principale -->
@@ -532,7 +542,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
               <div id="sentBar" class="h-full rounded-full transition-all" style="width:0%;margin-left:50%;"></div>
             </div>
             <div class="flex justify-between text-[10px] text-mutet mt-1">
-              <span>-100 · Bear marqué</span><span>0 · Neutre</span><span>+100 · Bull marqué</span>
+              <span>-100 · Strong Bear</span><span>0 · Neutral</span><span>+100 · Strong Bull</span>
             </div>
           </div>
           <span id="sentLabel" class="text-xs font-semibold px-3 py-1.5 rounded-full whitespace-nowrap">—</span>
@@ -540,13 +550,13 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <p class="text-xs text-mutet" id="sentMeta">—</p>
       </div>
 
-      <!-- Répartition par catégorie -->
+      <!-- Breakdown by category -->
       <div class="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3" id="sentCategoryRow"></div>
 
-      <!-- Flux des événements récents -->
+      <!-- Recent high-impact events feed -->
       <div class="rounded-2xl border border-line bg-panel p-5">
         <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-semibold">Événements récents à fort impact</h3>
+          <h3 class="text-sm font-semibold">Recent High-Impact Events</h3>
           <span class="text-xs text-mutet" id="sentDedupNote">—</span>
         </div>
         <div id="sentFeedList" class="space-y-2"></div>
@@ -561,8 +571,6 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <span class="text-xs text-mutet" id="sosoNewsStatus">—</span>
         </div>
         <div id="sosoNewsList" class="space-y-2"></div>
-        <!-- Temporary debug output — remove once the integration is confirmed working -->
-        <p class="text-[10px] text-mutet mt-3 break-all" id="sosoNewsDebug"></p>
       </div>
 
       <!-- SoSoValue ETF net-inflow — aggregate daily flow across all US spot ETFs
@@ -570,8 +578,6 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <div class="rounded-2xl border border-line bg-panel p-5">
         <h3 class="text-sm font-semibold mb-3">Spot ETF Net Inflow (SoSoValue)</h3>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="sosoEtfList"></div>
-        <!-- Temporary debug output — remove once the integration is confirmed working -->
-        <p class="text-[10px] text-mutet mt-3 break-all" id="sosoEtfDebug"></p>
       </div>
     </section>
 
@@ -1098,9 +1104,32 @@ async function initRadarTab(){
   $('#radarPriceInput').value=state.radar.priceTarget||'';
   $('#radarWindowToggle').checked=!!state.radar.windowAlert;
   updateRadarNotifStatus();
+  renderRadarSentimentBadge();
   const myToken=++radarToken; // opening the tab also invalidates any in-flight fetch from before
   await ensureRadarData(state.radar.coin,myToken);
   await updateRadarLive(myToken);
+}
+// Per-coin sentiment badge — filters the shared combined Gemini+ETF rows (computed
+// on the Sentiment tab) down to just the currently-selected Radar coin, and shows
+// the same decay-weighted index/label used there. Neutral "no data yet" state until
+// the Sentiment tab has loaded at least once this session.
+function renderRadarSentimentBadge(){
+  const coinEl=$('#radarSentimentCoin'),scoreEl=$('#radarSentimentScore'),labelEl=$('#radarSentimentLabel');
+  if(!coinEl||!scoreEl||!labelEl)return;
+  const coin=state.radar.coin;
+  coinEl.textContent=coin;
+  if(!lastCombinedSentimentRows.length){
+    scoreEl.textContent='—';scoreEl.style.color='';
+    labelEl.textContent='Open Sentiment tab first';labelEl.style.color='#94A3B8';labelEl.style.backgroundColor='#94A3B826';
+    return;
+  }
+  const coinRows=lastCombinedSentimentRows.filter(r=>r.asset===coin);
+  const score=computeSentimentIndex(coinRows);
+  const{text,color,bg}=sentLabelFor(score);
+  scoreEl.textContent=score===null?'—':(score>=0?'+':'')+score.toFixed(0);
+  scoreEl.style.color=color;
+  labelEl.textContent=score===null?`No ${coin}-specific events yet`:text;
+  labelEl.style.color=color;labelEl.style.backgroundColor=bg;
 }
 // Fetches + analyses both lookbacks for a coin, reusing the cache if <1h old.
 // `token` pins this call to the coin selection that triggered it: if the user switches
@@ -1260,6 +1289,7 @@ function wireRadar(){
   $('#radarCoin').onchange=async e=>{
     state.radar.coin=e.target.value;LS.radar();paintRadarBadge();
     resetRadarDisplay(); // wipe the old coin's numbers immediately, don't leave them lingering while we fetch
+    renderRadarSentimentBadge();
     const myToken=++radarToken; // invalidates any still-pending fetch from the previously selected coin
     await ensureRadarData(state.radar.coin,myToken);
     await updateRadarLive(myToken);
@@ -1278,19 +1308,27 @@ function wireRadar(){
 }
 
 /* ════════════════════════════════════════════════════════════════
-   SENTIMENT ENGINE — agrège les notifications classées par Gemini
+   SENTIMENT ENGINE — aggregates notifications classified by Gemini
    (Timestamp, Source App, Category, Primary Asset, Sentiment Score,
-   Impact Weight) en un indice de sentiment pondéré par récence+impact.
-   Données réelles : export CSV de la Google Sheet "Real time Financial
-   Notification Tracker". Nécessite que la feuille soit partagée en
-   lecture publique (Anyone with the link → Viewer), sinon le fetch
-   reçoit une page de login Google au lieu du CSV.
+   Impact Weight) into a sentiment index weighted by recency+impact.
+   Real data: CSV export of the "Real time Financial Notification
+   Tracker" Google Sheet. Requires the sheet to be shared for public
+   reading (Anyone with the link → Viewer), otherwise the fetch gets
+   a Google login page instead of the CSV.
 ═══════════════════════════════════════════════════════════════════ */
 
-const SENT_HALF_LIFE_HOURS=6;     // un événement compte moitié moins toutes les 6h
-const SENT_DEDUP_WINDOW_MIN=15;   // événements quasi-identiques dans cette fenêtre = 1 seul comptage
+const SENT_HALF_LIFE_HOURS=6;     // an event counts half as much every 6h
+const SENT_DEDUP_WINDOW_MIN=15;   // near-identical events within this window = counted once
 const SENT_CATEGORIES=['Crypto','Equities','Macroeconomics','Geopolitics','Regulatory','On-Chain','Technical'];
 const SENTIMENT_CSV_URL='https://docs.google.com/spreadsheets/d/e/2PACX-1vSDmlI4MxH2USmwRF5DbR6qNI4W7Knp-6i1DucVTR-HGNBCri0W4l3hK2iTj7r8R551FHPeyRqwABUJ/pub?output=csv';
+
+// Shared state so other tabs can use the latest combined sentiment (Gemini + ETF)
+// without re-fetching: calcBottomScore() reads lastSentimentIndex as a contrarian
+// modifier, and the Radar tab reads lastCombinedSentimentRows for a per-coin view.
+// Both stay null/empty (neutral, no effect) until the Sentiment tab has loaded
+// at least once in the session.
+let lastSentimentIndex=null;
+let lastCombinedSentimentRows=[];
 
 // SoSoValue — free-tier API key. NOTE: this app is a static client-side file
 // with no backend, so this key is visible to anyone who views page source.
@@ -1313,9 +1351,8 @@ const SOSO_TRACKED_SYMS=['BTC','ETH','LINK','SOL','HYPE'];
 // HYPE has no spot-ETF aggregate history there yet, so it's simply skipped below.
 const SOSO_ETF_SYMS=['BTC','ETH','SOL','LINK'];
 
-// Parseur CSV minimal mais robuste : gère les champs entre guillemets
-// (virgules/retours à la ligne à l'intérieur), au cas où un texte de
-// notification en contiendrait.
+// Minimal but robust CSV parser: handles quoted fields (commas/newlines inside),
+// in case a notification's text ever contains them.
 function parseCsv(text){
   const rows=[];let row=[],field='',inQuotes=false;
   for(let i=0;i<text.length;i++){
@@ -1334,10 +1371,10 @@ function parseCsv(text){
   return rows.filter(r=>!(r.length===1&&r[0]===''));
 }
 
-// Convertit une cellule Timestamp en Date, quel que soit son format réel dans la
-// sheet (ISO 8601, epoch en secondes/millisecondes) — renvoie null si illisible
-// (ex. le template Make.com cassé observé sur une ligne existante), pour que la
-// ligne soit ignorée plutôt que de faire planter le calcul de décroissance.
+// Converts a Timestamp cell to a Date, whatever its actual format in the sheet
+// (ISO 8601, epoch in seconds/milliseconds) — returns null if unreadable
+// (e.g. the broken Make.com template seen on one existing row), so that
+// row gets skipped rather than breaking the decay calculation.
 function parseSentimentTimestamp(raw){
   if(!raw)return null;
   const t=raw.trim();
@@ -1349,17 +1386,17 @@ function parseSentimentTimestamp(raw){
   return isNaN(d)?null:d;
 }
 
-// Récupère et parse le CSV publié, en normalisant défensivement les valeurs
-// héritées qui ne respectent pas encore le nouveau prompt Gemini :
-// - sentiment ramené à {-1,0,1} par son signe, quelle que soit la valeur brute
-// - impact ramené à [0,10]
-// - impact=0 ("non pertinent") est filtré ici, avant l'agrégation
+// Fetches and parses the published CSV, defensively normalizing legacy values
+// that don't yet comply with the newer Gemini prompt:
+// - sentiment clamped to {-1,0,1} by its sign, whatever the raw value
+// - impact clamped to [0,10]
+// - impact=0 ("not relevant") is filtered out here, before aggregation
 async function fetchSentimentRows(){
   const res=await fetch(SENTIMENT_CSV_URL);
   if(!res.ok)throw new Error(`Réponse Google Sheets ${res.status}`);
   const text=await res.text();
   const table=parseCsv(text);
-  const dataRows=table.slice(1); // ignore la ligne d'en-tête
+  const dataRows=table.slice(1); // skip the header row
   const rows=[];
   dataRows.forEach(cols=>{
     if(cols.length<6)return;
@@ -1370,7 +1407,7 @@ async function fetchSentimentRows(){
     if(isNaN(sentimentNum)||isNaN(impactNum))return;
     const sentiment=Math.sign(sentimentNum);
     const impact=Math.max(0,Math.min(10,Math.round(impactNum)));
-    if(impact===0)return; // non pertinent — écarté avant agrégation
+    if(impact===0)return; // not relevant — discarded before aggregation
     rows.push({timestamp,source_app:(source_app||'').trim(),category:(category||'').trim(),asset:(asset||'').trim()||'None',sentiment,impact});
   });
   return rows;
@@ -1396,16 +1433,16 @@ function computeSentimentIndex(rows){
   let num=0,den=0;
   rows.forEach(r=>{const w=sentDecayWeight(r.timestamp)*r.impact;num+=r.sentiment*w;den+=w;});
   if(den===0)return null;
-  return (num/den)*100; // moyenne pondérée (-1..1) ramenée sur une échelle -100..+100
+  return (num/den)*100; // weighted average (-1..1) scaled to a -100..+100 range
 }
 
 function sentLabelFor(score){
-  if(score===null)return{text:'Pas de données',color:'#94A3B8',bg:'#94A3B826'};
-  if(score<=-50)return{text:'🔴 Bear marqué',color:'#F5606C',bg:'#F5606C26'};
-  if(score<=-15)return{text:'🟠 Prudence',color:'#F5B843',bg:'#F5B84326'};
-  if(score<15)return{text:'⚪ Neutre',color:'#94A3B8',bg:'#94A3B826'};
-  if(score<50)return{text:'🟢 Optimisme',color:'#3BF38B',bg:'#3BF38B26'};
-  return{text:'💎 Bull marqué',color:'#3BF38B',bg:'#3BF38B26'};
+  if(score===null)return{text:'No data',color:'#94A3B8',bg:'#94A3B826'};
+  if(score<=-50)return{text:'🔴 Strong Bear',color:'#F5606C',bg:'#F5606C26'};
+  if(score<=-15)return{text:'🟠 Caution',color:'#F5B843',bg:'#F5B84326'};
+  if(score<15)return{text:'⚪ Neutral',color:'#94A3B8',bg:'#94A3B826'};
+  if(score<50)return{text:'🟢 Optimism',color:'#3BF38B',bg:'#3BF38B26'};
+  return{text:'💎 Strong Bull',color:'#3BF38B',bg:'#3BF38B26'};
 }
 
 function computeSentimentCategoryBreakdown(rows){
@@ -1423,7 +1460,7 @@ function renderSentimentGauge(score,totalCount){
   bar.style.background=color;
   if(pct>=0){bar.style.marginLeft='50%';bar.style.width=(pct/2)+'%';}
   else{bar.style.marginLeft=(50+pct/2)+'%';bar.style.width=(-pct/2)+'%';}
-  $('#sentMeta').textContent=`Basé sur ${totalCount} événement(s) après déduplication, fenêtre glissante 24h.`;
+  $('#sentMeta').textContent=`Based on ${totalCount} event(s) after deduplication, 24h rolling window.`;
 }
 
 function renderSentimentCategories(breakdown){
@@ -1433,7 +1470,7 @@ function renderSentimentCategories(breakdown){
     return`<div class="bg-panel2 border border-line rounded-xl p-3">
       <p class="text-xs text-mutet mb-1">${b.category}</p>
       <p class="tnum font-bold text-lg" style="color:${color}">${scoreTxt}</p>
-      <p class="text-[10px] text-mutet mt-0.5">${b.count} événement(s)</p>
+      <p class="text-[10px] text-mutet mt-0.5">${b.count} event(s)</p>
     </div>`;
   }).join('');
 }
@@ -1445,7 +1482,7 @@ function renderSentimentFeed(rows){
     const color=isFlat?'#94A3B8':(isUp?'#3BF38B':'#F5606C');
     const arrow=isFlat?'●':(isUp?'▲':'▼');
     const ageMin=Math.round((Date.now()-r.timestamp)/60000);
-    const ageTxt=ageMin<60?`il y a ${ageMin} min`:`il y a ${(ageMin/60).toFixed(1)} h`;
+    const ageTxt=ageMin<60?`${ageMin}m ago`:`${(ageMin/60).toFixed(1)}h ago`;
     return`<div class="flex items-center gap-3 py-2 border-t border-line/50 text-sm">
       <span style="color:${color}" class="w-4 text-center shrink-0">${arrow}</span>
       <span class="text-xs bg-panel2 text-mutet rounded px-2 py-0.5 shrink-0">${r.category}</span>
@@ -1480,7 +1517,7 @@ function deriveEtfSentimentRows(etfResults){
   return rows;
 }
 async function initSentimentTab(){
-  $('#sentMeta').textContent='Chargement des données…';
+  $('#sentMeta').textContent='Loading data…';
 
   // ---- Gemini-scored notifications (Google Sheet) ----
   let geminiRows=[],geminiErr=null;
@@ -1488,7 +1525,7 @@ async function initSentimentTab(){
     const raw=await fetchSentimentRows();
     geminiRows=dedupeSentimentRows(raw);
   }catch(err){
-    console.error('Erreur de récupération de la Google Sheet Sentiment :',err);
+    console.error('Error fetching Google Sheet sentiment data:',err);
     geminiErr=err;
   }
 
@@ -1497,45 +1534,50 @@ async function initSentimentTab(){
   // synthetic rows into the combined index below.
   let etfSentimentRows=[];
   try{
-    const{results,debugText}=await fetchSosoEtfFlows();
+    const{results}=await fetchSosoEtfFlows();
     renderSosoEtfFlows(results);
-    const dbg=$('#sosoEtfDebug');if(dbg)dbg.textContent='Debug (temp): '+debugText;
     etfSentimentRows=deriveEtfSentimentRows(results);
   }catch(err){
-    console.error('Erreur de récupération ETF SoSoValue :',err);
-    $('#sosoEtfList').innerHTML='<p class="text-xs text-mutet col-span-4">Erreur : '+(err && err.message ? err.message : String(err))+'</p>';
+    console.error('Error fetching SoSoValue ETF data:',err);
+    $('#sosoEtfList').innerHTML='<p class="text-xs text-mutet col-span-4">Error: '+(err && err.message ? err.message : String(err))+'</p>';
   }
 
   // ---- Combine both sources into one gauge/category-breakdown/feed ----
   const combined=[...geminiRows,...etfSentimentRows];
+  // Share with other tabs: Bottom Signal (Dashboard) and per-coin badge (Radar).
+  // Updated here regardless of success/failure below, so a partial result (e.g.
+  // ETF-only) still propagates rather than leaving the other tabs stuck on "no data".
+  lastCombinedSentimentRows=combined;
+  lastSentimentIndex=combined.length?computeSentimentIndex(combined):null;
+  if($('#v-dashboard'))renderBottomSignal();
+  if($('#v-radar'))renderRadarSentimentBadge();
   if(combined.length){
-    $('#sentDedupNote').textContent=`${combined.length} événement(s) combinés (Gemini: ${geminiRows.length}, ETF: ${etfSentimentRows.length})`;
+    $('#sentDedupNote').textContent=`${combined.length} combined event(s) (Gemini: ${geminiRows.length}, ETF: ${etfSentimentRows.length})`;
     renderSentimentGauge(computeSentimentIndex(combined),combined.length);
     renderSentimentCategories(computeSentimentCategoryBreakdown(combined));
     renderSentimentFeed(combined);
     $('#sentMeta').textContent=geminiErr
-      ?'Sheet Gemini indisponible pour l’instant — indice basé uniquement sur les flux ETF ci-dessous.'
-      :'Combine les notifications Gemini et les flux ETF SoSoValue.';
+      ?'Gemini sheet unavailable right now — index based on ETF flows only, below.'
+      :'Combines Gemini-scored notifications with SoSoValue ETF flows.';
   }else{
     renderSentimentGauge(null,0);
     $('#sentCategoryRow').innerHTML='';
     $('#sentFeedList').innerHTML='';
     $('#sentDedupNote').textContent='—';
-    // Affiche l'erreur technique brute à l'écran (pas un message générique) pour pouvoir
-    // diagnostiquer directement depuis le téléphone, sans DevTools ni test en navigation privée.
-    $('#sentMeta').textContent='Erreur technique : '+(geminiErr && geminiErr.message ? geminiErr.message : 'aucune donnée disponible (Gemini et ETF indisponibles)');
+    // Shows the raw technical error on screen (not a generic message) so it can be
+    // diagnosed directly from the phone, without DevTools or private-browsing tests.
+    $('#sentMeta').textContent='Technical error: '+(geminiErr && geminiErr.message ? geminiErr.message : 'no data available (Gemini and ETF both unavailable)');
   }
 
   // ---- News feed: completely separate, no impact on the aggregation above ----
   try{
-    const{raw,filtered,debugText}=await fetchSosoNews();
+    const{raw,filtered}=await fetchSosoNews();
     renderSosoNews(filtered);
     $('#sosoNewsStatus').textContent=`${filtered.length}/${raw.length} matched`;
-    const dbg=$('#sosoNewsDebug');if(dbg)dbg.textContent='Debug (temp): '+debugText;
   }catch(err){
-    console.error('Erreur de récupération SoSoValue :',err);
+    console.error('Error fetching SoSoValue news:',err);
     $('#sosoNewsList').innerHTML='';
-    $('#sosoNewsStatus').textContent='Erreur : '+(err && err.message ? err.message : String(err));
+    $('#sosoNewsStatus').textContent='Error: '+(err && err.message ? err.message : String(err));
   }
 }
 // Fetches SoSoValue's news feed (all currencies, pre-filtered by category server-side),
@@ -2228,6 +2270,19 @@ function calcBottomScore(){
   if(hh){const ps=Object.values(hh).slice(-30);const lo=Math.min(...ps);if(btcP>lo*1.01&&btcP<lo*1.12)tPts=Math.min(20,tPts+5);}
   total+=tPts;
   sigs.push({name:'30d Trend · BTC',val:(t30>=0?'+':'')+t30.toFixed(0)+'%',pts:tPts,max:20,icon:t30<-20?'📉':t30<0?'↘':'📈'});
+  // Sentiment Engine modifier (Gemini notifications + SoSoValue ETF flows), contrarian:
+  // extreme bearish sentiment adds points (fear/capitulation often precedes bottoms),
+  // extreme bullish sentiment subtracts points (euphoria argues against a genuine bottom).
+  // Bounded to ±10 so it nudges the score rather than dominating it, and stays neutral
+  // (0 effect) until the Sentiment tab has been opened at least once this session.
+  let sentPts=0,sentVal='N/A';
+  if(lastSentimentIndex!=null){
+    sentPts=Math.max(-10,Math.min(10,Math.round(-lastSentimentIndex/10)));
+    sentVal=(lastSentimentIndex>=0?'+':'')+lastSentimentIndex.toFixed(0);
+  }
+  total+=sentPts;
+  sigs.push({name:'Sentiment (Gemini+ETF)',val:sentVal,pts:sentPts,max:10,icon:sentPts>=5?'🔥':sentPts>0?'🙂':sentPts===0?'➖':'⚠️'});
+  total=Math.max(0,Math.min(100,total)); // keep the displayed bar/score within 0-100 after the modifier
   return{score:total,sigs,falling:t30<-10,fgLive:fgValue!=null};
 }
 function renderProba(){
