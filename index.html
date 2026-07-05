@@ -438,6 +438,40 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         </div>
       </div>
       <div id="capCoins" class="space-y-3"></div>
+
+      <!-- ═══ Dry Powder Planner ═══
+           Reuses the app's existing cost-basis math (avg/qtyOf/pxNow) rather than
+           inventing a new model — this just re-runs those same functions with a
+           hypothetical extra purchase folded in. No statistical projections here
+           (deliberately) — just honest arithmetic on real portfolio data. -->
+      <div class="rounded-2xl border border-line bg-panel p-5 space-y-3">
+        <div>
+          <h2 class="font-semibold">Dry Powder Planner</h2>
+          <p class="text-xs text-mutet mt-1">See how deploying more capital right now would shift your blended average cost for a coin.</p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs text-mutet mb-1 block">Asset</label>
+            <select id="dryAsset" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2.5 text-sm"></select>
+          </div>
+          <div>
+            <label class="text-xs text-mutet mb-1 block">Amount to deploy</label>
+            <input id="dryAmount" type="number" min="0" step="10" value="500" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2.5 text-sm tnum" />
+          </div>
+        </div>
+        <input id="drySlider" type="range" min="0" max="2000" step="10" value="500" class="w-full accent-accent" />
+        <div class="grid grid-cols-2 gap-3">
+          <div class="bg-panel2 rounded-xl p-3">
+            <p class="text-xs text-mutet mb-1">Avg Cost — Before → After</p>
+            <p class="tnum font-semibold text-sm" id="dryAvgBeforeAfter">—</p>
+          </div>
+          <div class="bg-panel2 rounded-xl p-3">
+            <p class="text-xs text-mutet mb-1">Total Invested — Before → After</p>
+            <p class="tnum font-semibold text-sm" id="dryInvestedBeforeAfter">—</p>
+          </div>
+        </div>
+        <p class="text-xs text-mutet" id="dryNote">—</p>
+      </div>
     </section>
 
     <!-- =============== RADAR (buy-window analysis, any tracked coin) =============== -->
@@ -576,7 +610,10 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <!-- SoSoValue ETF net-inflow — aggregate daily flow across all US spot ETFs
            per coin. HYPE has no ETF aggregate history on this endpoint yet. -->
       <div class="rounded-2xl border border-line bg-panel p-5">
-        <h3 class="text-sm font-semibold mb-3">Spot ETF Net Inflow (SoSoValue)</h3>
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-semibold">Spot ETF Net Inflow (SoSoValue)</h3>
+          <span class="text-xs text-mutet" id="sosoEtfCacheNote">—</span>
+        </div>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="sosoEtfList"></div>
       </div>
     </section>
@@ -1534,9 +1571,11 @@ async function initSentimentTab(){
   // synthetic rows into the combined index below.
   let etfSentimentRows=[];
   try{
-    const{results}=await fetchSosoEtfFlows();
+    const{results,fromCache,cacheAgeMin,staleWarning}=await fetchSosoEtfFlows();
     renderSosoEtfFlows(results);
     etfSentimentRows=deriveEtfSentimentRows(results);
+    const etfHeader=$('#sosoEtfCacheNote');
+    if(etfHeader)etfHeader.textContent=fromCache?(staleWarning?`Rate-limited — showing cached data (${cacheAgeMin}m old)`:`Cached (${cacheAgeMin}m old)`):'Live';
   }catch(err){
     console.error('Error fetching SoSoValue ETF data:',err);
     $('#sosoEtfList').innerHTML='<p class="text-xs text-mutet col-span-4">Error: '+(err && err.message ? err.message : String(err))+'</p>';
@@ -1571,9 +1610,11 @@ async function initSentimentTab(){
 
   // ---- News feed: completely separate, no impact on the aggregation above ----
   try{
-    const{raw,filtered}=await fetchSosoNews();
+    const{raw,filtered,fromCache,cacheAgeMin,staleWarning}=await fetchSosoNews();
     renderSosoNews(filtered);
-    $('#sosoNewsStatus').textContent=`${filtered.length}/${raw.length} matched`;
+    $('#sosoNewsStatus').textContent=fromCache
+      ?(staleWarning?`Rate-limited — cached (${cacheAgeMin}m old), ${filtered.length}/${raw.length} matched`:`Cached (${cacheAgeMin}m old), ${filtered.length}/${raw.length} matched`)
+      :`${filtered.length}/${raw.length} matched`;
   }catch(err){
     console.error('Error fetching SoSoValue news:',err);
     $('#sosoNewsList').innerHTML='';
@@ -1600,25 +1641,41 @@ function sosoMatchedSyms(item){
   if(tagged.length)return tagged;
   return SOSO_TRACKED_SYMS.filter(sym=>sosoTextMentionsSym(item,sym));
 }
+// ---- Caching layer for SoSoValue calls ----
+// Root cause of the 429 bug: every Sentiment tab load fires 5 SoSoValue calls
+// (1 news + 4 ETF symbols) with zero caching — a handful of tab reloads within
+// a minute blows through the free tier's 20 calls/min limit. Fix: cache results
+// for 10 minutes, and on ANY fetch failure (429 or otherwise), fall back to
+// whatever's cached — even if stale — rather than showing an error screen. Only
+// show a real error if there's truly no cached data at all to fall back to.
+const SOSO_CACHE_MS=10*60000;
+function sosoCacheGet(key){
+  try{const raw=localStorage.getItem(key);return raw?JSON.parse(raw):null;}catch(e){return null;}
+}
+function sosoCacheSet(key,data){
+  try{localStorage.setItem(key,JSON.stringify({data,fetchedAt:Date.now()}));}catch(e){}
+}
 async function fetchSosoNews(){
-  const res=await fetch(SOSO_NEWS_URL,{headers:{'x-soso-api-key':SOSO_API_KEY}});
-  const text=await res.text(); // read as text first so we can show it raw even if it's not valid JSON or not the shape we expect
-  if(!res.ok)throw new Error('SoSoValue API responded '+res.status+' — '+text.slice(0,300));
-  let json;
-  try{json=JSON.parse(text);}catch(e){throw new Error('Response was not valid JSON: '+text.slice(0,300));}
-  const raw=json.data?.list||[]; // confirmed from live response: wrapped in {code, message, data:{list}}
-  const filtered=raw.filter(item=>sosoMatchedSyms(item).length>0);
-  // Targeted diagnostic: show the actual field names on the first item, plus whatever
-  // its currency field (under any of the candidate names) actually contains — much
-  // more useful than another round of guessing at raw-text truncation points.
-  let debugText='(no items returned)';
-  if(raw.length){
-    const first=raw[0];
-    const keys=Object.keys(first).join(', ');
-    const curField=JSON.stringify(sosoCurrencyFieldOf(first));
-    debugText=`Fields on item[0]: ${keys}\nCurrency field found: ${curField}`;
+  const cacheKey='cp2_soso_news';
+  const cached=sosoCacheGet(cacheKey);
+  if(cached&&Date.now()-cached.fetchedAt<SOSO_CACHE_MS){
+    return{...cached.data,fromCache:true,cacheAgeMin:Math.round((Date.now()-cached.fetchedAt)/60000)};
   }
-  return{raw,filtered,debugText};
+  try{
+    const res=await fetch(SOSO_NEWS_URL,{headers:{'x-soso-api-key':SOSO_API_KEY}});
+    const text=await res.text();
+    if(!res.ok)throw new Error('SoSoValue API responded '+res.status+' — '+text.slice(0,300));
+    let json;
+    try{json=JSON.parse(text);}catch(e){throw new Error('Response was not valid JSON: '+text.slice(0,300));}
+    const raw=json.data?.list||[]; // confirmed from live response: wrapped in {code, message, data:{list}}
+    const filtered=raw.filter(item=>sosoMatchedSyms(item).length>0);
+    const result={raw,filtered};
+    sosoCacheSet(cacheKey,result);
+    return{...result,fromCache:false};
+  }catch(err){
+    if(cached)return{...cached.data,fromCache:true,cacheAgeMin:Math.round((Date.now()-cached.fetchedAt)/60000),staleWarning:err.message};
+    throw err; // no cache to fall back to — this is the only case that should show an error
+  }
 }
 function renderSosoNews(items){
   const host=$('#sosoNewsList');if(!host)return;
@@ -1645,16 +1702,23 @@ function renderSosoNews(items){
 // GET /etfs/summary-history?symbol=X&country_code=US — confirmed response is a
 // plain array (reverse-chronological), no envelope. HYPE isn't in the supported
 // symbol enum for this endpoint, so it's simply not fetched (see SOSO_ETF_SYMS).
+// Same caching/fallback strategy as fetchSosoNews above, one cache entry for all
+// 4 symbols together (simpler than per-symbol caching, and they're always fetched
+// as a set anyway).
 async function fetchSosoEtfFlows(){
+  const cacheKey='cp2_soso_etf';
+  const cached=sosoCacheGet(cacheKey);
+  if(cached&&Date.now()-cached.fetchedAt<SOSO_CACHE_MS){
+    return{results:cached.data,fromCache:true,cacheAgeMin:Math.round((Date.now()-cached.fetchedAt)/60000)};
+  }
   const results={};
-  let firstDebugText=null; // capture raw text from the first symbol only, to keep the debug panel short
+  let hadRealError=false,lastErrMsg='';
   for(const sym of SOSO_ETF_SYMS){
     try{
       const url=`${SOSO_BASE}/etfs/summary-history?symbol=${sym}&country_code=US&limit=30`;
       const res=await fetch(url,{headers:{'x-soso-api-key':SOSO_API_KEY}});
       const text=await res.text();
-      if(firstDebugText===null)firstDebugText=`[${sym}] HTTP ${res.status}: `+text.slice(0,900);
-      if(!res.ok){results[sym]={error:'HTTP '+res.status};continue;}
+      if(!res.ok){results[sym]={error:'HTTP '+res.status};hadRealError=true;lastErrMsg='HTTP '+res.status;continue;}
       let json;
       try{json=JSON.parse(text);}catch(e){results[sym]={error:'not valid JSON'};continue;}
       const rows=json.data; // confirmed wrapped: {code, message, data:[...]}, same pattern as /news
@@ -1670,9 +1734,16 @@ async function fetchSosoEtfFlows(){
       const last7=dates.slice(0,7);
       const weekSum=last7.reduce((a,d)=>a+byDate[d],0);
       results[sym]={date:latestDate,latest,weekSum,days:last7.length};
-    }catch(e){results[sym]={error:e.message};if(firstDebugText===null)firstDebugText='[fetch threw] '+e.message;}
+    }catch(e){results[sym]={error:e.message};hadRealError=true;lastErrMsg=e.message;}
   }
-  return{results,debugText:firstDebugText};
+  // If every symbol failed (e.g. rate-limited) and we have a cache, fall back to it
+  // wholesale rather than showing 4 error cards.
+  const allFailed=SOSO_ETF_SYMS.every(sym=>results[sym]&&results[sym].error);
+  if(allFailed&&hadRealError&&cached){
+    return{results:cached.data,fromCache:true,cacheAgeMin:Math.round((Date.now()-cached.fetchedAt)/60000),staleWarning:lastErrMsg};
+  }
+  sosoCacheSet(cacheKey,results);
+  return{results,fromCache:false};
 }
 function fmtUsdCompact(n){
   const sign=n<0?'-':'+';
@@ -1856,6 +1927,42 @@ function totalInvested(a){
   return state.txs.filter(t=>t.asset===a&&t.type==='buy')
     .reduce((s,t)=>{const p=state.ccy==='USD'?t.usd:t.eur;return s+t.qty*p;},0);
 }
+// ---- Dry Powder Planner ----
+// Deliberately reuses the app's existing, already-correct cost-basis functions
+// (avg/qtyOf/pxNow) rather than introducing a new calculation — this is honest
+// arithmetic on real data, not a statistical model.
+function populateDryAssetSelect(){
+  const sel=$('#dryAsset');if(!sel||sel.dataset.filled)return;
+  const list=syms().filter(a=>qtyOf(a)>1e-9);
+  if(!list.length){sel.innerHTML='<option value="">No holdings yet</option>';return;}
+  sel.innerHTML=list.map(a=>`<option value="${a}">${a}</option>`).join('');
+  sel.dataset.filled='1';
+}
+function renderDryPowder(){
+  const sel=$('#dryAsset'),amountEl=$('#dryAmount');
+  if(!sel||!sel.value||!amountEl)return;
+  const asset=sel.value;
+  const amount=Math.max(0,+amountEl.value||0);
+  const q=qtyOf(asset),oldAvg=avg(asset),price=pxNow(asset);
+  const oldCost=q*oldAvg;
+  const addQty=price>0?amount/price:0;
+  const newQty=q+addQty,newCost=oldCost+amount;
+  const newAvg=newQty>0?newCost/newQty:0;
+  $('#dryAvgBeforeAfter').textContent=`${money(oldAvg,pdec(oldAvg))} → ${money(newAvg,pdec(newAvg))}`;
+  $('#dryInvestedBeforeAfter').textContent=`${money(oldCost)} → ${money(newCost)}`;
+  const shiftPct=oldAvg>0?((newAvg-oldAvg)/oldAvg*100):0;
+  $('#dryNote').textContent=amount>0
+    ?`Deploying ${money(amount)} into ${asset} at the current price (${money(price,pdec(price))}) moves your blended average cost by ${shiftPct>=0?'+':''}${shiftPct.toFixed(2)}%.`
+    :'Enter an amount to see the effect on your blended average cost.';
+}
+function wireDryPowder(){
+  const sel=$('#dryAsset'),amountEl=$('#dryAmount'),sliderEl=$('#drySlider');
+  if(!sel||sel.dataset.wired)return;
+  sel.dataset.wired='1';
+  sel.onchange=renderDryPowder;
+  amountEl.oninput=()=>{sliderEl.value=Math.min(+sliderEl.max,+amountEl.value||0);renderDryPowder();};
+  sliderEl.oninput=()=>{amountEl.value=sliderEl.value;renderDryPowder();};
+}
 function renderCapital(){
   const coins=syms().filter(a=>qtyOf(a)>1e-12);
   let grandInv=0,grandVal=0;
@@ -1898,6 +2005,10 @@ function renderCapital(){
     </div>`;
     host.appendChild(el);
   });
+
+  populateDryAssetSelect();
+  wireDryPowder();
+  renderDryPowder();
 }
 
 /* ════════════════════════════════════════════════════════════════
