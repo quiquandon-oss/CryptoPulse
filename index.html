@@ -1133,7 +1133,8 @@ async function getFx(force){
 }
 async function getPrices(){const ids=syms().map(s=>META[s]?.id).filter(Boolean);if(!ids.length)return;
   try{const r=await fetch(`${CG}/simple/price?ids=${ids.join(',')}&vs_currencies=usd,eur&include_24hr_change=true`);const j=await r.json();
-    syms().forEach(s=>{const id=META[s]?.id;if(j[id])state.prices[s]={usd:j[id].usd,eur:j[id].eur,chg:j[id].usd_24h_change};});
+    const fetchedAt=Date.now();
+    syms().forEach(s=>{const id=META[s]?.id;if(j[id])state.prices[s]={usd:j[id].usd,eur:j[id].eur,chg:j[id].usd_24h_change,fetchedAt};});
     // push live price into today's slot of PRICE_HISTORY (in memory) → RSI / trend / sparklines are live
     const _td=NOW();
     syms().forEach(s=>{const pv=state.prices[s]?.usd;if(pv&&PRICE_HISTORY[s])PRICE_HISTORY[s][_td]=pv;});
@@ -2619,10 +2620,20 @@ async function sendTelegramPriceAlert(asset,hit){
     }
   }
 }
+const PRICE_FRESHNESS_MS=5*60000; // 5 min — a suspended/backgrounded tab waking up with a frozen state.prices
+// value should never be treated as "live" just because the variable still holds a number.
+function isPriceFresh(a){
+  const fetchedAt=state.prices[a]?.fetchedAt;
+  return fetchedAt&&(Date.now()-fetchedAt)<PRICE_FRESHNESS_MS;
+}
 function renderAlertsBanner(){
   const host=$('#alertsBanner');if(!host)return;
   const hits=syms().filter(a=>qtyOf(a)>1e-12).map(a=>({a,hit:checkAlert(a)})).filter(o=>o.hit);
-  hits.forEach(o=>sendTelegramPriceAlert(o.a,o.hit)); // fire-and-forget; cooldown handles repeat suppression
+  // Only fire Telegram for hits backed by a genuinely fresh price — this is the actual
+  // fix for the stale-tab bug: a suspended tab waking up hours later still has real
+  // numbers sitting in state.prices, just old ones, and this catches exactly that case
+  // regardless of how many tabs are open or how long one's been backgrounded.
+  hits.forEach(o=>{if(isPriceFresh(o.a))sendTelegramPriceAlert(o.a,o.hit);});
   if(!hits.length){host.classList.add('hidden');return;}
   host.classList.remove('hidden');
   const m=a=>(META[a]||{name:a}).name;
