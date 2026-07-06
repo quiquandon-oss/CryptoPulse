@@ -868,7 +868,7 @@ function renderCards(){const host=$('#holdingCards');host.innerHTML='';
   const ordered=syms().map(a=>({a,v:statOf(a).val})).filter(o=>qtyOf(o.a)>1e-12).sort((x,y)=>y.v-x.v).map(o=>o.a);
   ordered.forEach(a=>{const s=statOf(a),m=META[a]||{name:a,c:'#888'},up=s.chg>=0,pup=s.pnl>=0,d=pdec(s.p);
     const v=coinVerdict(a),al=state.alerts[a]||{},hit=checkAlert(a);
-    const rsi=calcRSI(a,14),rsiCol=rsi<30?'#3BF38B':rsi>70?'#FF5C72':'#94A3B8'; // same read as elsewhere: <30 oversold (bullish tint), >70 overbought (bearish tint)
+    const rsi=calcRSI(a,14),rsiCol=rsi<30?'#3BF38B':rsi>70?'#FF5C72':'#F5B843'; // <30 oversold (green), >70 overbought (red), else neutral (orange)
     const el=document.createElement('div');
     el.className='rounded-2xl border p-4 '+(hit?'border-neon bg-neon/5':'border-line bg-panel');
     el.innerHTML=`<div class="flex items-center gap-2.5 mb-3">
