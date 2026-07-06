@@ -1116,7 +1116,21 @@ function setCcy(c){state.ccy=c;LS.ccy();
   render();}
 
 /* ---- live refresh ---- */
-async function getFx(){try{const r=await fetch(`${FXAPI}/latest?from=EUR&to=USD`);const j=await r.json();state.fx=j.rates.USD;}catch(e){}}
+const FX_REFRESH_MS=12*60*60000; // 12h → ~1-2x/day. FX doesn't need crypto-price-level freshness.
+async function getFx(){
+  const lastFetch=+(localStorage.getItem('cp2_fx_fetched_at')||0);
+  const cachedRate=+(localStorage.getItem('cp2_fx_rate')||0);
+  if(cachedRate&&Date.now()-lastFetch<FX_REFRESH_MS){state.fx=cachedRate;return;} // still fresh — reuse cache, no network call
+  try{
+    const r=await fetch(`${FXAPI}/latest?from=EUR&to=USD`);
+    const j=await r.json();
+    state.fx=j.rates.USD;
+    localStorage.setItem('cp2_fx_rate',String(state.fx));
+    localStorage.setItem('cp2_fx_fetched_at',String(Date.now()));
+  }catch(e){
+    if(cachedRate)state.fx=cachedRate; // fall back to last known good rate rather than leaving it unset
+  }
+}
 async function getPrices(){const ids=syms().map(s=>META[s]?.id).filter(Boolean);if(!ids.length)return;
   try{const r=await fetch(`${CG}/simple/price?ids=${ids.join(',')}&vs_currencies=usd,eur&include_24hr_change=true`);const j=await r.json();
     syms().forEach(s=>{const id=META[s]?.id;if(j[id])state.prices[s]={usd:j[id].usd,eur:j[id].eur,chg:j[id].usd_24h_change};});
