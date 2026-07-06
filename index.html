@@ -385,7 +385,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             <h3 class="font-semibold text-sm">Break-even Probability</h3>
             <p class="text-xs text-mutet mt-0.5">Log-normal model · live volatility where ≥30d history exists (● else ○ = 2019–2024 fallback) · live price</p>
           </div>
-          <span class="text-[10px] text-mutet bg-panel2 px-2 py-1 rounded-lg">6M · 2Y · 5Y</span>
+          <span class="text-[10px] text-mutet bg-panel2 px-2 py-1 rounded-lg">6M · 9M · 1Y · 2Y · 5Y</span>
         </div>
         <div id="probaTable"></div>
       </div>
@@ -2688,22 +2688,22 @@ function renderProba(){
   const host=$('#probaTable');if(!host)return;
   const coins=syms().filter(a=>qtyOf(a)>1e-12);
   const pCell=function(v){const pct=Math.round(v*100);const col=pct>=60?'#3BF38B':pct>=30?'#F5B843':'#FF5C72';return '<span class="font-bold tnum text-xs" style="color:'+col+'">'+pct+'%</span>';};
-  let h='<div class="grid text-[10px] text-mutet mb-1" style="grid-template-columns:2fr 1fr 1fr 1fr"><span>Coin → Break-even</span><span class="text-center">6M</span><span class="text-center">2Y</span><span class="text-center">5Y</span></div>';
+  let h='<div class="grid text-[10px] text-mutet mb-1" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr"><span>Coin → Break-even</span><span class="text-center">6M</span><span class="text-center">9M</span><span class="text-center">1Y</span><span class="text-center">2Y</span><span class="text-center">5Y</span></div>';
   coins.forEach(function(a){
     const beq=avg(a);if(!beq)return;
-    const ps=[priceProba(a,beq,0.5),priceProba(a,beq,2),priceProba(a,beq,5)];
+    const ps=[priceProba(a,beq,0.5),priceProba(a,beq,0.75),priceProba(a,beq,1),priceProba(a,beq,2),priceProba(a,beq,5)];
     const m=META[a]||{name:a,c:'#888'};
     const{isLive}=sigmaFor(a);
     const volBadge=isLive?'<span class="text-up" title="Volatility from live price history">●</span>':'<span class="text-mutet" title="Volatility from 2019-2024 calibration (not enough live history yet)">○</span>';
-    h+='<div class="grid items-center py-1.5 border-t border-line/40" style="grid-template-columns:2fr 1fr 1fr 1fr"><div class="flex items-center gap-1.5"><span class="h-5 w-5 shrink-0 rounded-full text-[9px] font-bold flex items-center justify-center" style="background:'+m.c+'22;color:'+m.c+'">'+a.slice(0,3)+'</span><span class="text-mutet text-[10px]">'+money(beq,pdec(beq))+'</span>'+volBadge+'</div><span class="text-center">'+pCell(ps[0])+'</span><span class="text-center">'+pCell(ps[1])+'</span><span class="text-center">'+pCell(ps[2])+'</span></div>';
+    h+='<div class="grid items-center py-1.5 border-t border-line/40" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr"><div class="flex items-center gap-1.5"><span class="h-5 w-5 shrink-0 rounded-full text-[9px] font-bold flex items-center justify-center" style="background:'+m.c+'22;color:'+m.c+'">'+a.slice(0,3)+'</span><span class="text-mutet text-[10px]">'+money(beq,pdec(beq))+'</span>'+volBadge+'</div><span class="text-center">'+pCell(ps[0])+'</span><span class="text-center">'+pCell(ps[1])+'</span><span class="text-center">'+pCell(ps[2])+'</span><span class="text-center">'+pCell(ps[3])+'</span><span class="text-center">'+pCell(ps[4])+'</span></div>';
   });
   const t=totals();
   if(t.val>0&&t.cost>t.val){
     const ratio=t.cost/t.val;
     const portMu=coins.reduce(function(s,a){return s+(COIN_PARAMS[a]?.mu||0.4)*((statOf(a).val||0)/t.val);},0);
     const portSig=coins.reduce(function(s,a){return s+sigmaFor(a).sigma*((statOf(a).val||0)/t.val);},0);
-    const pp=[0.5,2,5].map(function(T){const d2=(Math.log(1/ratio)+(portMu-0.5*portSig*portSig)*T)/(portSig*Math.sqrt(T));return Math.min(0.99,Math.max(0.01,normCDF(d2)));});
-    h+='<div class="grid items-center py-1.5 border-t-2 border-line mt-1 font-semibold" style="grid-template-columns:2fr 1fr 1fr 1fr"><span class="text-xs">Portfolio</span><span class="text-center">'+pCell(pp[0])+'</span><span class="text-center">'+pCell(pp[1])+'</span><span class="text-center">'+pCell(pp[2])+'</span></div>';
+    const pp=[0.5,0.75,1,2,5].map(function(T){const d2=(Math.log(1/ratio)+(portMu-0.5*portSig*portSig)*T)/(portSig*Math.sqrt(T));return Math.min(0.99,Math.max(0.01,normCDF(d2)));});
+    h+='<div class="grid items-center py-1.5 border-t-2 border-line mt-1 font-semibold" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr"><span class="text-xs">Portfolio</span><span class="text-center">'+pCell(pp[0])+'</span><span class="text-center">'+pCell(pp[1])+'</span><span class="text-center">'+pCell(pp[2])+'</span><span class="text-center">'+pCell(pp[3])+'</span><span class="text-center">'+pCell(pp[4])+'</span></div>';
   }
   host.innerHTML=h;
 }
