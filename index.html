@@ -1116,11 +1116,11 @@ function setCcy(c){state.ccy=c;LS.ccy();
   render();}
 
 /* ---- live refresh ---- */
-const FX_REFRESH_MS=12*60*60000; // 12h → ~1-2x/day. FX doesn't need crypto-price-level freshness.
-async function getFx(){
+const FX_REFRESH_MS=12*60*60000; // 12h → ~1-2x/day for the AUTOMATIC cycle. Manual refresh (force=true) always bypasses this.
+async function getFx(force){
   const lastFetch=+(localStorage.getItem('cp2_fx_fetched_at')||0);
   const cachedRate=+(localStorage.getItem('cp2_fx_rate')||0);
-  if(cachedRate&&Date.now()-lastFetch<FX_REFRESH_MS){state.fx=cachedRate;return;} // still fresh — reuse cache, no network call
+  if(!force&&cachedRate&&Date.now()-lastFetch<FX_REFRESH_MS){state.fx=cachedRate;return;} // still fresh — reuse cache, no network call
   try{
     const r=await fetch(`${FXAPI}/latest?from=EUR&to=USD`);
     const j=await r.json();
@@ -1141,7 +1141,7 @@ async function getPrices(){const ids=syms().map(s=>META[s]?.id).filter(Boolean);
     setStatus(true);}catch(e){setStatus(false);}}
 function setStatus(ok){$('#statusLine').textContent=ok?'● live prices':'● embedded snapshot';$('#statusLine').style.color=ok?'#3BF38B':'#7A8499';}
 function spin(on){const ic=$('#refreshIcon');ic.style.transition='transform .8s';ic.style.transform=on?'rotate(360deg)':'';if(!on)setTimeout(()=>{ic.style.transition='none';ic.style.transform='';},800);}
-async function refresh(){spin(true);await Promise.all([getFx(),getPrices()]);render();spin(false);}
+async function refresh(){spin(true);await Promise.all([getFx(true),getPrices()]);render();spin(false);}
 
 /* ════════════════════════════════════════════════════════════════
    RADAR — buy-window analysis, works for any coin in META
