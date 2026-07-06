@@ -868,6 +868,7 @@ function renderCards(){const host=$('#holdingCards');host.innerHTML='';
   const ordered=syms().map(a=>({a,v:statOf(a).val})).filter(o=>qtyOf(o.a)>1e-12).sort((x,y)=>y.v-x.v).map(o=>o.a);
   ordered.forEach(a=>{const s=statOf(a),m=META[a]||{name:a,c:'#888'},up=s.chg>=0,pup=s.pnl>=0,d=pdec(s.p);
     const v=coinVerdict(a),al=state.alerts[a]||{},hit=checkAlert(a);
+    const rsi=calcRSI(a,14),rsiCol=rsi<30?'#3BF38B':rsi>70?'#FF5C72':'#94A3B8'; // same read as elsewhere: <30 oversold (bullish tint), >70 overbought (bearish tint)
     const el=document.createElement('div');
     el.className='rounded-2xl border p-4 '+(hit?'border-neon bg-neon/5':'border-line bg-panel');
     el.innerHTML=`<div class="flex items-center gap-2.5 mb-3">
@@ -880,6 +881,9 @@ function renderCards(){const host=$('#holdingCards');host.innerHTML='';
         <span class="text-[10px] tnum ${(sparkSeries(a).data.at(-1)>=sparkSeries(a).data[0])?'text-up':'text-down'}">30D ${(()=>{const sd=sparkSeries(a).data;const ch=sd.length?(sd.at(-1)-sd[0])/sd[0]*100:0;return (ch>=0?'+':'')+ch.toFixed(1)+'%';})()}</span>
       </div>
       <div class="h-[96px] mb-1"><canvas id="sp_${a}"></canvas></div>
+      <div class="flex items-center justify-end -mt-0.5 mb-1">
+        <span class="text-[10px] tnum font-semibold" style="color:${rsiCol}" title="14-day RSI — below 30 is typically read as oversold, above 70 as overbought">RSI 14d: ${rsi.toFixed(0)}</span>
+      </div>
       <div class="grid grid-cols-2 gap-y-1 text-xs pt-2 border-t border-line">
         <span class="text-mutet">My Holdings</span><span class="text-right tnum">${qf(s.q)}</span>
         <span class="text-mutet">Value</span><span class="text-right tnum font-medium">${money(s.val)}</span>
@@ -898,10 +902,10 @@ function renderCards(){const host=$('#holdingCards');host.innerHTML='';
       <details class="mt-2 pt-2 border-t border-line/60">
         <summary class="text-[10px] text-mutet uppercase tracking-wide cursor-pointer select-none">🔔 Price alert${hit?' · active':''}</summary>
         <div class="grid grid-cols-2 gap-2 mt-1.5">
-          <div><label class="text-[9px] text-mutet">Alert if below</label>
-            <input type="number" inputmode="decimal" class="alertInput w-full bg-panel2 border border-line rounded px-2 py-1 text-xs tnum mt-0.5" data-coin="${a}" data-dir="below" value="${al.below??''}" placeholder="—"></div>
-          <div><label class="text-[9px] text-mutet">Alert if above</label>
-            <input type="number" inputmode="decimal" class="alertInput w-full bg-panel2 border border-line rounded px-2 py-1 text-xs tnum mt-0.5" data-coin="${a}" data-dir="above" value="${al.above??''}" placeholder="—"></div>
+          <div><label class="text-[10px] text-mutet">Alert if below</label>
+            <input type="number" inputmode="decimal" class="alertInput w-full bg-panel2 border border-line rounded-lg px-3 py-2.5 text-sm tnum mt-1" data-coin="${a}" data-dir="below" value="${al.below??''}" placeholder="—"></div>
+          <div><label class="text-[10px] text-mutet">Alert if above</label>
+            <input type="number" inputmode="decimal" class="alertInput w-full bg-panel2 border border-line rounded-lg px-3 py-2.5 text-sm tnum mt-1" data-coin="${a}" data-dir="above" value="${al.above??''}" placeholder="—"></div>
         </div>
       </details>
       <button data-view-chart="${a}" class="viewChartBtn mt-3 w-full text-xs font-semibold bg-panel2 hover:bg-line border border-line rounded-lg py-1.5 transition">View chart</button>`;
