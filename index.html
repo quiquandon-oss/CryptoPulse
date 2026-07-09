@@ -565,66 +565,50 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
 
     <!-- =============== SENTIMENT ENGINE (market context — Google Sheet / Gemini) =============== -->
     <section id="v-sentiment" class="hidden space-y-4">
+      <!-- ═══ Sentiment Engine — powered by Pulse (Cloudflare Worker: Llama 3.1 8B +
+           RSS/on-chain/macro sources), replacing the old Gemini/Google-Sheet pipeline
+           entirely. Scale is 0-100 (0=extreme bear, 100=extreme bull), matching Pulse's
+           own convention, not the old -100..+100 scale. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-5 space-y-4">
         <div>
-          <h2 class="font-semibold mb-1">Sentiment Engine</h2>
-          <p class="text-xs text-mutet max-w-md">Aggregates notifications classified by Gemini (geopolitics, macro, regulation, on-chain, technical...) into a sentiment index weighted by recency and impact. Live data from your Google Sheet, deduplicated and weighted by age (6h half-life).</p>
+          <h2 class="font-semibold mb-1">Sentiment Engine (Pulse)</h2>
+          <p class="text-xs text-mutet max-w-md">Composite market sentiment from Pulse — Llama 3.1 8B scoring of crypto/macro/geopolitics news (CoinTelegraph, Investing.com, BBC), on-chain (funding, long/short), ETF flows, and macro series (oil, yields, USD, indices). Not per-coin — one overall market read.</p>
         </div>
-
-        <!-- Jauge principale -->
         <div class="flex items-center gap-4">
-          <p id="sentScore" class="grot font-bold tnum text-4xl">—</p>
+          <p id="pulseScore" class="grot font-bold tnum text-4xl">—</p>
           <div class="flex-1">
             <div class="h-2.5 rounded-full bg-panel2 overflow-hidden relative">
               <div class="absolute left-1/2 top-0 h-full w-px bg-line"></div>
-              <div id="sentBar" class="h-full rounded-full transition-all" style="width:0%;margin-left:50%;"></div>
+              <div id="pulseBar" class="h-full rounded-full transition-all" style="width:0%;margin-left:0%;"></div>
             </div>
             <div class="flex justify-between text-[10px] text-mutet mt-1">
-              <span>-100 · Strong Bear</span><span>0 · Neutral</span><span>+100 · Strong Bull</span>
+              <span>0 · Extreme Bear</span><span>50 · Neutral</span><span>100 · Extreme Bull</span>
             </div>
           </div>
-          <span id="sentLabel" class="text-xs font-semibold px-3 py-1.5 rounded-full whitespace-nowrap">—</span>
+          <span id="pulseLabel" class="text-xs font-semibold px-3 py-1.5 rounded-full whitespace-nowrap">—</span>
         </div>
-        <p class="text-xs text-mutet" id="sentMeta">—</p>
+        <p class="text-xs text-mutet" id="pulseMeta">—</p>
+        <div class="h-[110px]"><canvas id="pulseHistoryChart"></canvas></div>
       </div>
 
-      <!-- Breakdown by category -->
-      <div class="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3" id="sentCategoryRow"></div>
+      <!-- Per-source breakdown of the LATEST reading (fng/funding/longshort/etc.) -->
+      <div class="grid grid-cols-3 sm:grid-cols-5 gap-2" id="pulseSourceRow"></div>
 
-      <!-- Recent high-impact events feed -->
+      <!-- Self-validation: does past sentiment actually correlate with FUTURE BTC price
+           movement? Real Pearson correlation from Pulse's /analysis endpoint, not a
+           feature CryptoPulse had before. -->
       <div class="rounded-2xl border border-line bg-panel p-5">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-semibold">Recent High-Impact Events</h3>
-          <span class="text-xs text-mutet" id="sentDedupNote">—</span>
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-semibold">Sentiment → Price Correlation (24h lag)</h3>
+          <span class="text-xs text-mutet" id="pulseAnalysisStatus">—</span>
         </div>
-        <div id="sentFeedList" class="space-y-2"></div>
-      </div>
-
-      <!-- SoSoValue news feed — raw headlines, not run through Gemini scoring.
-           Separate source, separate panel: this is unscored context, not part
-           of the weighted sentiment index above. -->
-      <div class="rounded-2xl border border-line bg-panel p-5">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-semibold">Market News (SoSoValue)</h3>
-          <span class="text-xs text-mutet" id="sosoNewsStatus">—</span>
-        </div>
-        <div id="sosoNewsList" class="space-y-2"></div>
-      </div>
-
-      <!-- SoSoValue ETF net-inflow — aggregate daily flow across all US spot ETFs
-           per coin. HYPE has no ETF aggregate history on this endpoint yet. -->
-      <div class="rounded-2xl border border-line bg-panel p-5">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-semibold">Spot ETF Net Inflow (SoSoValue)</h3>
-          <span class="text-xs text-mutet" id="sosoEtfCacheNote">—</span>
-        </div>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="sosoEtfList"></div>
+        <p class="text-xs text-mutet mb-3">Pearson correlation between past sentiment scores and BTC's price move ~24h later. Near +1 = sentiment tends to precede a rise; near -1 = precedes a fall; near 0 = no detected link. Needs real data to be reliable — treat cautiously with few days accumulated.</p>
+        <div id="pulseCorrelationBody"></div>
       </div>
 
       <!-- ═══ TEMPORARY: Telegram Alert Config status view (read-only) ═══
-           Verifies the Google Apps Script + Telegram alert pipeline is reading
-           the right values — remove this whole <div> once confirmed working.
-           TelegramChatID deliberately not displayed (no reason to surface it here). -->
+           Paused for now (Telegram/Apps Script pipeline on hold) — left exactly as-is,
+           independent of the Sentiment Engine rebuild above/below. -->
       <div class="rounded-2xl border border-line bg-panel p-5">
         <div class="flex items-center justify-between mb-3">
           <h3 class="text-sm font-semibold">Alert Config (Telegram) — test view</h3>
@@ -647,6 +631,38 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             </thead>
             <tbody id="alertConfigBody"></tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- ═══ Technical Analysis (BTC) — levels computed client-side in CryptoPulse
+           (same formulas as Pulse's Worker: Tenkan/Kijun rolling-close approximation,
+           SMA50/100/200, RSI14), since Pulse's own /technical-eval endpoint is
+           currently broken (CoinGecko 403 on its cron job — a bug in Pulse's Worker
+           itself, not fixable from here). The LLM qualitative read below stays
+           "temporarily unavailable" until that Worker bug is fixed. -->
+      <div class="rounded-2xl border border-line bg-panel p-5 space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="font-semibold mb-1">Technical Analysis (BTC)</h2>
+            <p class="text-xs text-mutet">Tenkan/Kijun/MA levels computed live here · LLM read via Pulse (Cloudflare AI)</p>
+          </div>
+          <span class="text-xs text-mutet" id="techStatus">—</span>
+        </div>
+        <div>
+          <p class="text-xs text-mutet mb-1">Current Price</p>
+          <p id="techPrice" class="grot font-bold tnum text-2xl">—</p>
+        </div>
+        <div id="techLevels" class="space-y-1.5 text-sm"></div>
+        <div class="pt-3 border-t border-line">
+          <p class="text-xs text-mutet mb-1">RSI (14)</p>
+          <p id="techRsi" class="tnum font-bold text-lg">—</p>
+        </div>
+        <div class="pt-3 border-t border-line">
+          <div class="flex items-center justify-between mb-1">
+            <p class="text-xs text-mutet">LLM Read (Pulse / Cloudflare AI)</p>
+            <span class="text-[10px] text-mutet" id="techLlmAge">—</span>
+          </div>
+          <p class="text-sm" id="techLlmText">—</p>
         </div>
       </div>
     </section>
@@ -1491,55 +1507,34 @@ function wireRadar(){
 }
 
 /* ════════════════════════════════════════════════════════════════
-   SENTIMENT ENGINE — aggregates notifications classified by Gemini
-   (Timestamp, Source App, Category, Primary Asset, Sentiment Score,
-   Impact Weight) into a sentiment index weighted by recency+impact.
-   Real data: CSV export of the "Real time Financial Notification
-   Tracker" Google Sheet. Requires the sheet to be shared for public
-   reading (Anyone with the link → Viewer), otherwise the fetch gets
-   a Google login page instead of the CSV.
+   SENTIMENT ENGINE — powered by Pulse (a separate Cloudflare Worker:
+   sentiment-ff75.quiquandon.workers.dev), replacing the old Gemini +
+   Google Sheet pipeline entirely. Pulse scores crypto/macro/geopolitics
+   RSS (CoinTelegraph/Investing.com/BBC) + on-chain + macro series via
+   Llama 3.1 8B (Cloudflare Workers AI), stores history in D1, and
+   exposes a real /analysis endpoint computing Pearson correlation
+   between past sentiment and FUTURE BTC price movement.
+   computeSentimentIndex/sentLabelFor kept below (unchanged) because
+   Radar's per-coin badge still calls them — that pipeline is PAUSED
+   (lastSentimentIndex/lastCombinedSentimentRows simply never get
+   populated anymore), not removed, per explicit instruction not to
+   touch Radar's code.
 ═══════════════════════════════════════════════════════════════════ */
 
-const SENT_HALF_LIFE_HOURS=6;     // an event counts half as much every 6h
-const SENT_DEDUP_WINDOW_MIN=15;   // near-identical events within this window = counted once
-const SENT_CATEGORIES=['Crypto','Equities','Macroeconomics','Geopolitics','Regulatory','On-Chain','Technical'];
-const SENTIMENT_CSV_URL='https://docs.google.com/spreadsheets/d/e/2PACX-1vSDmlI4MxH2USmwRF5DbR6qNI4W7Knp-6i1DucVTR-HGNBCri0W4l3hK2iTj7r8R551FHPeyRqwABUJ/pub?gid=1481611720&single=true&output=csv';
+const SENT_HALF_LIFE_HOURS=6; // kept: computeSentimentIndex (used by Radar) depends on this
 // TODO: replace with the real Publish-to-web CSV link for the "AlertConfig" tab specifically
 // (File → Share → Publish to web → select the AlertConfig tab → CSV). This is a different
-// tab/gid than SENTIMENT_CSV_URL above, so it needs its own separate publish action.
+// tab/gid than the old sentiment tracker sheet, so it needs its own separate publish action.
 const ALERTCONFIG_CSV_URL='https://docs.google.com/spreadsheets/d/e/2PACX-1vSDmlI4MxH2USmwRF5DbR6qNI4W7Knp-6i1DucVTR-HGNBCri0W4l3hK2iTj7r8R551FHPeyRqwABUJ/pub?gid=874405685&single=true&output=csv';
 
-// Shared state so other tabs can use the latest combined sentiment (Gemini + ETF)
-// without re-fetching: calcBottomScore() reads lastSentimentIndex as a contrarian
-// modifier, and the Radar tab reads lastCombinedSentimentRows for a per-coin view.
-// Both stay null/empty (neutral, no effect) until the Sentiment tab has loaded
-// at least once in the session.
+// Shared state — kept exactly as-is for Radar's per-coin badge (paused: nothing populates
+// these anymore since the Gemini/SoSoValue pipeline was removed, so Radar's badge will
+// simply keep showing "Open Sentiment tab first" indefinitely — that IS the paused state).
 let lastSentimentIndex=null;
 let lastCombinedSentimentRows=[];
 
-// SoSoValue — free-tier API key. NOTE: this app is a static client-side file
-// with no backend, so this key is visible to anyone who views page source.
-// Free-tier rate limit is 20 calls/min; keep polling infrequent (once per hour,
-// same cadence as Radar) to stay well under that.
-// Confirmed against https://sosovalue-1.gitbook.io/sosovalue-api-doc (2026-07-05) —
-// an earlier version of this integration was built on a different/outdated
-// gitbook domain with a wrong base path and camelCase field names; this is the
-// corrected version against the authoritative current docs.
-const SOSO_API_KEY='SOSO-22e8036211c5416c8faef111de6ba2c1';
-const SOSO_BASE='https://openapi.sosovalue.com/openapi/v1';
-const SOSO_NEWS_URL=`${SOSO_BASE}/news?page=1&page_size=30&category=1,2,3,4,7,13`;
-// Category IDs per confirmed docs: 1=news 2=research 3=institution 4=insights/KOL
-// 7=announcement/official 13=crypto stock news
-const SOSO_CATEGORY_LABEL={1:'News',2:'Research',3:'Institution',4:'Insight',7:'Official',13:'Stock News'};
-// Coins tracked in this app — used to filter the (unfiltered-by-currency) news
-// response down to items actually relevant to your five tracked assets.
-const SOSO_TRACKED_SYMS=['BTC','ETH','LINK','SOL','HYPE'];
-// ETF aggregate net-inflow endpoint only supports these symbols (confirmed enum) —
-// HYPE has no spot-ETF aggregate history there yet, so it's simply skipped below.
-const SOSO_ETF_SYMS=['BTC','ETH','SOL','LINK'];
-
-// Minimal but robust CSV parser: handles quoted fields (commas/newlines inside),
-// in case a notification's text ever contains them.
+// Minimal but robust CSV parser: handles quoted fields (commas/newlines inside).
+// Kept — still used by fetchAlertConfig() below.
 function parseCsv(text){
   const rows=[];let row=[],field='',inQuotes=false;
   for(let i=0;i<text.length;i++){
@@ -1558,71 +1553,20 @@ function parseCsv(text){
   return rows.filter(r=>!(r.length===1&&r[0]===''));
 }
 
-// Converts a Timestamp cell to a Date, whatever its actual format in the sheet
-// (ISO 8601, epoch in seconds/milliseconds) — returns null if unreadable
-// (e.g. the broken Make.com template seen on one existing row), so that
-// row gets skipped rather than breaking the decay calculation.
-function parseSentimentTimestamp(raw){
-  if(!raw)return null;
-  const t=raw.trim();
-  if(/^\d{9,13}$/.test(t)){
-    const n=Number(t);const ms=t.length>=13?n:n*1000;
-    const d=new Date(ms);return isNaN(d)?null:d;
-  }
-  const d=new Date(t);
-  return isNaN(d)?null:d;
-}
-
-// Fetches and parses the published CSV, defensively normalizing legacy values
-// that don't yet comply with the newer Gemini prompt:
-// - sentiment clamped to {-1,0,1} by its sign, whatever the raw value
-// - impact clamped to [0,10]
-// - impact=0 ("not relevant") is filtered out here, before aggregation
-async function fetchSentimentRows(){
-  const res=await fetch(SENTIMENT_CSV_URL);
-  if(!res.ok)throw new Error(`Réponse Google Sheets ${res.status}`);
-  const text=await res.text();
-  const table=parseCsv(text);
-  const dataRows=table.slice(1); // skip the header row
-  const rows=[];
-  dataRows.forEach(cols=>{
-    if(cols.length<6)return;
-    const[tsRaw,source_app,category,asset,sentRaw,impactRaw]=cols;
-    const timestamp=parseSentimentTimestamp(tsRaw);
-    if(!timestamp)return;
-    const sentimentNum=Number(sentRaw),impactNum=Number(impactRaw);
-    if(isNaN(sentimentNum)||isNaN(impactNum))return;
-    const sentiment=Math.sign(sentimentNum);
-    const impact=Math.max(0,Math.min(10,Math.round(impactNum)));
-    if(impact===0)return; // not relevant — discarded before aggregation
-    rows.push({timestamp,source_app:(source_app||'').trim(),category:(category||'').trim(),asset:(asset||'').trim()||'None',sentiment,impact});
-  });
-  return rows;
-}
-
-function dedupeSentimentRows(rows){
-  const sorted=[...rows].sort((a,b)=>a.timestamp-b.timestamp);
-  const kept=[];
-  sorted.forEach(row=>{
-    const isDup=kept.some(k=>k.category===row.category&&k.asset===row.asset&&k.sentiment===row.sentiment&&k.impact===row.impact&&Math.abs(row.timestamp-k.timestamp)<=SENT_DEDUP_WINDOW_MIN*60000);
-    if(!isDup)kept.push(row);
-  });
-  return kept;
-}
-
 function sentDecayWeight(timestamp){
   const ageHours=(Date.now()-timestamp)/3600000;
   return Math.pow(0.5,ageHours/SENT_HALF_LIFE_HOURS);
 }
-
+// Kept for Radar's per-coin badge — unchanged math, just never fed real rows anymore.
 function computeSentimentIndex(rows){
   if(!rows.length)return null;
   let num=0,den=0;
   rows.forEach(r=>{const w=sentDecayWeight(r.timestamp)*r.impact;num+=r.sentiment*w;den+=w;});
   if(den===0)return null;
-  return (num/den)*100; // weighted average (-1..1) scaled to a -100..+100 range
+  return (num/den)*100;
 }
-
+// Kept for Radar's per-coin badge — unchanged, -100..+100 scale (different from Pulse's
+// 0-100 scale below; these are two independent systems, deliberately not unified).
 function sentLabelFor(score){
   if(score===null)return{text:'No data',color:'#94A3B8',bg:'#94A3B826'};
   if(score<=-50)return{text:'🔴 Strong Bear',color:'#F5606C',bg:'#F5606C26'};
@@ -1632,166 +1576,164 @@ function sentLabelFor(score){
   return{text:'💎 Strong Bull',color:'#3BF38B',bg:'#3BF38B26'};
 }
 
-function computeSentimentCategoryBreakdown(rows){
-  return SENT_CATEGORIES.map(cat=>{
-    const catRows=rows.filter(r=>r.category===cat);
-    return{category:cat,score:computeSentimentIndex(catRows),count:catRows.length};
-  });
-}
+// ---- Pulse (Cloudflare Worker) integration ----
+const PULSE_WORKER_URL='https://sentiment-ff75.quiquandon.workers.dev';
 
-function renderSentimentGauge(score,totalCount){
-  const{text,color,bg}=sentLabelFor(score);
-  const labelEl=$('#sentLabel');labelEl.textContent=text;labelEl.style.color=color;labelEl.style.backgroundColor=bg;
-  const scoreEl=$('#sentScore');scoreEl.textContent=score===null?'—':(score>=0?'+':'')+score.toFixed(0);scoreEl.style.color=color;
-  const bar=$('#sentBar');const pct=score===null?0:Math.max(-100,Math.min(100,score));
-  bar.style.background=color;
-  if(pct>=0){bar.style.marginLeft='50%';bar.style.width=(pct/2)+'%';}
-  else{bar.style.marginLeft=(50+pct/2)+'%';bar.style.width=(-pct/2)+'%';}
-  $('#sentMeta').textContent=`Based on ${totalCount} event(s) after deduplication, 24h rolling window.`;
+async function fetchPulseHistory(){
+  const res=await fetch(`${PULSE_WORKER_URL}/history`);
+  if(!res.ok)throw new Error('Pulse /history responded '+res.status);
+  const json=await res.json();
+  return json.history||[];
 }
+async function fetchPulseAnalysis(){
+  const res=await fetch(`${PULSE_WORKER_URL}/analysis?lagHours=24`);
+  if(!res.ok)throw new Error('Pulse /analysis responded '+res.status);
+  return await res.json();
+}
+// 0-100 scale, matching Pulse's own convention (distinct from the -100..+100 scale
+// used by sentLabelFor above, which is a different, paused system).
+function pulseLabelFor(score){
+  if(score==null)return{text:'No data',color:'#94A3B8'};
+  if(score<20)return{text:'🔴 Extreme Bear',color:'#F5606C'};
+  if(score<40)return{text:'🟠 Bear',color:'#F5B843'};
+  if(score<60)return{text:'⚪ Neutral',color:'#94A3B8'};
+  if(score<80)return{text:'🟢 Bull',color:'#3BF38B'};
+  return{text:'💎 Extreme Bull',color:'#3BF38B'};
+}
+let pulseHistoryChartInst;
+function renderPulseSentiment(history){
+  if(!history.length){
+    $('#pulseScore').textContent='—';
+    $('#pulseLabel').textContent='No data';
+    $('#pulseMeta').textContent='Pulse has no history points yet.';
+    return;
+  }
+  const latest=history[history.length-1];
+  const{text,color}=pulseLabelFor(latest.score);
+  const scoreEl=$('#pulseScore');scoreEl.textContent=latest.score;scoreEl.style.color=color;
+  const labelEl=$('#pulseLabel');labelEl.textContent=text;labelEl.style.color=color;labelEl.style.backgroundColor=color+'26';
+  const bar=$('#pulseBar');bar.style.width=Math.max(0,Math.min(100,latest.score))+'%';bar.style.marginLeft='0%';bar.style.background=color;
+  const ageMin=Math.round((Date.now()-latest.ts)/60000);
+  const ageTxt=ageMin<60?`${ageMin}m ago`:`${(ageMin/60).toFixed(1)}h ago`;
+  $('#pulseMeta').textContent=`${history.length} point(s) in history · last updated ${ageTxt}`+(latest.btc?` · BTC $${Math.round(latest.btc).toLocaleString('en-US')} at that time`:'');
 
-function renderSentimentCategories(breakdown){
-  $('#sentCategoryRow').innerHTML=breakdown.map(b=>{
-    const{color}=sentLabelFor(b.score);
-    const scoreTxt=b.score===null?'—':(b.score>=0?'+':'')+b.score.toFixed(0);
-    return`<div class="bg-panel2 border border-line rounded-xl p-3">
-      <p class="text-xs text-mutet mb-1">${b.category}</p>
-      <p class="tnum font-bold text-lg" style="color:${color}">${scoreTxt}</p>
-      <p class="text-[10px] text-mutet mt-0.5">${b.count} event(s)</p>
-    </div>`;
+  // Per-source breakdown of the latest reading
+  let sources={};
+  try{sources=latest.sources_json?JSON.parse(latest.sources_json):{};}catch(e){}
+  const srcHost=$('#pulseSourceRow');
+  const entries=Object.entries(sources);
+  srcHost.innerHTML=entries.length?entries.map(([k,v])=>{
+    const{color:c}=pulseLabelFor(v);
+    return`<div class="bg-panel2 border border-line rounded-xl p-2.5 text-center"><p class="text-[10px] text-mutet mb-1">${k}</p><p class="tnum font-bold text-sm" style="color:${c}">${v}</p></div>`;
+  }).join(''):'<p class="text-xs text-mutet col-span-3">No per-source breakdown on the latest point.</p>';
+
+  // History chart (Chart.js, same instance-reuse pattern as Scenario's chart)
+  const cv=$('#pulseHistoryChart');if(!cv)return;
+  const labels=history.map(h=>new Date(h.ts).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}));
+  const data=history.map(h=>h.score);
+  const cfg={type:'line',data:{labels,datasets:[{data,borderColor:'#4F7DFB',backgroundColor:'#4F7DFB22',fill:true,tension:0.3,pointRadius:0,borderWidth:2}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,
+      scales:{x:{display:false},y:{min:0,max:100,ticks:{color:'#8891A8',font:{size:9}},grid:{color:'#232A44'}}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'Score: '+c.parsed.y}}}}};
+  if(pulseHistoryChartInst){pulseHistoryChartInst.data=cfg.data;pulseHistoryChartInst.options=cfg.options;pulseHistoryChartInst.update();}
+  else pulseHistoryChartInst=new Chart(cv,cfg);
+}
+function renderPulseAnalysis(a){
+  const host=$('#pulseCorrelationBody');const status=$('#pulseAnalysisStatus');
+  if(a.insufficientData){
+    status.textContent=`${a.pointsAvailable} point(s)`;
+    host.innerHTML=`<p class="text-xs text-mutet">${a.message}</p>`;
+    return;
+  }
+  status.textContent=`${a.pointsTotal} point(s) · ${a.compositeSamples} sample(s)`;
+  const fmt=v=>v==null?'—':(v>=0?'+':'')+v.toFixed(2);
+  const compColor=a.compositeCorrelation==null?'#94A3B8':Math.abs(a.compositeCorrelation)>=0.3?(a.compositeCorrelation>0?'#3BF38B':'#F5606C'):'#94A3B8';
+  let h=`<div class="flex items-center justify-between mb-3 pb-3 border-b border-line/50">
+    <span class="text-sm font-semibold">Composite</span>
+    <span class="tnum font-bold text-lg" style="color:${compColor}">${fmt(a.compositeCorrelation)}</span>
+  </div>`;
+  const perSrc=Object.entries(a.perSourceCorrelation||{}).sort((x,y)=>Math.abs(y[1].correlation||0)-Math.abs(x[1].correlation||0));
+  h+=perSrc.map(([name,d])=>{
+    const c=d.correlation==null?'#94A3B8':Math.abs(d.correlation)>=0.3?(d.correlation>0?'#3BF38B':'#F5606C'):'#94A3B8';
+    return`<div class="flex items-center justify-between py-1 text-xs"><span class="text-mutet">${name} <span class="text-[10px]">(${d.samples})</span></span><span class="tnum font-semibold" style="color:${c}">${fmt(d.correlation)}</span></div>`;
   }).join('');
+  h+=`<p class="text-[10px] text-mutet mt-3 pt-2 border-t border-line/50">${a.interpretation}</p>`;
+  host.innerHTML=h;
 }
 
-function renderSentimentFeed(rows){
-  const sorted=[...rows].sort((a,b)=>b.timestamp-a.timestamp).slice(0,8);
-  $('#sentFeedList').innerHTML=sorted.map(r=>{
-    const isUp=r.sentiment>0,isFlat=r.sentiment===0;
-    const color=isFlat?'#94A3B8':(isUp?'#3BF38B':'#F5606C');
-    const arrow=isFlat?'●':(isUp?'▲':'▼');
-    const ageMin=Math.round((Date.now()-r.timestamp)/60000);
-    const ageTxt=ageMin<60?`${ageMin}m ago`:`${(ageMin/60).toFixed(1)}h ago`;
-    return`<div class="flex items-center gap-3 py-2 border-t border-line/50 text-sm">
-      <span style="color:${color}" class="w-4 text-center shrink-0">${arrow}</span>
-      <span class="text-xs bg-panel2 text-mutet rounded px-2 py-0.5 shrink-0">${r.category}</span>
-      <span class="font-medium w-16 shrink-0">${r.asset}</span>
-      <span class="text-mutet text-xs flex-1">Impact ${r.impact}/10 · ${r.source_app}</span>
-      <span class="tnum text-xs text-mutet shrink-0">${ageTxt}</span>
-    </div>`;
-  }).join('');
+// ---- Technical Analysis (BTC) — computed client-side here, same formulas as
+// Pulse's Worker source (sma/ichimokuLine/rsi), fetched via the same working
+// CoinGecko pattern Radar already uses (no explicit interval param — Pulse's own
+// Worker hardcodes interval=daily, which appears to be what's triggering its 403).
+function techSma(values,period,endIndex){
+  if(endIndex-period+1<0)return null;
+  let sum=0;for(let i=endIndex-period+1;i<=endIndex;i++)sum+=values[i];
+  return sum/period;
+}
+function techIchimoku(closes,period,endIndex){
+  if(endIndex-period+1<0)return null;
+  let hi=-Infinity,lo=Infinity;
+  for(let i=endIndex-period+1;i<=endIndex;i++){if(closes[i]>hi)hi=closes[i];if(closes[i]<lo)lo=closes[i];}
+  return(hi+lo)/2;
+}
+function techRsi(closes,period,endIndex){
+  if(endIndex-period<0)return null;
+  let gains=0,losses=0;
+  for(let i=endIndex-period+1;i<=endIndex;i++){const diff=closes[i]-closes[i-1];if(diff>=0)gains+=diff;else losses-=diff;}
+  const avgGain=gains/period,avgLoss=losses/period;
+  if(avgLoss===0)return 100;
+  return 100-100/(1+avgGain/avgLoss);
+}
+async function fetchBtcTechnicals(){
+  const res=await fetch(`${CG}/coins/bitcoin/market_chart?vs_currency=usd&days=365`);
+  if(!res.ok)throw new Error('CoinGecko market_chart responded '+res.status);
+  const json=await res.json();
+  const closes=(json.prices||[]).map(p=>p[1]);
+  if(closes.length<200)throw new Error('Not enough history yet ('+closes.length+' points)');
+  const last=closes.length-1;
+  return{
+    price:closes[last],
+    tenkan:techIchimoku(closes,9,last),
+    kijun:techIchimoku(closes,26,last),
+    ma50:techSma(closes,50,last),
+    ma100:techSma(closes,100,last),
+    ma200:techSma(closes,200,last),
+    rsi14:techRsi(closes,14,last),
+  };
+}
+function renderTechnicalLevels(t){
+  $('#techPrice').textContent='$'+Math.round(t.price).toLocaleString('en-US');
+  const row=(label,val)=>{
+    if(val==null)return`<div class="flex justify-between text-mutet text-xs"><span>${label}</span><span>N/A</span></div>`;
+    const above=t.price>val,color=above?'#3BF38B':'#F5606C';
+    return`<div class="flex justify-between text-sm"><span class="text-mutet">${label}</span><span style="color:${color}">$${Math.round(val).toLocaleString('en-US')} — ${above?'above ▲':'below ▼'}</span></div>`;
+  };
+  $('#techLevels').innerHTML=row('Tenkan (9d)',t.tenkan)+row('Kijun (26d)',t.kijun)+row('MA50',t.ma50)+row('MA100',t.ma100)+row('MA200',t.ma200);
+  const rsiEl=$('#techRsi');
+  if(t.rsi14!=null){rsiEl.textContent=t.rsi14.toFixed(1)+(t.rsi14>50?' (buyer momentum)':' (seller momentum)');rsiEl.style.color=t.rsi14>70?'#F5606C':t.rsi14<30?'#3BF38B':'#94A3B8';}
+  else{rsiEl.textContent='N/A';}
+}
+async function fetchPulseTechnicalEval(){
+  const res=await fetch(`${PULSE_WORKER_URL}/technical-eval`);
+  if(!res.ok)throw new Error('Pulse /technical-eval responded '+res.status);
+  const json=await res.json();
+  return json.latest;
+}
+function renderTechnicalLlm(latest){
+  const textEl=$('#techLlmText'),ageEl=$('#techLlmAge');
+  if(!latest||latest.score==null){
+    textEl.textContent='Temporarily unavailable — Pulse\u2019s Worker is currently failing to fetch BTC history for this evaluation (a bug on Pulse\u2019s own Cloudflare side, not fixable from CryptoPulse). Raw technical levels above are unaffected.';
+    textEl.className='text-sm text-mutet italic';
+    ageEl.textContent='—';
+    return;
+  }
+  textEl.className='text-sm';
+  textEl.textContent=latest.evaluation;
+  const ageMin=Math.round((Date.now()-latest.ts)/60000);
+  ageEl.textContent=ageMin<60?`${ageMin}m ago`:`${(ageMin/60).toFixed(1)}h ago`;
 }
 
-// Turns ETF net-inflow trend data into synthetic sentiment rows, using the same
-// sign+magnitude calibration logic we defined for Gemini's impact scale (billions
-// of $ = high impact, tens of millions = low impact) — just applied numerically
-// instead of by LLM judgment, since this is already structured numeric data.
-// Filed under "On-Chain" category — a structured market-flow signal, not a headline.
-function deriveEtfSentimentRows(etfResults){
-  const rows=[];
-  const now=new Date(); // treated as "fresh" each time the tab loads — ETF data is daily, not real-time
-  for(const sym of SOSO_ETF_SYMS){
-    const d=etfResults[sym];
-    if(!d||d.error)continue;
-    const sentiment=d.weekSum>0?1:(d.weekSum<0?-1:0);
-    const absB=Math.abs(d.weekSum)/1e9; // magnitude in billions, for impact calibration
-    let impact;
-    if(absB>=1)impact=9;
-    else if(absB>=0.3)impact=7;
-    else if(absB>=0.05)impact=5;
-    else if(absB>=0.01)impact=3;
-    else impact=1;
-    rows.push({timestamp:now,source_app:'SoSoValue (ETF)',category:'On-Chain',asset:sym,sentiment,impact});
-  }
-  return rows;
-}
-async function initSentimentTab(){
-  $('#sentMeta').textContent='Loading data…';
-
-  // ---- Gemini-scored notifications (Google Sheet) ----
-  let geminiRows=[],geminiErr=null;
-  try{
-    const raw=await fetchSentimentRows();
-    geminiRows=dedupeSentimentRows(raw);
-  }catch(err){
-    console.error('Error fetching Google Sheet sentiment data:',err);
-    geminiErr=err;
-  }
-
-  // ---- ETF flows: still renders its own standalone panel exactly as before ----
-  // (unchanged from the user's perspective) — and additionally contributes
-  // synthetic rows into the combined index below.
-  let etfSentimentRows=[];
-  try{
-    const{results,fromCache,cacheAgeMin,staleWarning}=await fetchSosoEtfFlows();
-    renderSosoEtfFlows(results);
-    etfSentimentRows=deriveEtfSentimentRows(results);
-    const etfHeader=$('#sosoEtfCacheNote');
-    if(etfHeader)etfHeader.textContent=fromCache?(staleWarning?`Rate-limited — showing cached data (${cacheAgeMin}m old)`:`Cached (${cacheAgeMin}m old)`):'Live';
-  }catch(err){
-    console.error('Error fetching SoSoValue ETF data:',err);
-    $('#sosoEtfList').innerHTML='<p class="text-xs text-mutet col-span-4">Error: '+(err && err.message ? err.message : String(err))+'</p>';
-  }
-
-  // ---- Combine both sources into one gauge/category-breakdown/feed ----
-  const combined=[...geminiRows,...etfSentimentRows];
-  // Share with other tabs: Bottom Signal (Dashboard) and per-coin badge (Radar).
-  // Updated here regardless of success/failure below, so a partial result (e.g.
-  // ETF-only) still propagates rather than leaving the other tabs stuck on "no data".
-  lastCombinedSentimentRows=combined;
-  lastSentimentIndex=combined.length?computeSentimentIndex(combined):null;
-  if($('#v-dashboard'))renderBottomSignal();
-  if($('#v-radar'))renderRadarSentimentBadge();
-  if(combined.length){
-    $('#sentDedupNote').textContent=`${combined.length} combined event(s) (Gemini: ${geminiRows.length}, ETF: ${etfSentimentRows.length})`;
-    renderSentimentGauge(computeSentimentIndex(combined),combined.length);
-    renderSentimentCategories(computeSentimentCategoryBreakdown(combined));
-    renderSentimentFeed(combined);
-    $('#sentMeta').textContent=geminiErr
-      ?'Gemini sheet unavailable right now — index based on ETF flows only, below.'
-      :'Combines Gemini-scored notifications with SoSoValue ETF flows.';
-  }else{
-    renderSentimentGauge(null,0);
-    $('#sentCategoryRow').innerHTML='';
-    $('#sentFeedList').innerHTML='';
-    $('#sentDedupNote').textContent='—';
-    // Shows the raw technical error on screen (not a generic message) so it can be
-    // diagnosed directly from the phone, without DevTools or private-browsing tests.
-    $('#sentMeta').textContent='Technical error: '+(geminiErr && geminiErr.message ? geminiErr.message : 'no data available (Gemini and ETF both unavailable)');
-  }
-
-  // ---- News feed: completely separate, no impact on the aggregation above ----
-  try{
-    const{raw,filtered,fromCache,cacheAgeMin,staleWarning}=await fetchSosoNews();
-    renderSosoNews(filtered);
-    $('#sosoNewsStatus').textContent=fromCache
-      ?(staleWarning?`Rate-limited — cached (${cacheAgeMin}m old), ${filtered.length}/${raw.length} matched`:`Cached (${cacheAgeMin}m old), ${filtered.length}/${raw.length} matched`)
-      :`${filtered.length}/${raw.length} matched`;
-  }catch(err){
-    console.error('Error fetching SoSoValue news:',err);
-    $('#sosoNewsList').innerHTML='';
-    $('#sosoNewsStatus').textContent='Error: '+(err && err.message ? err.message : String(err));
-  }
-
-  // ---- Sync computed DCA metrics (BTC/LINK) to the Sheet for Apps Script to read ----
-  // No-op until ALERTCONFIG_WRITE_URL is deployed — see the Gemini prompt for this.
-  try{
-    await syncDcaMetricsToSheet();
-  }catch(err){
-    console.error('Error syncing DCA metrics to Sheet:',err);
-  }
-
-  // ---- TEMPORARY: Alert Config status (Telegram pipeline test view) ----
-  try{
-    const rows=await fetchAlertConfig();
-    renderAlertConfig(rows);
-    $('#alertConfigStatus').textContent=`${rows.length} row(s)`;
-  }catch(err){
-    console.error('Error fetching AlertConfig:',err);
-    $('#alertConfigBody').innerHTML='';
-    $('#alertConfigStatus').textContent='Error: '+(err && err.message ? err.message : String(err));
-  }
-}
-// Fetches the AlertConfig tab (read-only test view — see the TODO on ALERTCONFIG_CSV_URL
-// above). Reuses the same parseCsv() already built for the sentiment tracker sheet.
+// Fetches the AlertConfig tab (read-only test view). Reuses parseCsv() above.
 async function fetchAlertConfig(){
   const res=await fetch(ALERTCONFIG_CSV_URL);
   if(!res.ok)throw new Error('AlertConfig fetch responded '+res.status);
@@ -1816,8 +1758,6 @@ function renderAlertConfig(rows){
   const host=$('#alertConfigBody');if(!host)return;
   if(!rows.length){host.innerHTML='<tr><td colspan="8" class="py-3 text-mutet text-xs">No rows found.</td></tr>';return;}
   host.innerHTML=rows.map(r=>{
-    // Flags blank SentimentThreshold explicitly — this is the exact gap we found:
-    // a blank cell silently blocks any alert for a coin with real sentiment data.
     const threshBlank=!r.sentimentThreshold.trim();
     return`<tr class="border-b border-line/50">
       <td class="py-2 pr-3 font-medium">${r.asset}</td>
@@ -1831,153 +1771,63 @@ function renderAlertConfig(rows){
     </tr>`;
   }).join('');
 }
-// Fetches SoSoValue's news feed (all currencies, pre-filtered by category server-side),
-// then filters client-side down to items that mention one of our tracked coins.
-// NOTE: confirmed response envelope is flat — {page, page_size, total, list:[...]},
-// no {code, data} wrapper (an earlier version of this code assumed one, from
-// outdated docs, and would have always thrown a false error).
-// Structured field is the right one (confirmed: "matched_currencies") but SoSoValue
-// doesn't reliably populate it — especially for reposted tweets, which often carry
-// an empty array even when the tweet is clearly about one of our coins. Fall back to
-// matching the coin's full name or ticker directly in the title/content text.
-const SOSO_COIN_TEXT={BTC:['bitcoin','btc'],ETH:['ethereum','eth'],LINK:['chainlink','link'],SOL:['solana','sol'],HYPE:['hyperliquid','hype']};
-function sosoCurrencyFieldOf(item){return item.matched_currencies||item.currencies||item.related_currencies||item.matchedCurrencies||[];}
-function sosoTextMentionsSym(item,sym){
-  const hay=((item.title||'')+' '+(item.content||'')).toLowerCase();
-  return(SOSO_COIN_TEXT[sym]||[]).some(term=>new RegExp('\\b'+term+'\\b','i').test(hay));
-}
-function sosoMatchedSyms(item){
-  const tagged=sosoCurrencyFieldOf(item).map(c=>(c.name||c.symbol||'').toUpperCase()).filter(n=>SOSO_TRACKED_SYMS.includes(n));
-  if(tagged.length)return tagged;
-  return SOSO_TRACKED_SYMS.filter(sym=>sosoTextMentionsSym(item,sym));
-}
-// ---- Caching layer for SoSoValue calls ----
-// Root cause of the 429 bug: every Sentiment tab load fires 5 SoSoValue calls
-// (1 news + 4 ETF symbols) with zero caching — a handful of tab reloads within
-// a minute blows through the free tier's 20 calls/min limit. Fix: cache results
-// for 10 minutes, and on ANY fetch failure (429 or otherwise), fall back to
-// whatever's cached — even if stale — rather than showing an error screen. Only
-// show a real error if there's truly no cached data at all to fall back to.
-const SOSO_CACHE_MS=10*60000;
-function sosoCacheGet(key){
-  try{const raw=localStorage.getItem(key);return raw?JSON.parse(raw):null;}catch(e){return null;}
-}
-function sosoCacheSet(key,data){
-  try{localStorage.setItem(key,JSON.stringify({data,fetchedAt:Date.now()}));}catch(e){}
-}
-async function fetchSosoNews(){
-  const cacheKey='cp2_soso_news';
-  const cached=sosoCacheGet(cacheKey);
-  if(cached&&Date.now()-cached.fetchedAt<SOSO_CACHE_MS){
-    return{...cached.data,fromCache:true,cacheAgeMin:Math.round((Date.now()-cached.fetchedAt)/60000)};
+
+async function initSentimentTab(){
+  $('#pulseMeta').textContent='Loading Pulse data…';
+  // ---- Pulse sentiment history + gauge ----
+  try{
+    const history=await fetchPulseHistory();
+    renderPulseSentiment(history);
+  }catch(err){
+    console.error('Error fetching Pulse history:',err);
+    $('#pulseScore').textContent='—';
+    $('#pulseLabel').textContent='Error';
+    $('#pulseMeta').textContent='Technical error: '+(err&&err.message?err.message:String(err));
+  }
+  // ---- Pulse sentiment/price correlation ----
+  try{
+    const analysis=await fetchPulseAnalysis();
+    renderPulseAnalysis(analysis);
+  }catch(err){
+    console.error('Error fetching Pulse analysis:',err);
+    $('#pulseAnalysisStatus').textContent='Error';
+    $('#pulseCorrelationBody').innerHTML='<p class="text-xs text-mutet">Technical error: '+(err&&err.message?err.message:String(err))+'</p>';
+  }
+  // ---- AlertConfig test view (Telegram pipeline paused, left as-is) ----
+  try{
+    const rows=await fetchAlertConfig();
+    renderAlertConfig(rows);
+    $('#alertConfigStatus').textContent=`${rows.length} row(s)`;
+  }catch(err){
+    console.error('Error fetching AlertConfig:',err);
+    $('#alertConfigBody').innerHTML='';
+    $('#alertConfigStatus').textContent='Error: '+(err && err.message ? err.message : String(err));
+  }
+  // ---- DCA metrics sync (unaffected by any of the above — independent of sentiment) ----
+  try{
+    await syncDcaMetricsToSheet();
+  }catch(err){
+    console.error('Error syncing DCA metrics to Sheet:',err);
+  }
+  // ---- Technical Analysis (BTC): live levels here + Pulse's LLM read ----
+  try{
+    const t=await fetchBtcTechnicals();
+    renderTechnicalLevels(t);
+    $('#techStatus').textContent='Live';
+  }catch(err){
+    console.error('Error fetching BTC technicals:',err);
+    $('#techStatus').textContent='Error';
+    $('#techLevels').innerHTML='<p class="text-xs text-mutet">Technical error: '+(err&&err.message?err.message:String(err))+'</p>';
   }
   try{
-    const res=await fetch(SOSO_NEWS_URL,{headers:{'x-soso-api-key':SOSO_API_KEY}});
-    const text=await res.text();
-    if(!res.ok)throw new Error('SoSoValue API responded '+res.status+' — '+text.slice(0,300));
-    let json;
-    try{json=JSON.parse(text);}catch(e){throw new Error('Response was not valid JSON: '+text.slice(0,300));}
-    const raw=json.data?.list||[]; // confirmed from live response: wrapped in {code, message, data:{list}}
-    const filtered=raw.filter(item=>sosoMatchedSyms(item).length>0);
-    const result={raw,filtered};
-    sosoCacheSet(cacheKey,result);
-    return{...result,fromCache:false};
+    const latest=await fetchPulseTechnicalEval();
+    renderTechnicalLlm(latest);
   }catch(err){
-    if(cached)return{...cached.data,fromCache:true,cacheAgeMin:Math.round((Date.now()-cached.fetchedAt)/60000),staleWarning:err.message};
-    throw err; // no cache to fall back to — this is the only case that should show an error
+    console.error('Error fetching Pulse technical-eval:',err);
+    renderTechnicalLlm(null);
   }
-}
-function renderSosoNews(items){
-  const host=$('#sosoNewsList');if(!host)return;
-  if(!items.length){host.innerHTML='<p class="text-xs text-mutet">No recent news matching your tracked coins.</p>';return;}
-  host.innerHTML=items.slice(0,10).map(item=>{
-    const title=item.title||'(untitled)';
-    const cats=SOSO_CATEGORY_LABEL[item.category]||'News';
-    const coins=sosoMatchedSyms(item).join(', ');
-    const ageMin=Math.round((Date.now()-item.release_time)/60000);
-    const ageTxt=ageMin<60?`${ageMin}m ago`:ageMin<1440?`${(ageMin/60).toFixed(1)}h ago`:`${(ageMin/1440).toFixed(1)}d ago`;
-    const link=item.source_link||'#';
-    return`<a href="${link}" target="_blank" rel="noopener" class="block py-2 border-t border-line/50 text-sm hover:bg-panel2/60 transition rounded px-1 -mx-1">
-      <div class="flex items-center gap-2 mb-1">
-        <span class="text-xs bg-panel2 text-mutet rounded px-2 py-0.5 shrink-0">${cats}</span>
-        <span class="text-xs text-mutet shrink-0">${coins}</span>
-        <span class="tnum text-xs text-mutet ml-auto shrink-0">${ageTxt}</span>
-      </div>
-      <p class="text-sm">${title}</p>
-    </a>`;
-  }).join('');
 }
 
-// ---- ETF net-inflow flows (aggregate across all US spot ETFs per coin) ----
-// GET /etfs/summary-history?symbol=X&country_code=US — confirmed response is a
-// plain array (reverse-chronological), no envelope. HYPE isn't in the supported
-// symbol enum for this endpoint, so it's simply not fetched (see SOSO_ETF_SYMS).
-// Same caching/fallback strategy as fetchSosoNews above, one cache entry for all
-// 4 symbols together (simpler than per-symbol caching, and they're always fetched
-// as a set anyway).
-async function fetchSosoEtfFlows(){
-  const cacheKey='cp2_soso_etf';
-  const cached=sosoCacheGet(cacheKey);
-  if(cached&&Date.now()-cached.fetchedAt<SOSO_CACHE_MS){
-    return{results:cached.data,fromCache:true,cacheAgeMin:Math.round((Date.now()-cached.fetchedAt)/60000)};
-  }
-  const results={};
-  let hadRealError=false,lastErrMsg='';
-  for(const sym of SOSO_ETF_SYMS){
-    try{
-      const url=`${SOSO_BASE}/etfs/summary-history?symbol=${sym}&country_code=US&limit=30`;
-      const res=await fetch(url,{headers:{'x-soso-api-key':SOSO_API_KEY}});
-      const text=await res.text();
-      if(!res.ok){results[sym]={error:'HTTP '+res.status};hadRealError=true;lastErrMsg='HTTP '+res.status;continue;}
-      let json;
-      try{json=JSON.parse(text);}catch(e){results[sym]={error:'not valid JSON'};continue;}
-      const rows=json.data; // confirmed wrapped: {code, message, data:[...]}, same pattern as /news
-      if(!Array.isArray(rows)||!rows.length){results[sym]={error:'no data'};continue;}
-      // Multiple rows can share the same date (per-ETF-ticker breakdown rather than
-      // one pre-aggregated row per day) — group by date and sum, which gives the
-      // correct total either way, whether rows are per-ticker or already aggregate.
-      const byDate={};
-      rows.forEach(r=>{if(r.date)byDate[r.date]=(byDate[r.date]||0)+(r.total_net_inflow||0);});
-      const dates=Object.keys(byDate).sort().reverse(); // most recent first
-      if(!dates.length){results[sym]={error:'no dated rows'};continue;}
-      const latestDate=dates[0],latest=byDate[latestDate];
-      const last7=dates.slice(0,7);
-      const weekSum=last7.reduce((a,d)=>a+byDate[d],0);
-      results[sym]={date:latestDate,latest,weekSum,days:last7.length};
-    }catch(e){results[sym]={error:e.message};hadRealError=true;lastErrMsg=e.message;}
-  }
-  // If every symbol failed (e.g. rate-limited) and we have a cache, fall back to it
-  // wholesale rather than showing 4 error cards.
-  const allFailed=SOSO_ETF_SYMS.every(sym=>results[sym]&&results[sym].error);
-  if(allFailed&&hadRealError&&cached){
-    return{results:cached.data,fromCache:true,cacheAgeMin:Math.round((Date.now()-cached.fetchedAt)/60000),staleWarning:lastErrMsg};
-  }
-  sosoCacheSet(cacheKey,results);
-  return{results,fromCache:false};
-}
-function fmtUsdCompact(n){
-  const sign=n<0?'-':'+';
-  const abs=Math.abs(n);
-  if(abs>=1e9)return sign+'$'+(abs/1e9).toFixed(2)+'B';
-  if(abs>=1e6)return sign+'$'+(abs/1e6).toFixed(1)+'M';
-  if(abs>=1e3)return sign+'$'+(abs/1e3).toFixed(0)+'K';
-  return sign+'$'+abs.toFixed(0);
-}
-function renderSosoEtfFlows(data){
-  const host=$('#sosoEtfList');if(!host)return;
-  host.innerHTML=SOSO_ETF_SYMS.map(sym=>{
-    const d=data[sym];
-    if(!d||d.error){
-      return`<div class="bg-panel2 rounded-xl p-3"><p class="text-xs text-mutet mb-1">${sym} Spot ETF</p><p class="text-sm text-mutet">${(d&&d.error)||'No data'}</p></div>`;
-    }
-    const color=d.latest>=0?'#3BF38B':'#F5606C';
-    return`<div class="bg-panel2 rounded-xl p-3">
-      <p class="text-xs text-mutet mb-1">${sym} Spot ETF · ${d.date}</p>
-      <p class="tnum font-bold text-lg" style="color:${color}">${fmtUsdCompact(d.latest)}</p>
-      <p class="text-[10px] text-mutet mt-0.5">${d.days}d sum: ${fmtUsdCompact(d.weekSum)}</p>
-    </div>`;
-  }).join('');
-}
 
 
 /* ---- wire ---- */
@@ -2721,26 +2571,19 @@ function renderProba(){
   host.innerHTML=h;
 }
 function renderBottomSignal(){
-  // Dashboard: sentiment-inclusive (unchanged behavior)
-  const bs=calcBottomScore(true);const score=bs.score,sigs=bs.sigs;
+  // Unified, sentiment-free calculation — Dashboard and Scenario now show the
+  // exact same score, both cabled the same way. Sentiment paused per request;
+  // calcBottomScore(true) path still exists in code if ever re-enabled.
+  const bs=calcBottomScore(false);const score=bs.score,sigs=bs.sigs;
   let label=score>=70?'💎 Very Strong Signal':score>=50?'🟢 Strong Signal':score>=30?'🟠 Accumulation Zone':'🔴 Bear Ongoing';
   let barCol=score>=70?'#3BF38B':score>=50?'#3BF38B':score>=30?'#F5B843':'#FF5C72';
   if(bs.falling&&score>=50){label='🟠 Accumulation Zone · price still falling';barCol='#F5B843';}
-  $$('.js-bScore').forEach(function(el){el.textContent=score+'/100';});
-  $$('.js-bLabel').forEach(function(el){el.textContent=label;});
-  $$('.js-bBar').forEach(function(el){el.style.width=score+'%';el.style.background=barCol;});
-
-  // Scenario: sentiment-free, computed and rendered independently so it can genuinely diverge
-  const bs2=calcBottomScore(false);const score2=bs2.score,sigs2=bs2.sigs;
-  let label2=score2>=70?'💎 Very Strong Signal':score2>=50?'🟢 Strong Signal':score2>=30?'🟠 Accumulation Zone':'🔴 Bear Ongoing';
-  let barCol2=score2>=70?'#3BF38B':score2>=50?'#3BF38B':score2>=30?'#F5B843':'#FF5C72';
-  if(bs2.falling&&score2>=50){label2='🟠 Accumulation Zone · price still falling';barCol2='#F5B843';}
-  $$('.js-bScore2').forEach(function(el){el.textContent=score2+'/100';});
-  $$('.js-bLabel2').forEach(function(el){el.textContent=label2;});
-  $$('.js-bBar2').forEach(function(el){el.style.width=score2+'%';el.style.background=barCol2;});
+  $$('.js-bScore,.js-bScore2').forEach(function(el){el.textContent=score+'/100';});
+  $$('.js-bLabel,.js-bLabel2').forEach(function(el){el.textContent=label;});
+  $$('.js-bBar,.js-bBar2').forEach(function(el){el.style.width=score+'%';el.style.background=barCol;});
   const det2=$('#bottomDetails2');
   if(det2){
-    det2.innerHTML=sigs2.map(function(s){const pCol=s.pts>=s.max*0.75?'#3BF38B':s.pts>=s.max*0.4?'#F5B843':'#FF5C72';return '<div class="flex items-center gap-2 py-1 border-t border-line/40 text-xs"><span class="w-4 text-center shrink-0">'+s.icon+'</span><span class="text-mutet flex-1">'+s.name+'</span><span class="tnum text-mutet text-[10px] shrink-0">'+s.val+'</span><span class="font-bold tnum w-8 text-right shrink-0" style="color:'+pCol+'">'+s.pts+'/'+s.max+'</span></div>';}).join('');
+    det2.innerHTML=sigs.map(function(s){const pCol=s.pts>=s.max*0.75?'#3BF38B':s.pts>=s.max*0.4?'#F5B843':'#FF5C72';return '<div class="flex items-center gap-2 py-1 border-t border-line/40 text-xs"><span class="w-4 text-center shrink-0">'+s.icon+'</span><span class="text-mutet flex-1">'+s.name+'</span><span class="tnum text-mutet text-[10px] shrink-0">'+s.val+'</span><span class="font-bold tnum w-8 text-right shrink-0" style="color:'+pCol+'">'+s.pts+'/'+s.max+'</span></div>';}).join('');
   }
 
   const banner=$('#bottomBanner');
