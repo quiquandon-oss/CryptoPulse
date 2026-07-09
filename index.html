@@ -693,6 +693,37 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <input type="file" id="importFile" accept="application/json" class="hidden"/>
         </div>
       </div>
+
+      <!-- ═══ Sentiment Engine Settings — equivalent of Pulse's own weight/lag
+           controls, ported here since CryptoPulse now computes its own composite
+           score independently. Weights persist across reloads (Pulse's own
+           version resets them every time — this is an improvement, not a port). -->
+      <div class="rounded-2xl border border-line bg-panel p-5 space-y-4">
+        <div>
+          <h2 class="font-semibold mb-1">Sentiment Engine — Source Weights</h2>
+          <p class="text-xs text-mutet">Adjust each source's relative importance in the composite score. Auto-renormalized to 100% under the hood — these are relative weights, not literal percentages. Changes apply on the next Sentiment tab refresh.</p>
+        </div>
+        <div id="sentWeightControls" class="space-y-3"></div>
+      </div>
+
+      <div class="rounded-2xl border border-line bg-panel p-5 space-y-3">
+        <div>
+          <h2 class="font-semibold mb-1">Sentiment → BTC Correlation Explorer</h2>
+          <p class="text-xs text-mutet">Test different time lags to find which one shows the strongest correlation between sentiment and BTC's future price move. Needs several days of accumulated history to be reliable.</p>
+        </div>
+        <div class="flex gap-2 items-center">
+          <label class="text-xs text-mutet">Lag:</label>
+          <select id="settingsAnalysisLag" class="bg-panel2 border border-line rounded-lg px-2 py-1.5 text-xs">
+            <option value="1">1h</option>
+            <option value="4">4h</option>
+            <option value="24" selected>24h</option>
+            <option value="72">72h (3d)</option>
+          </select>
+          <button id="settingsAnalysisBtn" class="text-xs font-semibold bg-panel2 hover:bg-line border border-line rounded-lg px-3 py-1.5 transition">Run Analysis</button>
+          <span class="text-xs text-mutet ml-auto" id="settingsAnalysisStatus">—</span>
+        </div>
+        <div id="settingsAnalysisResult" class="text-xs text-mutet"></div>
+      </div>
     </section>
   </main>
 </div>
@@ -1586,8 +1617,9 @@ async function fetchPulseHistory(){
   const json=await res.json();
   return json.history||[];
 }
-async function fetchPulseAnalysis(){
-  const res=await fetch(`${PULSE_WORKER_URL}/analysis?lagHours=24`);
+async function fetchPulseAnalysis(lagHours){
+  lagHours=lagHours||24;
+  const res=await fetch(`${PULSE_WORKER_URL}/analysis?lagHours=${lagHours}`);
   if(!res.ok)throw new Error('Pulse /analysis responded '+res.status);
   return await res.json();
 }
@@ -1639,8 +1671,10 @@ function renderPulseSentiment(history){
   if(pulseHistoryChartInst){pulseHistoryChartInst.data=cfg.data;pulseHistoryChartInst.options=cfg.options;pulseHistoryChartInst.update();}
   else pulseHistoryChartInst=new Chart(cv,cfg);
 }
-function renderPulseAnalysis(a){
-  const host=$('#pulseCorrelationBody');const status=$('#pulseAnalysisStatus');
+function renderPulseAnalysis(a,statusId,bodyId){
+  statusId=statusId||'pulseAnalysisStatus';bodyId=bodyId||'pulseCorrelationBody';
+  const host=$('#'+bodyId);const status=$('#'+statusId);
+  if(!host||!status)return;
   if(a.insufficientData){
     status.textContent=`${a.pointsAvailable} point(s)`;
     host.innerHTML=`<p class="text-xs text-mutet">${a.message}</p>`;
@@ -1660,6 +1694,19 @@ function renderPulseAnalysis(a){
   }).join('');
   h+=`<p class="text-[10px] text-mutet mt-3 pt-2 border-t border-line/50">${a.interpretation}</p>`;
   host.innerHTML=h;
+}
+async function runCustomCorrelationAnalysis(){
+  const btn=$('#settingsAnalysisBtn'),lagSel=$('#settingsAnalysisLag');
+  if(!btn||!lagSel)return;
+  btn.disabled=true;btn.textContent='Running…';
+  try{
+    const analysis=await fetchPulseAnalysis(parseInt(lagSel.value,10));
+    renderPulseAnalysis(analysis,'settingsAnalysisStatus','settingsAnalysisResult');
+  }catch(err){
+    console.error('Error running custom correlation analysis:',err);
+    $('#settingsAnalysisResult').innerHTML='<p class="text-xs text-mutet">Technical error: '+(err&&err.message?err.message:String(err))+'</p>';
+  }
+  btn.disabled=false;btn.textContent='Run Analysis';
 }
 
 // ---- Technical Analysis (BTC) — computed client-side here, same formulas as
@@ -1932,29 +1979,61 @@ async function srcSosoValueNews(){
 }
 
 // ---- Composite aggregation — exact port of Pulse's renormalizeWeights/computeComposite ----
-const COMPOSITE_SOURCES=[
-  {id:'fng',weight:25,confidence:1.0},
-  {id:'funding',weight:15,confidence:1.0},
-  {id:'longshort',weight:15,confidence:1.0},
-  {id:'global',weight:15,confidence:1.0},
-  {id:'cryptonews',weight:15,confidence:0.7},
-  {id:'macrogeo',weight:12,confidence:0.7},
-  {id:'geopolitics',weight:10,confidence:0.6},
-  {id:'sosovalue',weight:13,confidence:0.7},
-  {id:'onchain',weight:8,confidence:0.5},
-  {id:'oil',weight:6,confidence:0.6},
-  {id:'yield10y',weight:6,confidence:0.6},
-  {id:'usd',weight:6,confidence:0.6},
-  {id:'nasdaq',weight:8,confidence:0.7},
-  {id:'sp500',weight:8,confidence:0.7},
-  {id:'etfflows',weight:10,confidence:0.8},
+// Weights are adjustable (Settings tab) and persisted to localStorage — unlike Pulse's
+// own frontend, where weight adjustments reset on every reload. Defaults match Pulse's
+// original weights exactly; only what you actually change gets overridden.
+const COMPOSITE_SOURCES_DEFAULTS=[
+  {id:'fng',label:'Fear & Greed Index',weight:25,confidence:1.0},
+  {id:'funding',label:'Funding Rate (BTC/ETH perp)',weight:15,confidence:1.0},
+  {id:'longshort',label:'Long/Short Ratio (accounts)',weight:15,confidence:1.0},
+  {id:'global',label:'Market Cap 24h (global)',weight:15,confidence:1.0},
+  {id:'cryptonews',label:'Crypto News (CoinTelegraph)',weight:15,confidence:0.7},
+  {id:'macrogeo',label:'Macro Economy (Investing.com)',weight:12,confidence:0.7},
+  {id:'geopolitics',label:'Geopolitics (BBC World)',weight:10,confidence:0.6},
+  {id:'sosovalue',label:'Macro News (SoSoValue)',weight:13,confidence:0.7},
+  {id:'onchain',label:'On-Chain Activity (BTC)',weight:8,confidence:0.5},
+  {id:'oil',label:'WTI Oil (FRED)',weight:6,confidence:0.6},
+  {id:'yield10y',label:'10Y Treasury Yield (FRED)',weight:6,confidence:0.6},
+  {id:'usd',label:'US Dollar Index (FRED)',weight:6,confidence:0.6},
+  {id:'nasdaq',label:'Nasdaq Composite (FRED)',weight:8,confidence:0.7},
+  {id:'sp500',label:'S&P 500 (FRED)',weight:8,confidence:0.7},
+  {id:'etfflows',label:'BTC ETF Flows (SoSoValue)',weight:10,confidence:0.8},
 ];
+function loadSentimentWeights(){
+  let overrides={};
+  try{overrides=JSON.parse(localStorage.getItem('cp2_sentiment_weights')||'{}');}catch(e){}
+  return COMPOSITE_SOURCES_DEFAULTS.map(s=>({...s,weight:overrides[s.id]!=null?overrides[s.id]:s.weight}));
+}
+function saveSentimentWeight(id,weight){
+  let overrides={};
+  try{overrides=JSON.parse(localStorage.getItem('cp2_sentiment_weights')||'{}');}catch(e){}
+  overrides[id]=weight;
+  localStorage.setItem('cp2_sentiment_weights',JSON.stringify(overrides));
+}
+let COMPOSITE_SOURCES=loadSentimentWeights();
 function computeComposite(activeSources){
   if(!activeSources.length)return null;
   const weighted=activeSources.map(s=>({...s,confidenceWeight:s.weight*(s.confidence??1.0)}));
   const total=weighted.reduce((s,src)=>s+src.confidenceWeight,0)||1;
   const withEffective=weighted.map(s=>({...s,effectiveWeight:(s.confidenceWeight/total)*100}));
   return Math.round(withEffective.reduce((sum,s)=>sum+(s.value.score*s.effectiveWeight/100),0));
+}
+function renderSentimentWeightControls(){
+  const host=$('#sentWeightControls');if(!host)return;
+  host.innerHTML=COMPOSITE_SOURCES.map(s=>`
+    <div class="flex items-center gap-3">
+      <span class="text-xs text-mutet w-40 shrink-0">${s.label}</span>
+      <input type="range" min="0" max="100" value="${s.weight}" data-id="${s.id}" class="weightSlider flex-1">
+      <span class="text-xs w-10 text-right tnum" id="wval-${s.id}">${s.weight}%</span>
+    </div>`).join('');
+  host.querySelectorAll('.weightSlider').forEach(slider=>{
+    slider.oninput=e=>{
+      const id=e.target.dataset.id,val=parseInt(e.target.value,10);
+      const src=COMPOSITE_SOURCES.find(s=>s.id===id);if(src)src.weight=val;
+      const lbl=$('#wval-'+id);if(lbl)lbl.textContent=val+'%';
+      saveSentimentWeight(id,val);
+    };
+  });
 }
 
 // ---- Orchestration: fetch everything independently, compute, POST to /history ----
@@ -2092,6 +2171,8 @@ function wire(){
     btn.disabled=false;btn.classList.remove('opacity-60','cursor-not-allowed');
     setTimeout(()=>{icon.style.transition='none';icon.style.transform='rotate(0deg)';},600);
   };
+  $('#settingsAnalysisBtn').onclick=runCustomCorrelationAnalysis;
+  renderSentimentWeightControls();
   wireModal();
   $$('#d_typeSeg button').forEach(b=>b.onclick=()=>{state.tType=b.dataset.type;
     $$('#d_typeSeg button').forEach(x=>{const on=x===b;x.className=`flex-1 py-2 rounded-lg text-sm font-semibold ${on?(state.tType==='buy'?'bg-neon text-ink':'bg-down text-white'):'text-mutet'}`;});preview();});
