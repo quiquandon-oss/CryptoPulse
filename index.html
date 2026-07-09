@@ -424,23 +424,26 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <div id="probaTable"></div>
       </div>
 
-      <!-- Market bottom signal — full detail (breakdown table + legend), as it originally lived here -->
+      <!-- Market bottom signal — full detail (breakdown table + legend), as it originally lived here.
+           Sentiment-free version per explicit request — uses its own distinct DOM targets
+           (js-bScore2/js-bLabel2/js-bBar2/bottomDetails2), computed separately from
+           Dashboard's sentiment-inclusive version, so the two can genuinely diverge. -->
       <div class="rounded-2xl border border-line bg-panel p-4">
         <div class="flex items-start justify-between mb-3">
           <div>
             <h3 class="font-semibold text-sm">Market Bottom Signal</h3>
-            <p class="text-xs text-mutet mt-0.5">5 composite indicators · refreshes every 60s</p>
+            <p class="text-xs text-mutet mt-0.5">4 composite indicators (no sentiment) · refreshes every 60s</p>
           </div>
           <div class="text-right shrink-0 ml-3">
-            <p class="grot text-xl font-bold js-bScore">—</p>
-            <p class="text-xs mt-0.5 js-bLabel">—</p>
+            <p class="grot text-xl font-bold js-bScore2">—</p>
+            <p class="text-xs mt-0.5 js-bLabel2">—</p>
           </div>
         </div>
         <div class="h-2 bg-panel2 rounded-full overflow-hidden mb-3">
-          <div class="js-bBar h-full rounded-full transition-all duration-700" style="width:0%"></div>
+          <div class="js-bBar2 h-full rounded-full transition-all duration-700" style="width:0%"></div>
         </div>
-        <div id="bottomDetails"></div>
-        <p class="text-[10px] text-mutet mt-3 pt-2 border-t border-line/50">Score 0-30 🔴 Bear · 30-50 🟠 Accumulation · 50-70 🟢 Strong · 70+ 💎 Very Strong · Strong requires BTC 30d trend > −10% · Live: F&G API + live prices · Not financial advice.</p>
+        <div id="bottomDetails2"></div>
+        <p class="text-[10px] text-mutet mt-3 pt-2 border-t border-line/50">Score 0-30 🔴 Bear · 30-50 🟠 Accumulation · 50-70 🟢 Strong · 70+ 💎 Very Strong · Strong requires BTC 30d trend > −10% · Live: F&G API + live prices · Not financial advice. Sentiment Engine excluded here — see Dashboard for the sentiment-inclusive score.</p>
       </div>
 
       <div class="rounded-2xl border border-line bg-panel p-4 text-xs space-y-1.5 text-mutet">
@@ -2652,7 +2655,8 @@ async function getFG(){
   }catch(e){fgValue=null;}
   renderBottomSignal(); // repaint as soon as live F&G lands — it's on the Dashboard now, always visible
 }
-function calcBottomScore(){
+function calcBottomScore(includeSentiment){
+  if(includeSentiment===undefined)includeSentiment=true;
   const sigs=[];let total=0;
   const fg=fgValue!=null?fgValue:50;
   const fgPts=fg<20?20:fg<30?15:fg<50?5:0;total+=fgPts;
@@ -2678,13 +2682,18 @@ function calcBottomScore(){
   // extreme bullish sentiment subtracts points (euphoria argues against a genuine bottom).
   // Bounded to ±10 so it nudges the score rather than dominating it, and stays neutral
   // (0 effect) until the Sentiment tab has been opened at least once this session.
-  let sentPts=0,sentVal='N/A';
-  if(lastSentimentIndex!=null){
-    sentPts=Math.max(-10,Math.min(10,Math.round(-lastSentimentIndex/10)));
-    sentVal=(lastSentimentIndex>=0?'+':'')+lastSentimentIndex.toFixed(0);
+  // Excluded entirely (not shown, not counted) when includeSentiment=false — used for
+  // the Scenario tab's version of this signal, per explicit request to keep that one
+  // sentiment-free.
+  if(includeSentiment){
+    let sentPts=0,sentVal='N/A';
+    if(lastSentimentIndex!=null){
+      sentPts=Math.max(-10,Math.min(10,Math.round(-lastSentimentIndex/10)));
+      sentVal=(lastSentimentIndex>=0?'+':'')+lastSentimentIndex.toFixed(0);
+    }
+    total+=sentPts;
+    sigs.push({name:'Sentiment (Gemini+ETF)',val:sentVal,pts:sentPts,max:10,icon:sentPts>=5?'🔥':sentPts>0?'🙂':sentPts===0?'➖':'⚠️'});
   }
-  total+=sentPts;
-  sigs.push({name:'Sentiment (Gemini+ETF)',val:sentVal,pts:sentPts,max:10,icon:sentPts>=5?'🔥':sentPts>0?'🙂':sentPts===0?'➖':'⚠️'});
   total=Math.max(0,Math.min(100,total)); // keep the displayed bar/score within 0-100 after the modifier
   return{score:total,sigs,falling:t30<-10,fgLive:fgValue!=null};
 }
@@ -2712,18 +2721,28 @@ function renderProba(){
   host.innerHTML=h;
 }
 function renderBottomSignal(){
-  const bs=calcBottomScore();const score=bs.score,sigs=bs.sigs;
+  // Dashboard: sentiment-inclusive (unchanged behavior)
+  const bs=calcBottomScore(true);const score=bs.score,sigs=bs.sigs;
   let label=score>=70?'💎 Very Strong Signal':score>=50?'🟢 Strong Signal':score>=30?'🟠 Accumulation Zone':'🔴 Bear Ongoing';
   let barCol=score>=70?'#3BF38B':score>=50?'#3BF38B':score>=30?'#F5B843':'#FF5C72';
-  // coherence guard: never claim a "strong bottom" while BTC is still falling >10% over 30d
   if(bs.falling&&score>=50){label='🟠 Accumulation Zone · price still falling';barCol='#F5B843';}
   $$('.js-bScore').forEach(function(el){el.textContent=score+'/100';});
   $$('.js-bLabel').forEach(function(el){el.textContent=label;});
   $$('.js-bBar').forEach(function(el){el.style.width=score+'%';el.style.background=barCol;});
-  const det=$('#bottomDetails');
-  if(det){
-    det.innerHTML=sigs.map(function(s){const pCol=s.pts>=s.max*0.75?'#3BF38B':s.pts>=s.max*0.4?'#F5B843':'#FF5C72';return '<div class="flex items-center gap-2 py-1 border-t border-line/40 text-xs"><span class="w-4 text-center shrink-0">'+s.icon+'</span><span class="text-mutet flex-1">'+s.name+'</span><span class="tnum text-mutet text-[10px] shrink-0">'+s.val+'</span><span class="font-bold tnum w-8 text-right shrink-0" style="color:'+pCol+'">'+s.pts+'/'+s.max+'</span></div>';}).join('');
+
+  // Scenario: sentiment-free, computed and rendered independently so it can genuinely diverge
+  const bs2=calcBottomScore(false);const score2=bs2.score,sigs2=bs2.sigs;
+  let label2=score2>=70?'💎 Very Strong Signal':score2>=50?'🟢 Strong Signal':score2>=30?'🟠 Accumulation Zone':'🔴 Bear Ongoing';
+  let barCol2=score2>=70?'#3BF38B':score2>=50?'#3BF38B':score2>=30?'#F5B843':'#FF5C72';
+  if(bs2.falling&&score2>=50){label2='🟠 Accumulation Zone · price still falling';barCol2='#F5B843';}
+  $$('.js-bScore2').forEach(function(el){el.textContent=score2+'/100';});
+  $$('.js-bLabel2').forEach(function(el){el.textContent=label2;});
+  $$('.js-bBar2').forEach(function(el){el.style.width=score2+'%';el.style.background=barCol2;});
+  const det2=$('#bottomDetails2');
+  if(det2){
+    det2.innerHTML=sigs2.map(function(s){const pCol=s.pts>=s.max*0.75?'#3BF38B':s.pts>=s.max*0.4?'#F5B843':'#FF5C72';return '<div class="flex items-center gap-2 py-1 border-t border-line/40 text-xs"><span class="w-4 text-center shrink-0">'+s.icon+'</span><span class="text-mutet flex-1">'+s.name+'</span><span class="tnum text-mutet text-[10px] shrink-0">'+s.val+'</span><span class="font-bold tnum w-8 text-right shrink-0" style="color:'+pCol+'">'+s.pts+'/'+s.max+'</span></div>';}).join('');
   }
+
   const banner=$('#bottomBanner');
   if(banner){
     if(score>=50&&!bs.falling){
