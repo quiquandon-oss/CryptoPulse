@@ -325,6 +325,40 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
 
     <!-- =============== TRANSACTIONS =============== -->
     <section id="v-transactions" class="hidden">
+      <!-- ═══ Dry Powder Planner ═══ (moved here from Capital, per user request)
+           Reuses the app's existing cost-basis math (avg/qtyOf/pxNow) rather than
+           inventing a new model — this just re-runs those same functions with a
+           hypothetical extra purchase folded in. No statistical projections here
+           (deliberately) — just honest arithmetic on real portfolio data. -->
+      <div class="rounded-2xl border border-line bg-panel p-5 space-y-3 mb-4">
+        <div>
+          <h2 class="font-semibold">Dry Powder Planner</h2>
+          <p class="text-xs text-mutet mt-1">See how deploying more capital right now would shift your blended average cost for a coin.</p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs text-mutet mb-1 block">Asset</label>
+            <select id="dryAsset" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2.5 text-sm"></select>
+          </div>
+          <div>
+            <label class="text-xs text-mutet mb-1 block">Amount to deploy</label>
+            <input id="dryAmount" type="number" min="0" step="10" value="500" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2.5 text-sm tnum" />
+          </div>
+        </div>
+        <input id="drySlider" type="range" min="0" max="2000" step="10" value="500" class="w-full accent-accent" />
+        <div class="grid grid-cols-2 gap-3">
+          <div class="bg-panel2 rounded-xl p-3">
+            <p class="text-xs text-mutet mb-1">Avg Cost — Before → After</p>
+            <p class="tnum font-semibold text-sm" id="dryAvgBeforeAfter">—</p>
+          </div>
+          <div class="bg-panel2 rounded-xl p-3">
+            <p class="text-xs text-mutet mb-1">Total Invested — Before → After</p>
+            <p class="tnum font-semibold text-sm" id="dryInvestedBeforeAfter">—</p>
+          </div>
+        </div>
+        <p class="text-xs text-mutet" id="dryNote">—</p>
+      </div>
+
       <div class="flex items-center justify-between mb-3">
         <h2 class="font-semibold">Transactions &amp; average-price impact</h2>
         <button id="addCoin2" class="text-sm font-semibold bg-panel2 hover:bg-line border border-line rounded-lg px-3 py-1.5 transition">+ Add coin</button>
@@ -439,40 +473,6 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         </div>
       </div>
       <div id="capCoins" class="space-y-3"></div>
-
-      <!-- ═══ Dry Powder Planner ═══
-           Reuses the app's existing cost-basis math (avg/qtyOf/pxNow) rather than
-           inventing a new model — this just re-runs those same functions with a
-           hypothetical extra purchase folded in. No statistical projections here
-           (deliberately) — just honest arithmetic on real portfolio data. -->
-      <div class="rounded-2xl border border-line bg-panel p-5 space-y-3">
-        <div>
-          <h2 class="font-semibold">Dry Powder Planner</h2>
-          <p class="text-xs text-mutet mt-1">See how deploying more capital right now would shift your blended average cost for a coin.</p>
-        </div>
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="text-xs text-mutet mb-1 block">Asset</label>
-            <select id="dryAsset" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2.5 text-sm"></select>
-          </div>
-          <div>
-            <label class="text-xs text-mutet mb-1 block">Amount to deploy</label>
-            <input id="dryAmount" type="number" min="0" step="10" value="500" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2.5 text-sm tnum" />
-          </div>
-        </div>
-        <input id="drySlider" type="range" min="0" max="2000" step="10" value="500" class="w-full accent-accent" />
-        <div class="grid grid-cols-2 gap-3">
-          <div class="bg-panel2 rounded-xl p-3">
-            <p class="text-xs text-mutet mb-1">Avg Cost — Before → After</p>
-            <p class="tnum font-semibold text-sm" id="dryAvgBeforeAfter">—</p>
-          </div>
-          <div class="bg-panel2 rounded-xl p-3">
-            <p class="text-xs text-mutet mb-1">Total Invested — Before → After</p>
-            <p class="tnum font-semibold text-sm" id="dryInvestedBeforeAfter">—</p>
-          </div>
-        </div>
-        <p class="text-xs text-mutet" id="dryNote">—</p>
-      </div>
     </section>
 
     <!-- =============== RADAR (buy-window analysis, any tracked coin) =============== -->
@@ -960,7 +960,11 @@ function renderTx(){const host=$('#txByCoin');host.innerHTML='';
     host.appendChild(card);});
   $$('.delTx').forEach(b=>b.onclick=()=>{state.txs=state.txs.filter(t=>t.id!==b.dataset.del);LS.save();render();toast('Deleted');});
   $$('.dcaJump').forEach(b=>b.onclick=()=>{setView('dca');$('#d_asset').value=b.dataset.coin;});
-  $$('.expBtn').forEach(b=>b.onclick=()=>{const a=b.dataset.exp;if(state.expanded.has(a))state.expanded.delete(a);else state.expanded.add(a);renderTx();});}
+  $$('.expBtn').forEach(b=>b.onclick=()=>{const a=b.dataset.exp;if(state.expanded.has(a))state.expanded.delete(a);else state.expanded.add(a);renderTx();});
+  populateDryAssetSelect();
+  wireDryPowder();
+  renderDryPowder();
+}
 
 /* ---- DCA form ---- */
 function fillAssets(){$('#d_asset').innerHTML=syms().map(s=>`<option value="${s}">${s} — ${META[s]?.name||s}</option>`).join('');}
@@ -2208,10 +2212,6 @@ function renderCapital(){
     </div>`;
     host.appendChild(el);
   });
-
-  populateDryAssetSelect();
-  wireDryPowder();
-  renderDryPowder();
 }
 
 /* ════════════════════════════════════════════════════════════════
