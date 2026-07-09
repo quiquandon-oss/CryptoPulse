@@ -569,6 +569,13 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            RSS/on-chain/macro sources), replacing the old Gemini/Google-Sheet pipeline
            entirely. Scale is 0-100 (0=extreme bear, 100=extreme bull), matching Pulse's
            own convention, not the old -100..+100 scale. ═══ -->
+      <div class="flex items-center justify-between">
+        <h2 class="font-semibold text-sm">Sentiment &amp; Technical</h2>
+        <button id="sentimentRefreshBtn" class="text-sm font-medium bg-panel2 hover:bg-line border border-line rounded-xl px-3 py-2 flex items-center gap-1.5 transition">
+          <svg id="sentimentRefreshIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v6h-6"/></svg>
+          Refresh
+        </button>
+      </div>
       <div class="rounded-2xl border border-line bg-panel p-5 space-y-4">
         <div>
           <h2 class="font-semibold mb-1">Sentiment Engine (Pulse)</h2>
@@ -606,32 +613,16 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <div id="pulseCorrelationBody"></div>
       </div>
 
-      <!-- ═══ TEMPORARY: Telegram Alert Config status view (read-only) ═══
-           Paused for now (Telegram/Apps Script pipeline on hold) — left exactly as-is,
-           independent of the Sentiment Engine rebuild above/below. -->
+      <!-- SoSoValue ETF net-inflow — aggregate daily flow across all US spot ETFs
+           per coin. HYPE has no ETF aggregate history on this endpoint yet.
+           Restored — this is independent of the Gemini/SoSoValue-News purge, a
+           separately-working feature that shouldn't have been removed with it. -->
       <div class="rounded-2xl border border-line bg-panel p-5">
         <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-semibold">Alert Config (Telegram) — test view</h3>
-          <span class="text-xs text-mutet" id="alertConfigStatus">—</span>
+          <h3 class="text-sm font-semibold">Spot ETF Net Inflow (SoSoValue)</h3>
+          <span class="text-xs text-mutet" id="sosoEtfCacheNote">—</span>
         </div>
-        <p class="text-xs text-mutet mb-3" id="dcaSyncStatus">Sync status: —</p>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="border-b border-line text-left text-mutet text-xs uppercase tracking-wide">
-                <th class="py-2 pr-3 font-medium">Asset</th>
-                <th class="py-2 pr-3 font-medium text-right">Target Price</th>
-                <th class="py-2 pr-3 font-medium text-right">Sentiment Threshold</th>
-                <th class="py-2 pr-3 font-medium text-right">Avg Cost</th>
-                <th class="py-2 pr-3 font-medium text-right">Weekly Trend</th>
-                <th class="py-2 pr-3 font-medium text-right">Suggested DCA</th>
-                <th class="py-2 pr-3 font-medium text-center">Enabled</th>
-                <th class="py-2 pr-3 font-medium text-right">Last Alerted</th>
-              </tr>
-            </thead>
-            <tbody id="alertConfigBody"></tbody>
-          </table>
-        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="sosoEtfList"></div>
       </div>
 
       <!-- ═══ Technical Analysis (BTC) — levels computed client-side in CryptoPulse
@@ -1230,26 +1221,26 @@ async function initRadarTab(){
   await ensureRadarData(state.radar.coin,myToken);
   await updateRadarLive(myToken);
 }
-// Per-coin sentiment badge — filters the shared combined Gemini+ETF rows (computed
-// on the Sentiment tab) down to just the currently-selected Radar coin, and shows
-// the same decay-weighted index/label used there. Neutral "no data yet" state until
-// the Sentiment tab has loaded at least once this session.
+// Market-wide sentiment badge — Pulse's engine is NOT per-coin (one overall
+// composite score across crypto/macro/geopolitics/on-chain), so every coin in
+// Radar shows the SAME reading, honestly labeled "(market-wide)" rather than
+// implying it's specific to the selected coin. Fed by lastSentimentIndex, set in
+// initSentimentTab() from Pulse's latest score, converted to this function's
+// existing -100..+100 scale so sentLabelFor() stays completely unchanged.
 function renderRadarSentimentBadge(){
   const coinEl=$('#radarSentimentCoin'),scoreEl=$('#radarSentimentScore'),labelEl=$('#radarSentimentLabel');
   if(!coinEl||!scoreEl||!labelEl)return;
   const coin=state.radar.coin;
   coinEl.textContent=coin;
-  if(!lastCombinedSentimentRows.length){
+  if(lastSentimentIndex==null){
     scoreEl.textContent='—';scoreEl.style.color='';
     labelEl.textContent='Open Sentiment tab first';labelEl.style.color='#94A3B8';labelEl.style.backgroundColor='#94A3B826';
     return;
   }
-  const coinRows=lastCombinedSentimentRows.filter(r=>r.asset===coin);
-  const score=computeSentimentIndex(coinRows);
-  const{text,color,bg}=sentLabelFor(score);
-  scoreEl.textContent=score===null?'—':(score>=0?'+':'')+score.toFixed(0);
+  const{text,color,bg}=sentLabelFor(lastSentimentIndex);
+  scoreEl.textContent=(lastSentimentIndex>=0?'+':'')+lastSentimentIndex.toFixed(0);
   scoreEl.style.color=color;
-  labelEl.textContent=score===null?`No ${coin}-specific events yet`:text;
+  labelEl.textContent=text+' (market-wide)';
   labelEl.style.color=color;labelEl.style.backgroundColor=bg;
 }
 // Fetches + analyses both lookbacks for a coin, reusing the cache if <1h old.
@@ -1522,19 +1513,29 @@ function wireRadar(){
 ═══════════════════════════════════════════════════════════════════ */
 
 const SENT_HALF_LIFE_HOURS=6; // kept: computeSentimentIndex (used by Radar) depends on this
-// TODO: replace with the real Publish-to-web CSV link for the "AlertConfig" tab specifically
-// (File → Share → Publish to web → select the AlertConfig tab → CSV). This is a different
-// tab/gid than the old sentiment tracker sheet, so it needs its own separate publish action.
-const ALERTCONFIG_CSV_URL='https://docs.google.com/spreadsheets/d/e/2PACX-1vSDmlI4MxH2USmwRF5DbR6qNI4W7Knp-6i1DucVTR-HGNBCri0W4l3hK2iTj7r8R551FHPeyRqwABUJ/pub?gid=874405685&single=true&output=csv';
 
-// Shared state — kept exactly as-is for Radar's per-coin badge (paused: nothing populates
-// these anymore since the Gemini/SoSoValue pipeline was removed, so Radar's badge will
-// simply keep showing "Open Sentiment tab first" indefinitely — that IS the paused state).
+// Shared state — now actively fed by Pulse (see initSentimentTab): lastSentimentIndex
+// holds Pulse's latest score, converted from its 0-100 scale to this variable's
+// existing -100..+100 scale, so sentLabelFor() and Radar's badge stay unchanged.
+// lastCombinedSentimentRows is no longer used (Pulse has no per-coin breakdown) —
+// kept declared only so nothing that still references it (defensively) breaks.
 let lastSentimentIndex=null;
 let lastCombinedSentimentRows=[];
 
+// SoSoValue — free-tier API key, used ONLY for the ETF net-inflow panel below (the
+// Gemini/SoSoValue-News sentiment pipeline was removed; this is a separate, working
+// feature that shouldn't have been removed along with it). Same exposure caveat as
+// the other keys in this app: visible in page source, static client-side file.
+const SOSO_API_KEY='SOSO-22e8036211c5416c8faef111de6ba2c1';
+const SOSO_BASE='https://openapi.sosovalue.com/openapi/v1';
+// ETF aggregate net-inflow endpoint only supports these symbols (confirmed enum) —
+// HYPE has no spot-ETF aggregate history there yet, so it's simply skipped below.
+const SOSO_ETF_SYMS=['BTC','ETH','SOL','LINK'];
+
+
 // Minimal but robust CSV parser: handles quoted fields (commas/newlines inside).
-// Kept — still used by fetchAlertConfig() below.
+// Kept — no longer used by anything currently, but harmless to leave in place
+// in case a future CSV-based feature needs it.
 function parseCsv(text){
   const rows=[];let row=[],field='',inQuotes=false;
   for(let i=0;i<text.length;i++){
@@ -1733,42 +1734,74 @@ function renderTechnicalLlm(latest){
   ageEl.textContent=ageMin<60?`${ageMin}m ago`:`${(ageMin/60).toFixed(1)}h ago`;
 }
 
-// Fetches the AlertConfig tab (read-only test view). Reuses parseCsv() above.
-async function fetchAlertConfig(){
-  const res=await fetch(ALERTCONFIG_CSV_URL);
-  if(!res.ok)throw new Error('AlertConfig fetch responded '+res.status);
-  const text=await res.text();
-  const table=parseCsv(text);
-  const header=table[0]||[];
-  const idx=name=>header.findIndex(h=>h.trim().toLowerCase()===name.toLowerCase());
-  const iAsset=idx('Asset'),iTarget=idx('TargetPrice'),iThresh=idx('SentimentThreshold'),iEnabled=idx('Enabled'),iLast=idx('LastAlerted');
-  const iAvgCost=idx('AvgCost'),iTrend=idx('WeeklyTrendPct'),iDca=idx('SuggestedDcaEUR');
-  return table.slice(1).filter(r=>r.length&&r[iAsset]).map(r=>({
-    asset:r[iAsset]||'',
-    targetPrice:r[iTarget]||'',
-    sentimentThreshold:r[iThresh]||'',
-    avgCost:iAvgCost>=0?(r[iAvgCost]||''):'',
-    weeklyTrendPct:iTrend>=0?(r[iTrend]||''):'',
-    suggestedDcaEUR:iDca>=0?(r[iDca]||''):'',
-    enabled:(r[iEnabled]||'').trim().toUpperCase()==='TRUE',
-    lastAlerted:r[iLast]||'—',
-  }));
+// ---- ETF net-inflow flows (aggregate across all US spot ETFs per coin) ----
+// GET /etfs/summary-history?symbol=X&country_code=US — confirmed response is
+// wrapped {code, message, data:[...]}. HYPE isn't in the supported symbol enum
+// for this endpoint, so it's simply not fetched (see SOSO_ETF_SYMS). Restored
+// verbatim from the last working, caching + 429-tolerant version.
+const SOSO_CACHE_MS=10*60000;
+function sosoCacheGet(key){
+  try{const raw=localStorage.getItem(key);return raw?JSON.parse(raw):null;}catch(e){return null;}
 }
-function renderAlertConfig(rows){
-  const host=$('#alertConfigBody');if(!host)return;
-  if(!rows.length){host.innerHTML='<tr><td colspan="8" class="py-3 text-mutet text-xs">No rows found.</td></tr>';return;}
-  host.innerHTML=rows.map(r=>{
-    const threshBlank=!r.sentimentThreshold.trim();
-    return`<tr class="border-b border-line/50">
-      <td class="py-2 pr-3 font-medium">${r.asset}</td>
-      <td class="py-2 pr-3 text-right tnum">${r.targetPrice||'—'}</td>
-      <td class="py-2 pr-3 text-right tnum ${threshBlank?'text-down':''}">${threshBlank?'⚠ blank':r.sentimentThreshold}</td>
-      <td class="py-2 pr-3 text-right tnum">${r.avgCost||'—'}</td>
-      <td class="py-2 pr-3 text-right tnum">${r.weeklyTrendPct||'—'}</td>
-      <td class="py-2 pr-3 text-right tnum">${r.suggestedDcaEUR?'€'+r.suggestedDcaEUR:'—'}</td>
-      <td class="py-2 pr-3 text-center">${r.enabled?'✅':'—'}</td>
-      <td class="py-2 pr-3 text-right text-mutet text-xs">${r.lastAlerted}</td>
-    </tr>`;
+function sosoCacheSet(key,data){
+  try{localStorage.setItem(key,JSON.stringify({data,fetchedAt:Date.now()}));}catch(e){}
+}
+async function fetchSosoEtfFlows(){
+  const cacheKey='cp2_soso_etf';
+  const cached=sosoCacheGet(cacheKey);
+  if(cached&&Date.now()-cached.fetchedAt<SOSO_CACHE_MS){
+    return{results:cached.data,fromCache:true,cacheAgeMin:Math.round((Date.now()-cached.fetchedAt)/60000)};
+  }
+  const results={};
+  let hadRealError=false,lastErrMsg='';
+  for(const sym of SOSO_ETF_SYMS){
+    try{
+      const url=`${SOSO_BASE}/etfs/summary-history?symbol=${sym}&country_code=US&limit=30`;
+      const res=await fetch(url,{headers:{'x-soso-api-key':SOSO_API_KEY}});
+      const text=await res.text();
+      if(!res.ok){results[sym]={error:'HTTP '+res.status};hadRealError=true;lastErrMsg='HTTP '+res.status;continue;}
+      let json;
+      try{json=JSON.parse(text);}catch(e){results[sym]={error:'not valid JSON'};continue;}
+      const rows=json.data;
+      if(!Array.isArray(rows)||!rows.length){results[sym]={error:'no data'};continue;}
+      const byDate={};
+      rows.forEach(r=>{if(r.date)byDate[r.date]=(byDate[r.date]||0)+(r.total_net_inflow||0);});
+      const dates=Object.keys(byDate).sort().reverse();
+      if(!dates.length){results[sym]={error:'no dated rows'};continue;}
+      const latestDate=dates[0],latest=byDate[latestDate];
+      const last7=dates.slice(0,7);
+      const weekSum=last7.reduce((a,d)=>a+byDate[d],0);
+      results[sym]={date:latestDate,latest,weekSum,days:last7.length};
+    }catch(e){results[sym]={error:e.message};hadRealError=true;lastErrMsg=e.message;}
+  }
+  const allFailed=SOSO_ETF_SYMS.every(sym=>results[sym]&&results[sym].error);
+  if(allFailed&&hadRealError&&cached){
+    return{results:cached.data,fromCache:true,cacheAgeMin:Math.round((Date.now()-cached.fetchedAt)/60000),staleWarning:lastErrMsg};
+  }
+  sosoCacheSet(cacheKey,results);
+  return{results,fromCache:false};
+}
+function fmtUsdCompact(n){
+  const sign=n<0?'-':'+';
+  const abs=Math.abs(n);
+  if(abs>=1e9)return sign+'$'+(abs/1e9).toFixed(2)+'B';
+  if(abs>=1e6)return sign+'$'+(abs/1e6).toFixed(1)+'M';
+  if(abs>=1e3)return sign+'$'+(abs/1e3).toFixed(0)+'K';
+  return sign+'$'+abs.toFixed(0);
+}
+function renderSosoEtfFlows(data){
+  const host=$('#sosoEtfList');if(!host)return;
+  host.innerHTML=SOSO_ETF_SYMS.map(sym=>{
+    const d=data[sym];
+    if(!d||d.error){
+      return`<div class="bg-panel2 rounded-xl p-3"><p class="text-xs text-mutet mb-1">${sym} Spot ETF</p><p class="text-sm text-mutet">${(d&&d.error)||'No data'}</p></div>`;
+    }
+    const color=d.latest>=0?'#3BF38B':'#F5606C';
+    return`<div class="bg-panel2 rounded-xl p-3">
+      <p class="text-xs text-mutet mb-1">${sym} Spot ETF · ${d.date}</p>
+      <p class="tnum font-bold text-lg" style="color:${color}">${fmtUsdCompact(d.latest)}</p>
+      <p class="text-[10px] text-mutet mt-0.5">${d.days}d sum: ${fmtUsdCompact(d.weekSum)}</p>
+    </div>`;
   }).join('');
 }
 
@@ -1778,6 +1811,15 @@ async function initSentimentTab(){
   try{
     const history=await fetchPulseHistory();
     renderPulseSentiment(history);
+    // Cable Radar's per-coin badge to Pulse's latest score, converted from Pulse's
+    // 0-100 scale to the -100..+100 scale sentLabelFor()/Radar's badge already expect.
+    if(history.length){
+      const latestPulseScore=history[history.length-1].score;
+      lastSentimentIndex=(latestPulseScore-50)*2;
+    }else{
+      lastSentimentIndex=null;
+    }
+    if($('#v-radar'))renderRadarSentimentBadge();
   }catch(err){
     console.error('Error fetching Pulse history:',err);
     $('#pulseScore').textContent='—';
@@ -1793,15 +1835,15 @@ async function initSentimentTab(){
     $('#pulseAnalysisStatus').textContent='Error';
     $('#pulseCorrelationBody').innerHTML='<p class="text-xs text-mutet">Technical error: '+(err&&err.message?err.message:String(err))+'</p>';
   }
-  // ---- AlertConfig test view (Telegram pipeline paused, left as-is) ----
+  // ---- Spot ETF Net Inflow (SoSoValue) — restored ----
   try{
-    const rows=await fetchAlertConfig();
-    renderAlertConfig(rows);
-    $('#alertConfigStatus').textContent=`${rows.length} row(s)`;
+    const{results,fromCache,cacheAgeMin,staleWarning}=await fetchSosoEtfFlows();
+    renderSosoEtfFlows(results);
+    const etfHeader=$('#sosoEtfCacheNote');
+    if(etfHeader)etfHeader.textContent=fromCache?(staleWarning?`Rate-limited — showing cached data (${cacheAgeMin}m old)`:`Cached (${cacheAgeMin}m old)`):'Live';
   }catch(err){
-    console.error('Error fetching AlertConfig:',err);
-    $('#alertConfigBody').innerHTML='';
-    $('#alertConfigStatus').textContent='Error: '+(err && err.message ? err.message : String(err));
+    console.error('Error fetching SoSoValue ETF data:',err);
+    $('#sosoEtfList').innerHTML='<p class="text-xs text-mutet col-span-4">Error: '+(err && err.message ? err.message : String(err))+'</p>';
   }
   // ---- DCA metrics sync (unaffected by any of the above — independent of sentiment) ----
   try{
@@ -1839,6 +1881,14 @@ function wire(){
   $$('#nav .navitem').forEach(b=>b.onclick=()=>setView(b.dataset.view));
   $$('#ccyToggle button').forEach(b=>b.onclick=()=>setCcy(b.dataset.ccy));
   $('#refreshBtn').onclick=refresh;$('#goDca').onclick=()=>setView('dca');$('#addCoin2').onclick=()=>{setView('dca');};
+  $('#sentimentRefreshBtn').onclick=async()=>{
+    const btn=$('#sentimentRefreshBtn'),icon=$('#sentimentRefreshIcon');
+    btn.disabled=true;btn.classList.add('opacity-60','cursor-not-allowed');
+    icon.style.transition='transform 0.6s ease';icon.style.transform='rotate(360deg)';
+    await initSentimentTab();
+    btn.disabled=false;btn.classList.remove('opacity-60','cursor-not-allowed');
+    setTimeout(()=>{icon.style.transition='none';icon.style.transform='rotate(0deg)';},600);
+  };
   wireModal();
   $$('#d_typeSeg button').forEach(b=>b.onclick=()=>{state.tType=b.dataset.type;
     $$('#d_typeSeg button').forEach(x=>{const on=x===b;x.className=`flex-1 py-2 rounded-lg text-sm font-semibold ${on?(state.tType==='buy'?'bg-neon text-ink':'bg-down text-white'):'text-mutet'}`;});preview();});
