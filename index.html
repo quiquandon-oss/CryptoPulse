@@ -1805,14 +1805,227 @@ function renderSosoEtfFlows(data){
   }).join('');
 }
 
+// ════════════════════════════════════════════════════════════════
+// INDEPENDENT COMPOSITE SENTIMENT SCORING — ported directly from Pulse's
+// frontend (quiquandon-oss/Sentiment), so CryptoPulse no longer depends on
+// Pulse's own app being actively run to keep /history fresh. Every formula
+// below (satur/to0_100/renormalizeWeights/computeComposite, each source's
+// scale/invert/weight/confidence) is copied verbatim from Pulse's source,
+// not reconstructed from memory — confirmed against the real file.
+// Presentation (renderPulseSentiment etc.) is UNCHANGED — this block only
+// computes a fresh score and POSTs it to the same /history Pulse already
+// uses, then the existing render functions read it back exactly as before.
+// ════════════════════════════════════════════════════════════════
+
+const FRED_KEY='5f8528bd2d41549ffffc98b5bff419de'; // from Pulse's own frontend source (default input value)
+const FRED_CONFIG={
+  oil:{series:'DCOILWTICO',scale:3,invert:true,label:'WTI Oil'},
+  yield10y:{series:'DGS10',scale:0.15,invert:true,label:'10Y Yield'},
+  usd:{series:'DTWEXBGS',scale:1.5,invert:true,label:'US Dollar Index'},
+  nasdaq:{series:'NASDAQCOM',scale:2,invert:false,label:'Nasdaq'},
+  sp500:{series:'SP500',scale:2,invert:false,label:'S&P 500'}
+};
+function satur(x,scale){return Math.tanh(x/scale);}
+function to0_100(sat){return Math.round((sat+1)*50);}
+
+// Lightweight embedded lexicon (AFINN-style, market-adapted) — free, no AI call
+// needed, matching Pulse's DEFAULT scoring mode (it also has an optional Llama
+// classifier mode, not replicated here since the lexicon mode needs no extra
+// dependency and is what Pulse itself falls back to).
+const SENT_LEXICON={
+  surge:2,rally:2,soar:2,bullish:2,gain:1,gains:1,rise:1,rises:1,rising:1,
+  jump:1,jumps:1,boost:1,boosts:1,record:1,high:1,highs:1,growth:1,grows:1,
+  approval:2,approve:2,approves:2,partnership:1,adoption:2,upgrade:1,breakthrough:2,
+  recovery:1,recovers:1,inflow:1,inflows:1,buy:1,buying:1,optimism:2,stabilize:1,
+  ease:1,eases:1,cut:1,cuts:1,'rate cut':2,stimulus:1,expansion:1,strong:1,beat:1,
+  crash:-2,plunge:-2,plunges:-2,bearish:-2,drop:-1,drops:-1,falls:-1,falling:-1,
+  decline:-1,declines:-1,slump:-2,'sell-off':-2,selloff:-2,fear:-1,fears:-1,panic:-2,
+  ban:-2,bans:-2,banned:-2,hack:-2,hacked:-2,exploit:-2,lawsuit:-1,sue:-1,sues:-1,
+  sanction:-2,sanctions:-2,war:-2,conflict:-1,tension:-1,tensions:-1,attack:-2,
+  inflation:-1,recession:-2,default:-2,bankruptcy:-2,bankrupt:-2,liquidation:-1,
+  liquidations:-1,hike:-1,hikes:-1,'rate hike':-2,crackdown:-2,investigation:-1,fraud:-2,
+  outflow:-1,outflows:-1,downturn:-1,volatility:-1,uncertainty:-1,risk:-1,risks:-1
+};
+function scoreHeadline(title){
+  const t=title.toLowerCase();let score=0,hits=0;
+  Object.keys(SENT_LEXICON).forEach(w=>{if(t.includes(w)){score+=SENT_LEXICON[w];hits++;}});
+  return{score,hits};
+}
+function scoreHeadlineBatch(items){
+  const scored=items.map(it=>({...it,...scoreHeadline(it.title)}));
+  const weighted=scored.reduce((s,i)=>s+(i.hits||0),0);
+  const totalScore=scored.reduce((s,i)=>s+(i.score||0),0);
+  const avg=weighted>0?totalScore/weighted:0;
+  return to0_100(satur(avg,1.5));
+}
+
+// ---- Individual source fetchers — each returns {score:0-100} or throws ----
+// (fng reuses the app's own existing fgValue/getFG() — no duplicate call)
+async function srcFundingRate(){
+  const[btc,eth]=await Promise.all([
+    fetch('https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT').then(r=>{if(!r.ok)throw new Error('Binance funding BTC '+r.status);return r.json();}),
+    fetch('https://fapi.binance.com/fapi/v1/premiumIndex?symbol=ETHUSDT').then(r=>{if(!r.ok)throw new Error('Binance funding ETH '+r.status);return r.json();})
+  ]);
+  const avgRate=(parseFloat(btc.lastFundingRate)+parseFloat(eth.lastFundingRate))/2;
+  return{score:to0_100(satur(avgRate*100,0.05))};
+}
+async function srcLongShort(){
+  const res=await fetch('https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=BTCUSDT&period=1h&limit=1');
+  if(!res.ok)throw new Error('Binance long/short '+res.status);
+  const json=await res.json();
+  const ratio=parseFloat(json[0].longShortRatio);
+  return{score:to0_100(satur(Math.log(ratio),0.6))};
+}
+async function srcGlobalMcap(){
+  const res=await fetch(`${CG}/global`);
+  if(!res.ok)throw new Error('CoinGecko global '+res.status);
+  const json=await res.json();
+  const change=json.data.market_cap_change_percentage_24h_usd;
+  return{score:to0_100(satur(change,5))};
+}
+async function srcOnChain(){
+  const res=await fetch('https://mempool.space/api/v1/difficulty-adjustment');
+  if(!res.ok)throw new Error('mempool.space '+res.status);
+  const json=await res.json();
+  const change=json.difficultyChange;
+  if(typeof change!=='number')throw new Error('Unexpected response (no difficultyChange)');
+  return{score:to0_100(satur(change,4))};
+}
+async function srcFredSeries(key){
+  const cfg=FRED_CONFIG[key];
+  const res=await fetch(`${PULSE_WORKER_URL}/macro-proxy?series=${cfg.series}&key=${encodeURIComponent(FRED_KEY)}`);
+  if(!res.ok)throw new Error('Worker macro-proxy '+res.status);
+  const json=await res.json();
+  if(json.error)throw new Error(json.error);
+  const obs=json.observations;
+  if(!obs||obs.length<2)throw new Error('Not enough FRED points received');
+  const latest=parseFloat(obs[0].value),previous=parseFloat(obs[1].value);
+  const pctChange=((latest-previous)/previous)*100;
+  return{score:to0_100(satur(cfg.invert?-pctChange:pctChange,cfg.scale))};
+}
+async function srcEtfFlowsFromExisting(etfResults){
+  // Reuses whatever fetchSosoEtfFlows() already retrieved this cycle (no duplicate
+  // API call) — but applies Pulse's OWN scoring math (latest single day, not the
+  // 7d sum CryptoPulse's own ETF panel uses) to stay faithful to its composite.
+  const btc=etfResults?.BTC;
+  if(!btc||btc.error)throw new Error('No BTC ETF data available this cycle');
+  return{score:to0_100(satur(btc.latest/1e6,100))};
+}
+async function srcNewsRss(source){
+  const res=await fetch(`${PULSE_WORKER_URL}/news-proxy?source=${source}`);
+  if(!res.ok)throw new Error('Worker news-proxy '+res.status);
+  const json=await res.json();
+  const articles=json.items||[];
+  if(!articles.length)throw new Error('No articles received');
+  return{score:scoreHeadlineBatch(articles.map(a=>({title:a.title})))};
+}
+async function srcSosoValueNews(){
+  const url='https://openapi.sosovalue.com/openapi/v1/news?page_num=1&page_size=15&category_list=1,2,3,4,7,13';
+  const res=await fetch(url,{headers:{'x-soso-api-key':SOSO_API_KEY}});
+  if(!res.ok)throw new Error('SoSoValue API '+res.status);
+  const json=await res.json();
+  const articles=(json.data?.list||[]).slice(0,15);
+  if(!articles.length)throw new Error('No articles received');
+  const titled=articles.map(a=>({title:a.title||''})).filter(a=>a.title.trim());
+  if(!titled.length)throw new Error('No usable titles in response');
+  return{score:scoreHeadlineBatch(titled)};
+}
+
+// ---- Composite aggregation — exact port of Pulse's renormalizeWeights/computeComposite ----
+const COMPOSITE_SOURCES=[
+  {id:'fng',weight:25,confidence:1.0},
+  {id:'funding',weight:15,confidence:1.0},
+  {id:'longshort',weight:15,confidence:1.0},
+  {id:'global',weight:15,confidence:1.0},
+  {id:'cryptonews',weight:15,confidence:0.7},
+  {id:'macrogeo',weight:12,confidence:0.7},
+  {id:'geopolitics',weight:10,confidence:0.6},
+  {id:'sosovalue',weight:13,confidence:0.7},
+  {id:'onchain',weight:8,confidence:0.5},
+  {id:'oil',weight:6,confidence:0.6},
+  {id:'yield10y',weight:6,confidence:0.6},
+  {id:'usd',weight:6,confidence:0.6},
+  {id:'nasdaq',weight:8,confidence:0.7},
+  {id:'sp500',weight:8,confidence:0.7},
+  {id:'etfflows',weight:10,confidence:0.8},
+];
+function computeComposite(activeSources){
+  if(!activeSources.length)return null;
+  const weighted=activeSources.map(s=>({...s,confidenceWeight:s.weight*(s.confidence??1.0)}));
+  const total=weighted.reduce((s,src)=>s+src.confidenceWeight,0)||1;
+  const withEffective=weighted.map(s=>({...s,effectiveWeight:(s.confidenceWeight/total)*100}));
+  return Math.round(withEffective.reduce((sum,s)=>sum+(s.value.score*s.effectiveWeight/100),0));
+}
+
+// ---- Orchestration: fetch everything independently, compute, POST to /history ----
+// Each source fails independently (matching Pulse's own per-source resilience) —
+// one API being down doesn't block the rest or the composite.
+async function computeAndSyncCompositeScore(etfResultsFromPanel){
+  const sourceValues={};
+  const jobs=[
+    ['fng',async()=>({score:fgValue!=null?fgValue:50})], // reuses existing app-wide fgValue, no duplicate fetch
+    ['funding',srcFundingRate],
+    ['longshort',srcLongShort],
+    ['global',srcGlobalMcap],
+    ['onchain',srcOnChain],
+    ['oil',()=>srcFredSeries('oil')],
+    ['yield10y',()=>srcFredSeries('yield10y')],
+    ['usd',()=>srcFredSeries('usd')],
+    ['nasdaq',()=>srcFredSeries('nasdaq')],
+    ['sp500',()=>srcFredSeries('sp500')],
+    ['etfflows',()=>srcEtfFlowsFromExisting(etfResultsFromPanel)],
+    ['cryptonews',()=>srcNewsRss('crypto')],
+    ['macrogeo',()=>srcNewsRss('macro')],
+    ['geopolitics',()=>srcNewsRss('geopolitics')],
+    ['sosovalue',srcSosoValueNews],
+  ];
+  await Promise.all(jobs.map(async([id,fn])=>{
+    try{sourceValues[id]=await fn();}
+    catch(e){console.warn('Composite source failed, excluded from this cycle: '+id+' — '+e.message);}
+  }));
+  const active=COMPOSITE_SOURCES.filter(s=>sourceValues[s.id]).map(s=>({...s,value:sourceValues[s.id]}));
+  const composite=computeComposite(active);
+  if(composite==null)return{ok:false,activeCount:0};
+  const sourcesSnapshot={};
+  active.forEach(s=>{sourcesSnapshot[s.id]=s.value.score;});
+  try{
+    await fetch(`${PULSE_WORKER_URL}/history`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({score:composite,btcPrice:pxUsd('BTC')||null,sources:sourcesSnapshot})
+    });
+  }catch(e){console.warn('Failed to POST composite score to /history:',e.message);}
+  return{ok:true,activeCount:active.length,composite};
+}
+
 async function initSentimentTab(){
-  $('#pulseMeta').textContent='Loading Pulse data…';
-  // ---- Pulse sentiment history + gauge ----
+  $('#pulseMeta').textContent='Computing independent composite score…';
+  // ---- Spot ETF Net Inflow (SoSoValue) — fetched first so the composite
+  // scorer below can reuse this result instead of calling the API twice ----
+  let etfResultsForComposite=null;
+  try{
+    const{results,fromCache,cacheAgeMin,staleWarning}=await fetchSosoEtfFlows();
+    renderSosoEtfFlows(results);
+    etfResultsForComposite=results;
+    const etfHeader=$('#sosoEtfCacheNote');
+    if(etfHeader)etfHeader.textContent=fromCache?(staleWarning?`Rate-limited — showing cached data (${cacheAgeMin}m old)`:`Cached (${cacheAgeMin}m old)`):'Live';
+  }catch(err){
+    console.error('Error fetching SoSoValue ETF data:',err);
+    $('#sosoEtfList').innerHTML='<p class="text-xs text-mutet col-span-4">Error: '+(err && err.message ? err.message : String(err))+'</p>';
+  }
+  // ---- Independently compute + POST a fresh composite score (no longer
+  // dependent on Pulse's own frontend being run to keep /history current) ----
+  try{
+    const result=await computeAndSyncCompositeScore(etfResultsForComposite);
+    console.log('Composite score computed from',result.activeCount,'of',COMPOSITE_SOURCES.length,'sources:',result.composite);
+  }catch(err){
+    console.error('Error computing composite score:',err);
+  }
+  // ---- Pulse sentiment history + gauge (now includes our freshly-posted point) ----
   try{
     const history=await fetchPulseHistory();
     renderPulseSentiment(history);
-    // Cable Radar's per-coin badge to Pulse's latest score, converted from Pulse's
-    // 0-100 scale to the -100..+100 scale sentLabelFor()/Radar's badge already expect.
+    // Cable Radar's per-coin badge to the latest score, converted from the 0-100
+    // scale to the -100..+100 scale sentLabelFor()/Radar's badge already expect.
     if(history.length){
       const latestPulseScore=history[history.length-1].score;
       lastSentimentIndex=(latestPulseScore-50)*2;
@@ -1826,7 +2039,7 @@ async function initSentimentTab(){
     $('#pulseLabel').textContent='Error';
     $('#pulseMeta').textContent='Technical error: '+(err&&err.message?err.message:String(err));
   }
-  // ---- Pulse sentiment/price correlation ----
+  // ---- Sentiment/price correlation ----
   try{
     const analysis=await fetchPulseAnalysis();
     renderPulseAnalysis(analysis);
@@ -1834,16 +2047,6 @@ async function initSentimentTab(){
     console.error('Error fetching Pulse analysis:',err);
     $('#pulseAnalysisStatus').textContent='Error';
     $('#pulseCorrelationBody').innerHTML='<p class="text-xs text-mutet">Technical error: '+(err&&err.message?err.message:String(err))+'</p>';
-  }
-  // ---- Spot ETF Net Inflow (SoSoValue) — restored ----
-  try{
-    const{results,fromCache,cacheAgeMin,staleWarning}=await fetchSosoEtfFlows();
-    renderSosoEtfFlows(results);
-    const etfHeader=$('#sosoEtfCacheNote');
-    if(etfHeader)etfHeader.textContent=fromCache?(staleWarning?`Rate-limited — showing cached data (${cacheAgeMin}m old)`:`Cached (${cacheAgeMin}m old)`):'Live';
-  }catch(err){
-    console.error('Error fetching SoSoValue ETF data:',err);
-    $('#sosoEtfList').innerHTML='<p class="text-xs text-mutet col-span-4">Error: '+(err && err.message ? err.message : String(err))+'</p>';
   }
   // ---- DCA metrics sync (unaffected by any of the above — independent of sentiment) ----
   try{
