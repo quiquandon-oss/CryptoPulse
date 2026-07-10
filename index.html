@@ -1976,7 +1976,28 @@ function renderTechnicalLevels(t){
     divEl.style.color=(t.divergence&&t.divergence.type==='bullish')?'#3BF38B':(t.divergence&&t.divergence.type==='bearish')?'#F5606C':'#94A3B8';
   }
 }
-async function fetchPulseTechnicalEval(){
+const TECH_EVAL_TRIGGER_CACHE_MS=30*60000; // don't re-trigger a fresh Llama eval more than every 30 min
+async function fetchPulseTechnicalEval(closes){
+  // Trigger a fresh evaluation using our own already-fetched closes[] data —
+  // reliable, since it comes from a real browser fetch, sidestepping the
+  // Worker's own CoinGecko rate-limit problem entirely. Throttled so repeated
+  // refreshes don't call Cloudflare AI more than roughly once per 30 minutes.
+  const throttleKey='cp2_tech_eval_triggered_at';
+  let lastTriggered=0;
+  try{lastTriggered=+(localStorage.getItem(throttleKey)||0);}catch(e){}
+  if(Array.isArray(closes)&&closes.length>=200&&Date.now()-lastTriggered>TECH_EVAL_TRIGGER_CACHE_MS){
+    try{
+      const res=await fetch(`${PULSE_WORKER_URL}/run-technical-eval`,{
+        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({closes})
+      });
+      if(res.ok){
+        try{localStorage.setItem(throttleKey,String(Date.now()));}catch(e){}
+        const json=await res.json();
+        return json.latest;
+      }
+    }catch(e){console.warn('Triggering fresh technical-eval failed, falling back to reading stored value:',e.message);}
+  }
+  // Fallback: just read whatever's currently stored (from a recent trigger or the cron)
   const res=await fetch(`${PULSE_WORKER_URL}/technical-eval`);
   if(!res.ok)throw new Error('Pulse /technical-eval responded '+res.status);
   const json=await res.json();
@@ -2513,7 +2534,7 @@ async function initSentimentTab(){
     $('#techLevels').innerHTML='<p class="text-xs text-mutet">Technical error: '+(err&&err.message?err.message:String(err))+'</p>';
   }
   try{
-    const latest=await fetchPulseTechnicalEval();
+    const latest=await fetchPulseTechnicalEval(technicalsForTrader?technicalsForTrader.closes:null);
     renderTechnicalLlm(latest);
   }catch(err){
     console.error('Error fetching Pulse technical-eval:',err);
