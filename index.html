@@ -668,6 +668,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <span id="fxVal" class="grot tnum">—</span>
         </div>
         <p class="text-[10px] text-mutet" id="fxStatus">—</p>
+        <p class="text-[10px] text-mutet" id="backfillStatus">Price history backfill: —</p>
         <div class="flex items-center justify-between bg-panel2 rounded-xl px-4 py-3">
           <div><p class="text-sm font-medium">Neverless interest (accrued)</p><p class="text-xs text-mutet">AER ~4.08%, added daily</p></div>
           <span id="interestVal" class="grot tnum text-neon">—</span>
@@ -2953,7 +2954,9 @@ function renderBottomSignal(){
 // shape whenever the app wasn't opened for a day or more). Idempotent — only
 // actually fetches when a real gap of 2+ days exists; harmless no-op otherwise.
 async function backfillPriceHistoryGaps(){
+  const statusEl=$('#backfillStatus');
   const today=NOW();
+  const results=[];
   for(const s of syms()){
     const h=PRICE_HISTORY[s];if(!h)continue;
     const id=META[s]?.id;if(!id)continue;
@@ -2961,27 +2964,32 @@ async function backfillPriceHistoryGaps(){
     if(!lastDate||lastDate>=today)continue;
     const gapDays=Math.round((new Date(today)-new Date(lastDate))/86400000);
     if(gapDays<2)continue; // 0-1 day gap is already covered by today's live price
+    await new Promise(r=>setTimeout(r,400)); // small stagger — reduces risk of hitting CoinGecko right after getPrices()
     try{
       const days=Math.min(90,gapDays+3); // small buffer, capped at CoinGecko's free-tier limit
       const res=await fetch(`${CG}/coins/${id}/market_chart?vs_currency=usd&days=${days}`);
-      if(!res.ok)continue;
+      if(!res.ok){results.push(`${s}: HTTP ${res.status}`);continue;} // was silently swallowed before — now visible
       const json=await res.json();
       const prices=json.prices||[];
-      let filledAny=false;
+      let filledCount=0;
       prices.forEach(([ts,price])=>{
         const date=new Date(ts).toISOString().slice(0,10);
-        if(date>lastDate&&date<today&&h[date]==null){h[date]=price;filledAny=true;}
+        if(date>lastDate&&date<today&&h[date]==null){h[date]=price;filledCount++;}
       });
-      if(filledAny){
+      if(filledCount>0){
         try{
           const raw=localStorage.getItem('cp2_px');const saved=raw?JSON.parse(raw):{};
           if(!saved[s])saved[s]={};
           Object.entries(h).forEach(([d,p])=>{if(d>lastDate&&d<today)saved[s][d]=p;});
           localStorage.setItem('cp2_px',JSON.stringify(saved));
         }catch(e){}
+        results.push(`${s}: filled ${filledCount} day(s)`);
+      }else{
+        results.push(`${s}: 0 days filled (gap=${gapDays}d, ${prices.length} pts received)`);
       }
-    }catch(e){console.warn('Backfill failed for '+s+':',e.message);}
+    }catch(e){results.push(`${s}: FAILED — ${e.message}`);}
   }
+  if(statusEl)statusEl.textContent=results.length?results.join(' | '):'No gaps detected';
 }
 async function init(){LS.load();buildMobileNav();wire();paintNav();
   if(!state.txs)state.txs=hydrate(SEED_TXS);
