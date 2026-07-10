@@ -667,6 +667,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <div><p class="text-sm font-medium">EUR / USD rate</p><p class="text-xs text-mutet">ECB · Frankfurter</p></div>
           <span id="fxVal" class="grot tnum">—</span>
         </div>
+        <p class="text-[10px] text-mutet" id="fxStatus">—</p>
         <div class="flex items-center justify-between bg-panel2 rounded-xl px-4 py-3">
           <div><p class="text-sm font-medium">Neverless interest (accrued)</p><p class="text-xs text-mutet">AER ~4.08%, added daily</p></div>
           <span id="interestVal" class="grot tnum text-neon">—</span>
@@ -1167,26 +1168,32 @@ function setCcy(c){state.ccy=c;LS.ccy();
 /* ---- live refresh ---- */
 const FX_REFRESH_MS=12*60*60000; // 12h → ~1-2x/day for the AUTOMATIC cycle. Manual refresh (force=true) always bypasses this.
 async function getFx(force){
+  const statusEl=$('#fxStatus');
   const lastFetch=+(localStorage.getItem('cp2_fx_fetched_at')||0);
   const cachedRate=+(localStorage.getItem('cp2_fx_rate')||0);
-  if(!force&&cachedRate&&Date.now()-lastFetch<FX_REFRESH_MS){state.fx=cachedRate;return;} // still fresh — reuse cache, no network call
+  if(!force&&cachedRate&&Date.now()-lastFetch<FX_REFRESH_MS){
+    state.fx=cachedRate;
+    if(statusEl)statusEl.textContent=`Cached (${Math.round((Date.now()-lastFetch)/60000)}m old)`;
+    return;
+  }
   try{
-    // CONFIRMED (empirically, via direct testing): api.frankfurter.app now silently
-    // redirects to api.frankfurter.dev, and the response shape changed to
-    // {base:"USD", rates:{"EUR": X}} — NOT {rates:{"USD": X}} as before. Reading
-    // j.rates.USD was always undefined, so this silently fell back to the hardcoded
-    // FX0 constant on every single fetch, for an unknown stretch of time — hence
-    // the rate appearing permanently "stuck". Fixed to read the actual shape and
-    // invert (rates.EUR is EUR-per-USD, so 1/that = USD-per-EUR, what we want).
-    const r=await fetch(`${FXAPI}/latest?from=EUR&to=USD`);
+    // Switched to Frankfurter's current, direct v2 endpoint — confirmed response
+    // shape {date, base, quote, rate} from the real, current API docs. This avoids
+    // the old api.frankfurter.app -> api.frankfurter.dev redirect entirely, which
+    // real browser CORS enforcement most likely silently blocked (a test tool that
+    // doesn't enforce CORS the same way a browser does had made that redirect look
+    // like it worked, which is why the previous fix didn't actually take effect).
+    const r=await fetch('https://api.frankfurter.dev/v2/rate/EUR/USD');
+    if(!r.ok)throw new Error('Frankfurter responded '+r.status);
     const j=await r.json();
-    const eurPerUsd=j.rates&&j.rates.EUR;
-    if(!eurPerUsd)throw new Error('Unexpected Frankfurter response shape: '+JSON.stringify(j).slice(0,200));
-    state.fx=1/eurPerUsd;
+    if(typeof j.rate!=='number')throw new Error('Unexpected response shape: '+JSON.stringify(j).slice(0,200));
+    state.fx=j.rate;
     localStorage.setItem('cp2_fx_rate',String(state.fx));
     localStorage.setItem('cp2_fx_fetched_at',String(Date.now()));
+    if(statusEl)statusEl.textContent='Live — updated just now ('+j.date+')';
   }catch(e){
     console.warn('getFx failed:',e.message);
+    if(statusEl)statusEl.textContent='Error: '+e.message+(cachedRate?' — showing last cached rate':' — showing hardcoded fallback');
     if(cachedRate)state.fx=cachedRate; // fall back to last known good rate rather than leaving it unset
   }
 }
