@@ -696,6 +696,20 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <p class="text-xs text-mutet mb-3">Has price already caught up to what recent sentiment shifts imply, or is there room left? Two independent reads below.</p>
         <div id="buyNewsBody"></div>
       </div>
+
+      <!-- ═══ Trader Analysis — LLM synthesis (Pulse / Cloudflare AI) across
+           everything above: composite + raw sources, per-source correlation,
+           all 5 technical structure signals, the probability model, and both
+           buy-the-news mechanisms. Every number is CryptoPulse's own — the
+           Worker only narrates, never computes or invents a figure. ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold">Trader Analysis</h2>
+          <span class="text-xs text-mutet" id="traderAnalysisStatus">—</span>
+        </div>
+        <p class="text-xs text-mutet mb-3">AI synthesis (Pulse / Cloudflare AI) across every signal above — narration only, not a new number. Not financial advice.</p>
+        <p class="text-sm" id="traderAnalysisBody">—</p>
+      </div>
     </section>
 
     <!-- =============== SETTINGS =============== -->
@@ -2392,9 +2406,44 @@ function renderBuyTheNewsSignals(reaction,lagPattern){
   host.innerHTML=h;
 }
 
+// ════════════════════════════════════════════════════════════════
+// TRADER ANALYSIS — calls the new /trader-analysis endpoint on Pulse's
+// Worker, passing every piece of data CryptoPulse has already computed
+// itself (composite + raw sources, per-source correlations, all 5
+// technical structure signals, the probability model, both buy-the-news
+// mechanisms). The Worker's only job is narrating this — it never
+// computes a number of its own. Cached 10 minutes client-side so a
+// manual refresh doesn't hit Cloudflare AI every single time.
+// ════════════════════════════════════════════════════════════════
+const TRADER_ANALYSIS_CACHE_MS=10*60000;
+async function fetchTraderAnalysis(payload){
+  const cacheKey='cp2_trader_analysis';
+  let cached=null;
+  try{const raw=localStorage.getItem(cacheKey);cached=raw?JSON.parse(raw):null;}catch(e){}
+  if(cached&&Date.now()-cached.fetchedAt<TRADER_ANALYSIS_CACHE_MS){
+    return{analysis:cached.analysis,fromCache:true,cacheAgeMin:Math.round((Date.now()-cached.fetchedAt)/60000)};
+  }
+  const res=await fetch(`${PULSE_WORKER_URL}/trader-analysis`,{
+    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
+  });
+  if(!res.ok)throw new Error('Worker /trader-analysis responded '+res.status);
+  const json=await res.json();
+  if(!json.analysis)throw new Error('Unexpected response shape');
+  try{localStorage.setItem(cacheKey,JSON.stringify({analysis:json.analysis,fetchedAt:Date.now()}));}catch(e){}
+  return{analysis:json.analysis,fromCache:false};
+}
+function renderTraderAnalysis(result){
+  const host=$('#traderAnalysisBody'),status=$('#traderAnalysisStatus');
+  if(!host)return;
+  host.textContent=result.analysis;
+  if(status)status.textContent=result.fromCache?`Cached (${result.cacheAgeMin}m old)`:'Live';
+}
 async function initSentimentTab(){
   $('#pulseMeta').textContent='Computing independent composite score…';
   let pulseHistoryForModels=[]; // captured here, reused below — no duplicate /history fetch
+  let latestSourcesForTrader={},compositeForTrader=null;
+  let correlationsForTrader=null,technicalsForTrader=null;
+  let probModelForTrader=null,buyNewsForTrader=null;
   // ---- Spot ETF Net Inflow (SoSoValue) — fetched first so the composite
   // scorer below can reuse this result instead of calling the API twice ----
   let etfResultsForComposite=null;
@@ -2413,6 +2462,7 @@ async function initSentimentTab(){
   try{
     const result=await computeAndSyncCompositeScore(etfResultsForComposite);
     console.log('Composite score computed from',result.activeCount,'of',COMPOSITE_SOURCES.length,'sources:',result.composite);
+    compositeForTrader=result.composite;
   }catch(err){
     console.error('Error computing composite score:',err);
   }
@@ -2421,11 +2471,10 @@ async function initSentimentTab(){
     const history=await fetchPulseHistory();
     pulseHistoryForModels=history;
     renderPulseSentiment(history);
-    // Cable Radar's per-coin badge to the latest score, converted from the 0-100
-    // scale to the -100..+100 scale sentLabelFor()/Radar's badge already expect.
     if(history.length){
       const latestPulseScore=history[history.length-1].score;
       lastSentimentIndex=(latestPulseScore-50)*2;
+      try{latestSourcesForTrader=history[history.length-1].sources_json?JSON.parse(history[history.length-1].sources_json):{};}catch(e){}
     }else{
       lastSentimentIndex=null;
     }
@@ -2440,6 +2489,7 @@ async function initSentimentTab(){
   try{
     const analysis=await fetchPulseAnalysis();
     renderPulseAnalysis(analysis);
+    if(!analysis.insufficientData)correlationsForTrader={compositeCorrelation:analysis.compositeCorrelation,perSource:Object.fromEntries(Object.entries(analysis.perSourceCorrelation||{}).map(([k,v])=>[k,v.correlation]))};
   }catch(err){
     console.error('Error fetching Pulse analysis:',err);
     $('#pulseAnalysisStatus').textContent='Error';
@@ -2456,6 +2506,7 @@ async function initSentimentTab(){
     const t=await fetchBtcTechnicals();
     renderTechnicalLevels(t);
     $('#techStatus').textContent='Live';
+    technicalsForTrader=t;
   }catch(err){
     console.error('Error fetching BTC technicals:',err);
     $('#techStatus').textContent='Error';
@@ -2472,6 +2523,7 @@ async function initSentimentTab(){
   try{
     const result=computeBtcProbabilityModel(pulseHistoryForModels);
     renderProbabilityModel(result);
+    probModelForTrader=result;
   }catch(err){
     console.error('Error computing probability model:',err);
     $('#probModelBody').innerHTML='<p class="text-xs text-mutet">Technical error: '+(err&&err.message?err.message:String(err))+'</p>';
@@ -2483,9 +2535,34 @@ async function initSentimentTab(){
       computeLagPatternSignal()
     ]);
     renderBuyTheNewsSignals(reaction,lagPattern);
+    buyNewsForTrader={reaction,lagPattern};
   }catch(err){
     console.error('Error computing buy-the-news signals:',err);
     $('#buyNewsBody').innerHTML='<p class="text-xs text-mutet">Technical error: '+(err&&err.message?err.message:String(err))+'</p>';
+  }
+  // ---- Trader Analysis — LLM synthesis across everything above. Every number
+  // in this payload was already computed by CryptoPulse itself; the Worker's
+  // only job is narrating what it means, never inventing its own figures. ----
+  try{
+    const t=technicalsForTrader||{};
+    const payload={
+      price:t.price!=null?t.price:pxUsd('BTC'),
+      sentiment:{composite:compositeForTrader,sources:latestSourcesForTrader},
+      sourceCorrelations:correlationsForTrader||{},
+      technicals:{
+        tenkan:t.tenkan,kijun:t.kijun,ma50:t.ma50,ma100:t.ma100,ma200:t.ma200,rsi14:t.rsi14,
+        cloud:t.cloud,volume:{latest:t.volume,trend:t.volumeTrend},
+        maCrossover:t.crossover,swingStructure:t.swing?t.swing.structure:null,divergence:t.divergence
+      },
+      probabilityModel:probModelForTrader||{insufficient:true},
+      buyTheNews:buyNewsForTrader||{}
+    };
+    const result=await fetchTraderAnalysis(payload);
+    renderTraderAnalysis(result);
+  }catch(err){
+    console.error('Error fetching trader analysis:',err);
+    $('#traderAnalysisBody').textContent='Technical error: '+(err&&err.message?err.message:String(err));
+    if($('#traderAnalysisStatus'))$('#traderAnalysisStatus').textContent='Error';
   }
 }
 
