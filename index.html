@@ -1772,15 +1772,56 @@ function renderPulseSentiment(history){
     const{color:c}=pulseLabelFor(v);
     return`<div class="bg-panel2 border border-line rounded-xl p-2.5 text-center"><p class="text-[10px] text-mutet mb-1">${k}</p><p class="tnum font-bold text-sm" style="color:${c}">${v}</p></div>`;
   }).join(''):'<p class="text-xs text-mutet col-span-3">No per-source breakdown on the latest point.</p>';
-
-  // History chart (Chart.js, same instance-reuse pattern as Scenario's chart)
+}
+// Buckets Pulse's raw (irregularly-timed) history points down to one-per-
+// calendar-date (last point of each day wins) — needed to align with the
+// Technical Score series, which is naturally date-keyed.
+function bucketHistoryByDate(history){
+  const byDate={};
+  history.forEach(h=>{byDate[new Date(h.ts).toISOString().slice(0,10)]=h;});
+  return byDate;
+}
+// Combined chart: Sentiment, Technical, Combined (all 0-100, left axis) plus
+// BTC Price overlay (right axis). Sentiment's real accumulated history comes
+// from Pulse's /history; Technical's real history is computed retroactively
+// from the same price series already fetched — both are genuine historical
+// data, not placeholders waiting to accumulate.
+function renderCombinedHistoryChart(history,technicalsData){
   const cv=$('#pulseHistoryChart');if(!cv)return;
-  const labels=history.map(h=>new Date(h.ts).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}));
-  const data=history.map(h=>h.score);
-  const cfg={type:'line',data:{labels,datasets:[{data,borderColor:'#4F7DFB',backgroundColor:'#4F7DFB22',fill:true,tension:0.3,pointRadius:0,borderWidth:2}]},
+  const lookbackDays=90;
+  const sentByDate=bucketHistoryByDate(history);
+  const closes=technicalsData?technicalsData.closes:null;
+  const dates=technicalsData?technicalsData.dates:null;
+  const techByDate=(closes&&dates)?computeTechnicalScoreSeries(closes,dates,lookbackDays):{};
+  const priceByDate={};
+  if(closes&&dates)dates.forEach((d,i)=>{priceByDate[d]=closes[i];});
+  const cutoff=new Date(Date.now()-lookbackDays*86400000).toISOString().slice(0,10);
+  const plotDates=[...new Set([...Object.keys(sentByDate),...Object.keys(techByDate)])].filter(d=>d>=cutoff).sort();
+  const weight=loadCombinedWeight();
+  const sentSeries=[],techSeries=[],combSeries=[],priceSeries=[];
+  plotDates.forEach(d=>{
+    const s=sentByDate[d]?sentByDate[d].score:null;
+    const t=techByDate[d]!=null?techByDate[d]:null;
+    sentSeries.push(s);techSeries.push(t);
+    combSeries.push(computeCombinedScore(s,t,weight));
+    priceSeries.push(priceByDate[d]!=null?priceByDate[d]:(sentByDate[d]?sentByDate[d].btc:null));
+  });
+  const cfg={type:'line',data:{labels:plotDates,datasets:[
+    {label:'Sentiment',data:sentSeries,borderColor:'#4F7DFB',backgroundColor:'transparent',fill:false,tension:0.3,pointRadius:0,borderWidth:2,spanGaps:true,yAxisID:'y'},
+    {label:'Technical',data:techSeries,borderColor:'#F5B843',backgroundColor:'transparent',fill:false,tension:0.3,pointRadius:0,borderWidth:2,spanGaps:true,yAxisID:'y'},
+    {label:'Combined',data:combSeries,borderColor:'#3BF38B',backgroundColor:'transparent',fill:false,tension:0.3,pointRadius:0,borderWidth:2,borderDash:[4,3],spanGaps:true,yAxisID:'y'},
+    {label:'BTC Price',data:priceSeries,borderColor:'#8891A8',backgroundColor:'transparent',fill:false,tension:0.3,pointRadius:0,borderWidth:1.5,spanGaps:true,yAxisID:'y1'},
+  ]},
     options:{responsive:true,maintainAspectRatio:false,animation:false,
-      scales:{x:{display:false},y:{min:0,max:100,ticks:{color:'#8891A8',font:{size:9}},grid:{color:'#232A44'}}},
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'Score: '+c.parsed.y}}}}};
+      scales:{
+        x:{display:false},
+        y:{min:0,max:100,position:'left',ticks:{color:'#8891A8',font:{size:9}},grid:{color:'#232A44'}},
+        y1:{position:'right',ticks:{color:'#8891A8',font:{size:9},callback:v=>'$'+Math.round(v/1000)+'K'},grid:{display:false}}
+      },
+      plugins:{
+        legend:{display:true,position:'top',align:'start',labels:{color:'#8891A8',font:{size:9},boxWidth:10,padding:8}},
+        tooltip:{callbacks:{label:c=>c.dataset.label==='BTC Price'?('BTC: $'+(c.parsed.y!=null?Math.round(c.parsed.y).toLocaleString('en-US'):'—')):(c.dataset.label+': '+(c.parsed.y!=null?c.parsed.y:'—'))}}
+      }}};
   if(pulseHistoryChartInst){pulseHistoryChartInst.data=cfg.data;pulseHistoryChartInst.options=cfg.options;pulseHistoryChartInst.update();}
   else pulseHistoryChartInst=new Chart(cv,cfg);
 }
@@ -1947,6 +1988,7 @@ async function fetchBtcTechnicals(){
   if(!res.ok)throw new Error('CoinGecko market_chart responded '+res.status);
   const json=await res.json();
   const closes=(json.prices||[]).map(p=>p[1]);
+  const dates=(json.prices||[]).map(p=>new Date(p[0]).toISOString().slice(0,10));
   const volumes=(json.total_volumes||[]).map(v=>v[1]);
   if(closes.length<200)throw new Error('Not enough history yet ('+closes.length+' points)');
   const last=closes.length-1;
@@ -1967,6 +2009,7 @@ async function fetchBtcTechnicals(){
     volume:latestVol,volumeAvg20:vol20,
     volumeTrend:(vol20&&latestVol)?(latestVol>vol20?'above 20d average':'below 20d average'):'N/A',
     closes, // kept for the probability model / buy-the-news mechanisms to reuse — no refetch needed
+    dates, // kept so the Technical Score can be computed retroactively per real calendar date
   };
 }
 function renderTechnicalLevels(t){
@@ -2544,6 +2587,29 @@ function computeTechnicalScore(t){
   ];
   return Math.round(subs.reduce((a,b)=>a+b,0)/subs.length);
 }
+// Retroactively computes the Technical Score for every past calendar day,
+// using the SAME real closes[]/dates[] arrays already fetched for the
+// current-day view — no new API calls, no waiting for history to
+// accumulate. Real historical data is available immediately, not just
+// going forward. Needs 200+ prior points at each index for MA200, so
+// effectively starts once the closes array is long enough.
+function computeTechnicalScoreSeries(closes,dates,lookbackDays){
+  const series={};
+  const minIndex=200;
+  const startIdx=Math.max(minIndex,closes.length-1-lookbackDays);
+  for(let i=startIdx;i<closes.length;i++){
+    const t={
+      rsi14:techRsi(closes,14,i),
+      cloud:techIchimokuCloud(closes,i),
+      crossover:techMaCrossoverEvent(closes,i,90),
+      swing:techSwingStructure(closes,i,60),
+      divergence:techRsiDivergence(closes,i,60),
+    };
+    const score=computeTechnicalScore(t);
+    if(score!=null&&dates[i])series[dates[i]]=score;
+  }
+  return series;
+}
 function loadCombinedWeight(){
   let w=50;
   try{const raw=localStorage.getItem('cp2_combined_weight');if(raw!=null)w=parseInt(raw,10);}catch(e){}
@@ -2707,6 +2773,12 @@ async function initSentimentTab(){
     renderThreeWayScores(compositeForTrader,technicalScore);
   }catch(err){
     console.error('Error computing three-way scores:',err);
+  }
+  // ---- Combined history chart: Sentiment + Technical + Combined + BTC price ----
+  try{
+    renderCombinedHistoryChart(pulseHistoryForModels,technicalsForTrader);
+  }catch(err){
+    console.error('Error rendering combined history chart:',err);
   }
 }
 
