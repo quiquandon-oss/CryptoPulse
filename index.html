@@ -649,12 +649,52 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <p id="techRsi" class="tnum font-bold text-lg">—</p>
         </div>
         <div class="pt-3 border-t border-line">
+          <p class="text-xs text-mutet mb-1">Ichimoku Cloud</p>
+          <p id="techCloud" class="text-sm">—</p>
+        </div>
+        <div class="pt-3 border-t border-line">
+          <p class="text-xs text-mutet mb-1">Volume</p>
+          <p id="techVolume" class="text-sm font-medium">—</p>
+        </div>
+        <div class="pt-3 border-t border-line">
+          <p class="text-xs text-mutet mb-1">MA Crossover</p>
+          <p id="techCrossover" class="text-sm font-medium">—</p>
+        </div>
+        <div class="pt-3 border-t border-line">
+          <p class="text-xs text-mutet mb-1">Swing Structure (60d)</p>
+          <p id="techSwing" class="text-sm font-medium">—</p>
+        </div>
+        <div class="pt-3 border-t border-line">
+          <p class="text-xs text-mutet mb-1">RSI/Price Divergence (60d)</p>
+          <p id="techDivergence" class="text-sm font-medium">—</p>
+        </div>
+        <div class="pt-3 border-t border-line">
           <div class="flex items-center justify-between mb-1">
             <p class="text-xs text-mutet">LLM Read (Pulse / Cloudflare AI)</p>
             <span class="text-[10px] text-mutet" id="techLlmAge">—</span>
           </div>
           <p class="text-sm" id="techLlmText">—</p>
         </div>
+      </div>
+
+      <!-- ═══ Probability Model (BTC) — honest frequency counting from real
+           accumulated /history data, NOT an LLM-guessed percentage. Suppressed
+           below a minimum sample size — a clean number from too few matches
+           would be more misleading than showing nothing. Improves automatically
+           as more real days accumulate, since it's recomputed fresh each time,
+           not a fitted/cached model. ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <h2 class="font-semibold mb-1">Probability Model (BTC)</h2>
+        <p class="text-xs text-mutet mb-3">Historical frequency: of past days with a similar composite sentiment score, what fraction saw BTC higher 7 days later? Decay-weighted (recent matches count more) — not an AI guess.</p>
+        <div id="probModelBody"></div>
+      </div>
+
+      <!-- ═══ Buy the News vs. Priced In — two independent mechanisms, both
+           grounded in real historical comparison, not LLM narration. ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <h2 class="font-semibold mb-1">Buy the News vs. Priced In</h2>
+        <p class="text-xs text-mutet mb-3">Has price already caught up to what recent sentiment shifts imply, or is there room left? Two independent reads below.</p>
+        <div id="buyNewsBody"></div>
       </div>
     </section>
 
@@ -1750,13 +1790,113 @@ function techRsi(closes,period,endIndex){
   if(avgLoss===0)return 100;
   return 100-100/(1+avgGain/avgLoss);
 }
+// ════════════════════════════════════════════════════════════════
+// EXTENDED TECHNICAL STRUCTURE — Ichimoku Cloud, Volume, RSI divergence,
+// MA Crossovers, Swing high/low structure. All computed from data already
+// fetched (CoinGecko market_chart, which includes total_volumes alongside
+// prices) — no new API calls needed.
+// ════════════════════════════════════════════════════════════════
+
+// Finds local extrema (peaks or troughs) using a simple "more extreme than K
+// neighbors on each side" rule — a standard, honest way to find swing points
+// without any fitted/black-box logic.
+function findLocalExtrema(values,startIdx,endIdx,k,type){
+  const out=[];
+  for(let i=startIdx+k;i<=endIdx-k;i++){
+    let isExtreme=true;
+    for(let j=i-k;j<=i+k;j++){
+      if(j===i)continue;
+      if(type==='peak'&&values[j]>=values[i]){isExtreme=false;break;}
+      if(type==='trough'&&values[j]<=values[i]){isExtreme=false;break;}
+    }
+    if(isExtreme)out.push(i);
+  }
+  return out;
+}
+
+// Ichimoku Cloud — Senkou Span A/B. Standard convention: the cloud edge that
+// applies to TODAY was actually computed 26 periods ago and shifted forward on
+// the chart — so we use data as it stood 26 days before today, not today's data.
+function techIchimokuCloud(closes,lastIndex){
+  const cloudCalcIndex=lastIndex-26;
+  if(cloudCalcIndex<52)return{senkouA:null,senkouB:null,position:'N/A (not enough history yet)'};
+  const tenkanThen=techIchimoku(closes,9,cloudCalcIndex);
+  const kijunThen=techIchimoku(closes,26,cloudCalcIndex);
+  const senkouA=(tenkanThen!=null&&kijunThen!=null)?(tenkanThen+kijunThen)/2:null;
+  const senkouB=techIchimoku(closes,52,cloudCalcIndex);
+  if(senkouA==null||senkouB==null)return{senkouA,senkouB,position:'N/A'};
+  const price=closes[lastIndex];
+  const cloudTop=Math.max(senkouA,senkouB),cloudBottom=Math.min(senkouA,senkouB);
+  const position=price>cloudTop?'above':price<cloudBottom?'below':'inside';
+  return{senkouA,senkouB,cloudTop,cloudBottom,position};
+}
+
+// MA50/MA200 crossover event (Golden/Death Cross) — finds the most recent
+// crossing within the lookback window, not just the current relative position.
+function techMaCrossoverEvent(closes,lastIndex,lookbackDays){
+  let lastCrossType=null,daysAgo=null,prevDiff=null;
+  const start=Math.max(200,lastIndex-lookbackDays);
+  for(let i=start;i<=lastIndex;i++){
+    const ma50=techSma(closes,50,i),ma200=techSma(closes,200,i);
+    if(ma50==null||ma200==null)continue;
+    const diff=ma50-ma200;
+    if(prevDiff!=null){
+      if(prevDiff<=0&&diff>0){lastCrossType='golden';daysAgo=lastIndex-i;}
+      else if(prevDiff>=0&&diff<0){lastCrossType='death';daysAgo=lastIndex-i;}
+    }
+    prevDiff=diff;
+  }
+  return{type:lastCrossType,daysAgo};
+}
+
+// Swing high/low trend structure (classic Dow Theory read): are the last two
+// swing highs and lows both rising (uptrend structure), both falling
+// (downtrend), or mixed (no clear structure)?
+function techSwingStructure(closes,lastIndex,lookbackDays){
+  const startIdx=Math.max(0,lastIndex-lookbackDays);
+  const peaks=findLocalExtrema(closes,startIdx,lastIndex,3,'peak');
+  const troughs=findLocalExtrema(closes,startIdx,lastIndex,3,'trough');
+  if(peaks.length<2||troughs.length<2)return{structure:'Not enough swing points yet in this window'};
+  const lastTwoPeaks=peaks.slice(-2).map(i=>closes[i]);
+  const lastTwoTroughs=troughs.slice(-2).map(i=>closes[i]);
+  const higherHighs=lastTwoPeaks[1]>lastTwoPeaks[0];
+  const higherLows=lastTwoTroughs[1]>lastTwoTroughs[0];
+  let structure;
+  if(higherHighs&&higherLows)structure='Uptrend structure (higher highs, higher lows)';
+  else if(!higherHighs&&!higherLows)structure='Downtrend structure (lower highs, lower lows)';
+  else structure='Mixed — no clear structure';
+  return{structure,higherHighs,higherLows};
+}
+
+// RSI/price divergence — compares RSI at the last two swing peaks (bearish
+// signal if price made a higher high but RSI didn't) and the last two swing
+// troughs (bullish signal, mirrored). A real reversal warning, not just a level.
+function techRsiDivergence(closes,lastIndex,lookbackDays){
+  const startIdx=Math.max(52,lastIndex-lookbackDays);
+  const peaks=findLocalExtrema(closes,startIdx,lastIndex,3,'peak');
+  const troughs=findLocalExtrema(closes,startIdx,lastIndex,3,'trough');
+  const rsiAt=i=>techRsi(closes,14,i);
+  if(peaks.length>=2){
+    const[p1,p2]=peaks.slice(-2),r1=rsiAt(p1),r2=rsiAt(p2);
+    if(r1!=null&&r2!=null&&closes[p2]>closes[p1]&&r2<r1)return{type:'bearish',label:'Bearish divergence — price made a higher high, RSI did not'};
+  }
+  if(troughs.length>=2){
+    const[t1,t2]=troughs.slice(-2),r1=rsiAt(t1),r2=rsiAt(t2);
+    if(r1!=null&&r2!=null&&closes[t2]<closes[t1]&&r2>r1)return{type:'bullish',label:'Bullish divergence — price made a lower low, RSI did not'};
+  }
+  return{type:'none',label:'No clear divergence in this window'};
+}
+
 async function fetchBtcTechnicals(){
   const res=await fetch(`${CG}/coins/bitcoin/market_chart?vs_currency=usd&days=365`);
   if(!res.ok)throw new Error('CoinGecko market_chart responded '+res.status);
   const json=await res.json();
   const closes=(json.prices||[]).map(p=>p[1]);
+  const volumes=(json.total_volumes||[]).map(v=>v[1]);
   if(closes.length<200)throw new Error('Not enough history yet ('+closes.length+' points)');
   const last=closes.length-1;
+  const vol20=volumes.length>=20?techSma(volumes,20,volumes.length-1):null;
+  const latestVol=volumes[volumes.length-1];
   return{
     price:closes[last],
     tenkan:techIchimoku(closes,9,last),
@@ -1765,6 +1905,13 @@ async function fetchBtcTechnicals(){
     ma100:techSma(closes,100,last),
     ma200:techSma(closes,200,last),
     rsi14:techRsi(closes,14,last),
+    cloud:techIchimokuCloud(closes,last),
+    crossover:techMaCrossoverEvent(closes,last,90),
+    swing:techSwingStructure(closes,last,60),
+    divergence:techRsiDivergence(closes,last,60),
+    volume:latestVol,volumeAvg20:vol20,
+    volumeTrend:(vol20&&latestVol)?(latestVol>vol20?'above 20d average':'below 20d average'):'N/A',
+    closes, // kept for the probability model / buy-the-news mechanisms to reuse — no refetch needed
   };
 }
 function renderTechnicalLevels(t){
@@ -1778,6 +1925,42 @@ function renderTechnicalLevels(t){
   const rsiEl=$('#techRsi');
   if(t.rsi14!=null){rsiEl.textContent=t.rsi14.toFixed(1)+(t.rsi14>50?' (buyer momentum)':' (seller momentum)');rsiEl.style.color=t.rsi14>70?'#F5606C':t.rsi14<30?'#3BF38B':'#94A3B8';}
   else{rsiEl.textContent='N/A';}
+
+  // Ichimoku Cloud position
+  const cloudEl=$('#techCloud');
+  if(cloudEl){
+    if(t.cloud&&t.cloud.position&&t.cloud.position!=='N/A'){
+      const c=t.cloud.position==='above'?'#3BF38B':t.cloud.position==='below'?'#F5606C':'#F5B843';
+      cloudEl.innerHTML=`<span style="color:${c}">Price is ${t.cloud.position} the cloud</span> <span class="text-mutet text-xs">(Senkou A $${Math.round(t.cloud.senkouA).toLocaleString('en-US')} / B $${Math.round(t.cloud.senkouB).toLocaleString('en-US')})</span>`;
+    }else{cloudEl.textContent='N/A (not enough history yet)';}
+  }
+  // Volume
+  const volEl=$('#techVolume');
+  if(volEl){
+    volEl.textContent=t.volume?('$'+Math.round(t.volume/1e6).toLocaleString('en-US')+'M · '+t.volumeTrend):'N/A';
+    volEl.style.color=t.volumeTrend==='above 20d average'?'#3BF38B':t.volumeTrend==='below 20d average'?'#F5606C':'#94A3B8';
+  }
+  // MA Crossover event
+  const crossEl=$('#techCrossover');
+  if(crossEl){
+    if(t.crossover&&t.crossover.type){
+      const label=t.crossover.type==='golden'?'🟢 Golden Cross':'🔴 Death Cross';
+      crossEl.textContent=`${label} — ${t.crossover.daysAgo} day(s) ago`;
+      crossEl.style.color=t.crossover.type==='golden'?'#3BF38B':'#F5606C';
+    }else{crossEl.textContent='No crossover in the last 90 days';crossEl.style.color='#94A3B8';}
+  }
+  // Swing structure
+  const swingEl=$('#techSwing');
+  if(swingEl){
+    swingEl.textContent=t.swing?t.swing.structure:'N/A';
+    swingEl.style.color=(t.swing&&t.swing.structure.startsWith('Uptrend'))?'#3BF38B':(t.swing&&t.swing.structure.startsWith('Downtrend'))?'#F5606C':'#94A3B8';
+  }
+  // RSI divergence
+  const divEl=$('#techDivergence');
+  if(divEl){
+    divEl.textContent=t.divergence?t.divergence.label:'N/A';
+    divEl.style.color=(t.divergence&&t.divergence.type==='bullish')?'#3BF38B':(t.divergence&&t.divergence.type==='bearish')?'#F5606C':'#94A3B8';
+  }
 }
 async function fetchPulseTechnicalEval(){
   const res=await fetch(`${PULSE_WORKER_URL}/technical-eval`);
@@ -2094,8 +2277,124 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel){
   return{ok:true,activeCount:active.length,composite};
 }
 
+// ════════════════════════════════════════════════════════════════
+// PROBABILITY MODEL (BTC) — honest frequency counting from real accumulated
+// /history data, NOT an LLM-guessed percentage. Bucket historical composite
+// scores; for each bucket, count what fraction of matches saw BTC higher N
+// days later. Decay-weighted (90-day half-life) so recent regimes count more
+// than old ones. Always suppressed below MIN_N — a small sample showing a
+// clean percentage would be MORE misleading than showing nothing.
+// ════════════════════════════════════════════════════════════════
+const PROB_MODEL_MIN_N=5;
+const PROB_MODEL_LOOKAHEAD_DAYS=7;
+const PROB_MODEL_DECAY_HALFLIFE_MS=90*86400000; // 90 days — longer than sentiment's own 6h, since this matches "regimes" not "events"
+
+function bucketOf(score){return Math.floor(score/20)*20;}
+
+function computeBtcProbabilityModel(history){
+  if(!history.length)return{insufficient:true,n:0};
+  const latest=history[history.length-1];
+  const currentBucket=bucketOf(latest.score);
+  const matches=[];
+  for(let i=0;i<history.length;i++){
+    const pt=history[i];
+    if(bucketOf(pt.score)!==currentBucket)continue;
+    if(!pt.btc)continue;
+    const targetTime=pt.ts+PROB_MODEL_LOOKAHEAD_DAYS*86400000;
+    const future=history.find(h=>h.ts>=targetTime&&h.btc);
+    if(!future)continue;
+    const ageMs=Date.now()-pt.ts;
+    const weight=Math.pow(0.5,ageMs/PROB_MODEL_DECAY_HALFLIFE_MS);
+    matches.push({up:future.btc>pt.btc,weight});
+  }
+  if(matches.length<PROB_MODEL_MIN_N)return{insufficient:true,n:matches.length,bucket:currentBucket,currentScore:latest.score};
+  const totalWeight=matches.reduce((s,m)=>s+m.weight,0);
+  const upWeight=matches.filter(m=>m.up).reduce((s,m)=>s+m.weight,0);
+  return{insufficient:false,n:matches.length,bucket:currentBucket,currentScore:latest.score,probUp:upWeight/totalWeight};
+}
+function renderProbabilityModel(result){
+  const host=$('#probModelBody');if(!host)return;
+  if(result.insufficient){
+    host.innerHTML=`<p class="text-xs text-mutet">Not enough comparable historical setups yet (${result.n} match(es), need ${PROB_MODEL_MIN_N}+) for the current bucket (score ${result.currentScore!=null?result.currentScore:'—'}, bucket ${result.bucket!=null?result.bucket+'-'+(result.bucket+20):'—'}). This will start producing a real read as more real days accumulate — showing a number this early would be more misleading than showing nothing.</p>`;
+    return;
+  }
+  const pct=Math.round(result.probUp*100);
+  const color=pct>=60?'#3BF38B':pct<=40?'#F5606C':'#94A3B8';
+  host.innerHTML=`<div class="flex items-center gap-3">
+    <p class="grot font-bold text-3xl tnum" style="color:${color}">${pct}%</p>
+    <p class="text-xs text-mutet flex-1">of ${result.n} historically comparable day(s) with a similar composite score (bucket ${result.bucket}-${result.bucket+20}) saw BTC higher ${PROB_MODEL_LOOKAHEAD_DAYS} days later. Decay-weighted — recent matches count more than old ones.</p>
+  </div>`;
+}
+
+// ---- "Buy the news" vs "priced in" — mechanism 1: actual vs historically-typical reaction ----
+async function computeBuyTheNewsReaction(history){
+  if(history.length<10)return{insufficient:true};
+  const now=history[history.length-1];
+  const dayAgoTarget=now.ts-24*3600000;
+  let dayAgoPt=null;
+  for(let i=history.length-2;i>=0;i--){if(history[i].ts<=dayAgoTarget){dayAgoPt=history[i];break;}}
+  if(!dayAgoPt||!dayAgoPt.btc||!now.btc)return{insufficient:true};
+  const sentimentShift=now.score-dayAgoPt.score;
+  const actualPriceChange=(now.btc-dayAgoPt.btc)/dayAgoPt.btc*100;
+  const similarShifts=[];
+  for(let i=1;i<history.length;i++){
+    const cur=history[i];
+    const priorTarget=cur.ts-24*3600000;
+    let prior=null;
+    for(let j=i-1;j>=0;j--){if(history[j].ts<=priorTarget){prior=history[j];break;}}
+    if(!prior||!prior.btc||!cur.btc)continue;
+    const shift=cur.score-prior.score;
+    if(Math.abs(shift-sentimentShift)>10)continue;
+    similarShifts.push((cur.btc-prior.btc)/prior.btc*100);
+  }
+  if(similarShifts.length<3)return{insufficient:true,sentimentShift,actualPriceChange,n:similarShifts.length};
+  const typicalChange=similarShifts.reduce((a,b)=>a+b,0)/similarShifts.length;
+  let read;
+  if(Math.abs(actualPriceChange)<Math.abs(typicalChange)*0.5)read='Price appears to be lagging what similar past sentiment shifts implied — may not be fully reflected yet';
+  else read='Actual move already matches or exceeds the historically-typical reaction — likely already priced in';
+  return{insufficient:false,sentimentShift,actualPriceChange,typicalChange,n:similarShifts.length,read};
+}
+
+// ---- "Buy the news" vs "priced in" — mechanism 2: multi-lag correlation pattern ----
+async function computeLagPatternSignal(){
+  const lags=[1,4,24,72];
+  const results=await Promise.all(lags.map(l=>fetchPulseAnalysis(l).catch(()=>null)));
+  const valid=results.map((r,i)=>({lag:lags[i],r})).filter(x=>x.r&&!x.r.insufficientData);
+  if(valid.length<2)return{insufficient:true};
+  const corrs=valid.map(x=>({lag:x.lag,corr:x.r.compositeCorrelation}));
+  const shortLag=corrs.find(c=>c.lag===1)||corrs[0];
+  const longLag=corrs.find(c=>c.lag===72)||corrs[corrs.length-1];
+  let read;
+  if(shortLag.corr==null||longLag.corr==null)read='Not enough data across lags yet';
+  else if(Math.abs(shortLag.corr)>=Math.abs(longLag.corr)*0.8)read='Reaction appears mostly instant (short-lag correlation already as strong as longer lags) — likely already priced in';
+  else read='Correlation still building at longer lags — the effect may still be unfolding, not yet fully priced in';
+  return{insufficient:false,corrs,read};
+}
+function renderBuyTheNewsSignals(reaction,lagPattern){
+  const host=$('#buyNewsBody');if(!host)return;
+  let h='';
+  h+='<div class="mb-3 pb-3 border-b border-line/50"><p class="text-xs font-semibold text-mutet mb-1">Mechanism 1 — Actual vs. historically-typical reaction</p>';
+  if(reaction.insufficient){
+    h+=`<p class="text-xs text-mutet">Not enough comparable historical shifts yet (${reaction.n||0} match(es), need 3+).</p>`;
+  }else{
+    h+=`<p class="text-xs text-mutet mb-1">Sentiment shift (24h): ${(reaction.sentimentShift>=0?'+':'')+reaction.sentimentShift.toFixed(1)} · Actual BTC move: ${(reaction.actualPriceChange>=0?'+':'')+reaction.actualPriceChange.toFixed(2)}% · Typical move for similar shifts (${reaction.n} match(es)): ${(reaction.typicalChange>=0?'+':'')+reaction.typicalChange.toFixed(2)}%</p>
+    <p class="text-sm font-medium">${reaction.read}</p>`;
+  }
+  h+='</div>';
+  h+='<div><p class="text-xs font-semibold text-mutet mb-1">Mechanism 2 — Multi-lag correlation pattern</p>';
+  if(lagPattern.insufficient){
+    h+='<p class="text-xs text-mutet">Not enough data across multiple lags yet.</p>';
+  }else{
+    h+='<p class="text-xs text-mutet mb-1">'+lagPattern.corrs.map(c=>c.lag+'h: '+(c.corr==null?'—':(c.corr>=0?'+':'')+c.corr.toFixed(2))).join(' · ')+'</p>';
+    h+=`<p class="text-sm font-medium">${lagPattern.read}</p>`;
+  }
+  h+='</div>';
+  host.innerHTML=h;
+}
+
 async function initSentimentTab(){
   $('#pulseMeta').textContent='Computing independent composite score…';
+  let pulseHistoryForModels=[]; // captured here, reused below — no duplicate /history fetch
   // ---- Spot ETF Net Inflow (SoSoValue) — fetched first so the composite
   // scorer below can reuse this result instead of calling the API twice ----
   let etfResultsForComposite=null;
@@ -2120,6 +2419,7 @@ async function initSentimentTab(){
   // ---- Pulse sentiment history + gauge (now includes our freshly-posted point) ----
   try{
     const history=await fetchPulseHistory();
+    pulseHistoryForModels=history;
     renderPulseSentiment(history);
     // Cable Radar's per-coin badge to the latest score, converted from the 0-100
     // scale to the -100..+100 scale sentLabelFor()/Radar's badge already expect.
@@ -2167,6 +2467,25 @@ async function initSentimentTab(){
   }catch(err){
     console.error('Error fetching Pulse technical-eval:',err);
     renderTechnicalLlm(null);
+  }
+  // ---- Probability Model (BTC) — honest frequency counting, not an LLM guess ----
+  try{
+    const result=computeBtcProbabilityModel(pulseHistoryForModels);
+    renderProbabilityModel(result);
+  }catch(err){
+    console.error('Error computing probability model:',err);
+    $('#probModelBody').innerHTML='<p class="text-xs text-mutet">Technical error: '+(err&&err.message?err.message:String(err))+'</p>';
+  }
+  // ---- Buy the news vs priced in — both mechanisms ----
+  try{
+    const[reaction,lagPattern]=await Promise.all([
+      computeBuyTheNewsReaction(pulseHistoryForModels),
+      computeLagPatternSignal()
+    ]);
+    renderBuyTheNewsSignals(reaction,lagPattern);
+  }catch(err){
+    console.error('Error computing buy-the-news signals:',err);
+    $('#buyNewsBody').innerHTML='<p class="text-xs text-mutet">Technical error: '+(err&&err.message?err.message:String(err))+'</p>';
   }
 }
 
