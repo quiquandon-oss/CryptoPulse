@@ -2957,39 +2957,47 @@ async function backfillPriceHistoryGaps(){
   const statusEl=$('#backfillStatus');
   const today=NOW();
   const results=[];
+  // Build the list of calendar days to check — last 30 days is enough to catch
+  // any realistic gap without re-scanning the entire history back to April.
+  const windowDays=[];
+  {
+    const d=new Date(today+'T00:00:00Z');d.setUTCDate(d.getUTCDate()-30);
+    const end=new Date(today+'T00:00:00Z');
+    while(d<end){windowDays.push(d.toISOString().slice(0,10));d.setUTCDate(d.getUTCDate()+1);} // up to (not including) today — today's own slot is handled by getPrices()
+  }
   for(const s of syms()){
     const h=PRICE_HISTORY[s];if(!h)continue;
     const id=META[s]?.id;if(!id)continue;
-    const lastDate=Object.keys(h).sort().pop();
-    if(!lastDate||lastDate>=today)continue;
-    const gapDays=Math.round((new Date(today)-new Date(lastDate))/86400000);
-    if(gapDays<2)continue; // 0-1 day gap is already covered by today's live price
+    // Real fix: scan every day in the window for a missing entry, not just check
+    // whether the LAST known date is stale — that check alone misses internal
+    // gaps once today's own slot happens to already be filled.
+    const missing=windowDays.filter(d=>h[d]==null);
+    if(!missing.length){results.push(`${s}: no gaps`);continue;}
     await new Promise(r=>setTimeout(r,400)); // small stagger — reduces risk of hitting CoinGecko right after getPrices()
     try{
-      const days=Math.min(90,gapDays+3); // small buffer, capped at CoinGecko's free-tier limit
-      const res=await fetch(`${CG}/coins/${id}/market_chart?vs_currency=usd&days=${days}`);
-      if(!res.ok){results.push(`${s}: HTTP ${res.status}`);continue;} // was silently swallowed before — now visible
+      const res=await fetch(`${CG}/coins/${id}/market_chart?vs_currency=usd&days=32`);
+      if(!res.ok){results.push(`${s}: HTTP ${res.status}`);continue;}
       const json=await res.json();
       const prices=json.prices||[];
       let filledCount=0;
       prices.forEach(([ts,price])=>{
         const date=new Date(ts).toISOString().slice(0,10);
-        if(date>lastDate&&date<today&&h[date]==null){h[date]=price;filledCount++;}
+        if(h[date]==null&&missing.includes(date)){h[date]=price;filledCount++;}
       });
       if(filledCount>0){
         try{
           const raw=localStorage.getItem('cp2_px');const saved=raw?JSON.parse(raw):{};
           if(!saved[s])saved[s]={};
-          Object.entries(h).forEach(([d,p])=>{if(d>lastDate&&d<today)saved[s][d]=p;});
+          missing.forEach(d=>{if(h[d]!=null)saved[s][d]=h[d];});
           localStorage.setItem('cp2_px',JSON.stringify(saved));
         }catch(e){}
-        results.push(`${s}: filled ${filledCount} day(s)`);
+        results.push(`${s}: filled ${filledCount}/${missing.length} missing day(s)`);
       }else{
-        results.push(`${s}: 0 days filled (gap=${gapDays}d, ${prices.length} pts received)`);
+        results.push(`${s}: 0/${missing.length} filled (${prices.length} pts received)`);
       }
     }catch(e){results.push(`${s}: FAILED — ${e.message}`);}
   }
-  if(statusEl)statusEl.textContent=results.length?results.join(' | '):'No gaps detected';
+  if(statusEl)statusEl.textContent=results.length?results.join(' | '):'No coins to check';
 }
 async function init(){LS.load();buildMobileNav();wire();paintNav();
   if(!state.txs)state.txs=hydrate(SEED_TXS);
