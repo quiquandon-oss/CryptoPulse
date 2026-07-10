@@ -576,6 +576,31 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           Refresh
         </button>
       </div>
+
+      <!-- ═══ Three-way read, side by side — Sentiment stays exactly as computed
+           below (unchanged), Technical Score is a NEW transparent 0-100 average of
+           the 5 structure signals (RSI, Cloud, Crossover, Swing, Divergence),
+           Combined is a genuinely computed weighted average of the two (adjustable
+           in Settings) — never an LLM guess. Radar's badge and the Dashboard/
+           Scenario Bottom Signal are untouched by any of this. ═══ -->
+      <div class="grid grid-cols-3 gap-2">
+        <div class="rounded-2xl border border-line bg-panel p-3 text-center">
+          <p class="text-[10px] text-mutet mb-1">Sentiment</p>
+          <p id="triScoreSentiment" class="grot font-bold tnum text-2xl">—</p>
+          <p id="triLabelSentiment" class="text-[10px] font-medium mt-0.5">—</p>
+        </div>
+        <div class="rounded-2xl border border-line bg-panel p-3 text-center">
+          <p class="text-[10px] text-mutet mb-1">Technical</p>
+          <p id="triScoreTechnical" class="grot font-bold tnum text-2xl">—</p>
+          <p id="triLabelTechnical" class="text-[10px] font-medium mt-0.5">—</p>
+        </div>
+        <div class="rounded-2xl border border-line bg-panel p-3 text-center">
+          <p class="text-[10px] text-mutet mb-1">Combined</p>
+          <p id="triScoreCombined" class="grot font-bold tnum text-2xl">—</p>
+          <p id="triLabelCombined" class="text-[10px] font-medium mt-0.5">—</p>
+        </div>
+      </div>
+
       <div class="rounded-2xl border border-line bg-panel p-5 space-y-4">
         <div>
           <h2 class="font-semibold mb-1">Sentiment Engine (Pulse)</h2>
@@ -760,6 +785,22 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <p class="text-xs text-mutet">Adjust each source's relative importance in the composite score. Auto-renormalized to 100% under the hood — these are relative weights, not literal percentages. Changes apply on the next Sentiment tab refresh.</p>
         </div>
         <div id="sentWeightControls" class="space-y-3"></div>
+      </div>
+
+      <!-- ═══ Combined score weight — how much Sentiment vs Technical counts
+           toward the "Combined" card at the top of the Sentiment tab. Genuinely
+           computed weighted average, persisted, never an LLM guess. ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-5 space-y-3">
+        <div>
+          <h2 class="font-semibold mb-1">Combined Score Weight</h2>
+          <p class="text-xs text-mutet">How much Sentiment vs. Technical counts toward the "Combined" indicator. Default 50/50.</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-xs text-mutet w-20 shrink-0">Sentiment</span>
+          <input type="range" min="0" max="100" value="50" id="combinedWeightSlider" class="flex-1">
+          <span class="text-xs text-mutet w-20 shrink-0 text-right">Technical</span>
+        </div>
+        <p class="text-xs text-center" id="combinedWeightLabel">50% / 50%</p>
       </div>
 
       <div class="rounded-2xl border border-line bg-panel p-5 space-y-3">
@@ -2459,6 +2500,81 @@ function renderTraderAnalysis(result){
   host.textContent=result.analysis;
   if(status)status.textContent=result.fromCache?`Cached (${result.cacheAgeMin}m old)`:'Live';
 }
+// ════════════════════════════════════════════════════════════════
+// THREE-WAY READ — Sentiment / Technical / Combined, shown side by side.
+// Sentiment is unchanged (computeAndSyncCompositeScore, elsewhere). Technical
+// Score is NEW: each of the 5 structure signals converted to a 0-100
+// sub-score with a simple, transparent, checkable rule (no LLM involved),
+// then averaged. Combined is a genuinely computed weighted average of the
+// two — not an LLM impression. Radar's badge and Bottom Signal are
+// untouched by any of this, per explicit instruction.
+// ════════════════════════════════════════════════════════════════
+function techRsiToScore(rsi){
+  if(rsi==null)return 50;
+  return Math.round(100-Math.max(0,Math.min(100,rsi)));
+}
+function techCloudToScore(cloud){
+  if(!cloud||cloud.position==='N/A')return 50;
+  return cloud.position==='above'?80:cloud.position==='below'?20:50;
+}
+function techCrossoverToScore(crossover){
+  if(!crossover||!crossover.type)return 50;
+  const recency=Math.max(0,1-(crossover.daysAgo||90)/90); // more recent = stronger pull from neutral
+  const magnitude=30*recency;
+  return crossover.type==='golden'?Math.round(50+magnitude):Math.round(50-magnitude);
+}
+function techSwingToScore(swing){
+  if(!swing||!swing.structure)return 50;
+  if(swing.structure.startsWith('Uptrend'))return 80;
+  if(swing.structure.startsWith('Downtrend'))return 20;
+  return 50;
+}
+function techDivergenceToScore(divergence){
+  if(!divergence||!divergence.type)return 50;
+  return divergence.type==='bullish'?80:divergence.type==='bearish'?20:50;
+}
+function computeTechnicalScore(t){
+  if(!t)return null;
+  const subs=[
+    techRsiToScore(t.rsi14),
+    techCloudToScore(t.cloud),
+    techCrossoverToScore(t.crossover),
+    techSwingToScore(t.swing),
+    techDivergenceToScore(t.divergence),
+  ];
+  return Math.round(subs.reduce((a,b)=>a+b,0)/subs.length);
+}
+function loadCombinedWeight(){
+  let w=50;
+  try{const raw=localStorage.getItem('cp2_combined_weight');if(raw!=null)w=parseInt(raw,10);}catch(e){}
+  return isNaN(w)?50:w;
+}
+function saveCombinedWeight(w){
+  try{localStorage.setItem('cp2_combined_weight',String(w));}catch(e){}
+}
+function computeCombinedScore(sentimentScore,technicalScore,sentimentWeightPct){
+  if(sentimentScore==null&&technicalScore==null)return null;
+  if(sentimentScore==null)return technicalScore;
+  if(technicalScore==null)return sentimentScore;
+  const w=sentimentWeightPct/100;
+  return Math.round(sentimentScore*w+technicalScore*(1-w));
+}
+function renderTriScore(prefix,score){
+  const scoreEl=$('#triScore'+prefix),labelEl=$('#triLabel'+prefix);
+  if(!scoreEl||!labelEl)return;
+  if(score==null){scoreEl.textContent='—';scoreEl.style.color='';labelEl.textContent='No data';labelEl.style.color='#94A3B8';return;}
+  const{text,color}=pulseLabelFor(score);
+  scoreEl.textContent=score;scoreEl.style.color=color;
+  labelEl.textContent=text;labelEl.style.color=color;
+}
+function renderThreeWayScores(sentimentScore,technicalScore){
+  renderTriScore('Sentiment',sentimentScore);
+  renderTriScore('Technical',technicalScore);
+  const weight=loadCombinedWeight();
+  const combined=computeCombinedScore(sentimentScore,technicalScore,weight);
+  renderTriScore('Combined',combined);
+}
+
 async function initSentimentTab(){
   $('#pulseMeta').textContent='Computing independent composite score…';
   let pulseHistoryForModels=[]; // captured here, reused below — no duplicate /history fetch
@@ -2585,6 +2701,13 @@ async function initSentimentTab(){
     $('#traderAnalysisBody').textContent='Technical error: '+(err&&err.message?err.message:String(err));
     if($('#traderAnalysisStatus'))$('#traderAnalysisStatus').textContent='Error';
   }
+  // ---- Three-way read: Sentiment / Technical / Combined ----
+  try{
+    const technicalScore=computeTechnicalScore(technicalsForTrader);
+    renderThreeWayScores(compositeForTrader,technicalScore);
+  }catch(err){
+    console.error('Error computing three-way scores:',err);
+  }
 }
 
 
@@ -2608,6 +2731,19 @@ function wire(){
   };
   $('#settingsAnalysisBtn').onclick=runCustomCorrelationAnalysis;
   renderSentimentWeightControls();
+  {
+    const slider=$('#combinedWeightSlider'),label=$('#combinedWeightLabel');
+    if(slider){
+      const w=loadCombinedWeight();
+      slider.value=w;
+      if(label)label.textContent=w+'% / '+(100-w)+'%';
+      slider.oninput=e=>{
+        const val=parseInt(e.target.value,10);
+        if(label)label.textContent=val+'% / '+(100-val)+'%';
+        saveCombinedWeight(val);
+      };
+    }
+  }
   wireModal();
   $$('#d_typeSeg button').forEach(b=>b.onclick=()=>{state.tType=b.dataset.type;
     $$('#d_typeSeg button').forEach(x=>{const on=x===b;x.className=`flex-1 py-2 rounded-lg text-sm font-semibold ${on?(state.tType==='buy'?'bg-neon text-ink':'bg-down text-white'):'text-mutet'}`;});preview();});
