@@ -2947,12 +2947,49 @@ function renderBottomSignal(){
   }
 }
 
+// Backfills any gap between the last captured daily price and today with REAL
+// CoinGecko historical prices, instead of leaving histPx() to flat-fill the gap
+// with the last known value (which produces a misleading flat-then-jump chart
+// shape whenever the app wasn't opened for a day or more). Idempotent — only
+// actually fetches when a real gap of 2+ days exists; harmless no-op otherwise.
+async function backfillPriceHistoryGaps(){
+  const today=NOW();
+  for(const s of syms()){
+    const h=PRICE_HISTORY[s];if(!h)continue;
+    const id=META[s]?.id;if(!id)continue;
+    const lastDate=Object.keys(h).sort().pop();
+    if(!lastDate||lastDate>=today)continue;
+    const gapDays=Math.round((new Date(today)-new Date(lastDate))/86400000);
+    if(gapDays<2)continue; // 0-1 day gap is already covered by today's live price
+    try{
+      const days=Math.min(90,gapDays+3); // small buffer, capped at CoinGecko's free-tier limit
+      const res=await fetch(`${CG}/coins/${id}/market_chart?vs_currency=usd&days=${days}`);
+      if(!res.ok)continue;
+      const json=await res.json();
+      const prices=json.prices||[];
+      let filledAny=false;
+      prices.forEach(([ts,price])=>{
+        const date=new Date(ts).toISOString().slice(0,10);
+        if(date>lastDate&&date<today&&h[date]==null){h[date]=price;filledAny=true;}
+      });
+      if(filledAny){
+        try{
+          const raw=localStorage.getItem('cp2_px');const saved=raw?JSON.parse(raw):{};
+          if(!saved[s])saved[s]={};
+          Object.entries(h).forEach(([d,p])=>{if(d>lastDate&&d<today)saved[s][d]=p;});
+          localStorage.setItem('cp2_px',JSON.stringify(saved));
+        }catch(e){}
+      }
+    }catch(e){console.warn('Backfill failed for '+s+':',e.message);}
+  }
+}
 async function init(){LS.load();buildMobileNav();wire();paintNav();
   if(!state.txs)state.txs=hydrate(SEED_TXS);
   setCcy(state.ccy);setView('dashboard');setStatus(false);
   render();                    // instant: real embedded history (chart already moves)
   await getFx();render();
   await getPrices();render();  // live prices on top
+  await backfillPriceHistoryGaps();render(); // fill any missed days with real history, not flat-fill
   getFG();
   setInterval(()=>{getFx();getFG();getPrices().then(render);},60000);}
 document.addEventListener('DOMContentLoaded',init);
