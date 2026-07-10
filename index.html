@@ -1171,12 +1171,22 @@ async function getFx(force){
   const cachedRate=+(localStorage.getItem('cp2_fx_rate')||0);
   if(!force&&cachedRate&&Date.now()-lastFetch<FX_REFRESH_MS){state.fx=cachedRate;return;} // still fresh — reuse cache, no network call
   try{
+    // CONFIRMED (empirically, via direct testing): api.frankfurter.app now silently
+    // redirects to api.frankfurter.dev, and the response shape changed to
+    // {base:"USD", rates:{"EUR": X}} — NOT {rates:{"USD": X}} as before. Reading
+    // j.rates.USD was always undefined, so this silently fell back to the hardcoded
+    // FX0 constant on every single fetch, for an unknown stretch of time — hence
+    // the rate appearing permanently "stuck". Fixed to read the actual shape and
+    // invert (rates.EUR is EUR-per-USD, so 1/that = USD-per-EUR, what we want).
     const r=await fetch(`${FXAPI}/latest?from=EUR&to=USD`);
     const j=await r.json();
-    state.fx=j.rates.USD;
+    const eurPerUsd=j.rates&&j.rates.EUR;
+    if(!eurPerUsd)throw new Error('Unexpected Frankfurter response shape: '+JSON.stringify(j).slice(0,200));
+    state.fx=1/eurPerUsd;
     localStorage.setItem('cp2_fx_rate',String(state.fx));
     localStorage.setItem('cp2_fx_fetched_at',String(Date.now()));
   }catch(e){
+    console.warn('getFx failed:',e.message);
     if(cachedRate)state.fx=cachedRate; // fall back to last known good rate rather than leaving it unset
   }
 }
