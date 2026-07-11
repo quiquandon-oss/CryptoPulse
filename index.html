@@ -259,6 +259,26 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <p class="text-[10px] text-mutet mb-3" id="tgSendStatus"></p>
       <p class="text-[10px] text-mutet mb-3">🤖 Signal = rule-based score from RSI, your cost basis, 30d trend &amp; Fear/Greed — not financial advice.</p>
       <div id="holdingCards" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4"></div>
+
+      <!-- ═══ HYPE Funding & Open Interest — trial integration, sourced directly
+           from Hyperliquid's own public info API (the actual exchange HYPE perps
+           trade on, not a third-party proxy). No key required. If this proves
+           stable and useful we'll extend the same pattern (composite scoring,
+           correlation tracking) the way BTC's sentiment sources already work. ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-5 mt-4">
+        <div class="flex items-center justify-between mb-1">
+          <h3 class="text-sm font-semibold">HYPE Perp — Funding &amp; Open Interest</h3>
+          <span class="text-[10px] text-mutet">Hyperliquid (direct, no key)</span>
+        </div>
+        <p class="text-[10px] text-mutet mb-3">Trial source — not yet wired into any score or correlation. Funding is charged hourly on Hyperliquid; shown here annualized (APR) for comparison with CEX 8h-funding conventions.</p>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="hypeFundingCard">
+          <div class="text-center"><p class="text-[10px] text-mutet mb-1">Funding (APR)</p><p class="tnum font-bold text-lg" id="hypeFundingApr">—</p></div>
+          <div class="text-center"><p class="text-[10px] text-mutet mb-1">Open Interest</p><p class="tnum font-bold text-lg" id="hypeOi">—</p></div>
+          <div class="text-center"><p class="text-[10px] text-mutet mb-1">Mark Price</p><p class="tnum font-bold text-lg" id="hypeMark">—</p></div>
+          <div class="text-center"><p class="text-[10px] text-mutet mb-1">24h Volume</p><p class="tnum font-bold text-lg" id="hypeVol">—</p></div>
+        </div>
+        <p class="text-[10px] text-mutet mt-2" id="hypeFundingStatus">Loading…</p>
+      </div>
     </section>
 
     <!-- =============== DCA =============== -->
@@ -1253,7 +1273,7 @@ function setView(v){state.view=v;['dashboard','mycrypto','dca','transactions','s
   $('#viewTitle').textContent={dashboard:'Dashboard',mycrypto:'My Crypto',dca:'DCA',transactions:'Transactions',scenario:'Scenarios',capital:'Capital',radar:'Radar',settings:'Settings'}[v];
   if(v==='dca'){fillAssets();$('#d_date').value=NOW();renderDcaAvgTable();}
   if(v==='dashboard'){renderPerf();renderAlloc();renderDcaDonuts();}
-  if(v==='mycrypto'){renderCards();}
+  if(v==='mycrypto'){renderCards();loadHypeFunding();}
   if(v==='scenario'){renderScenario();}
   if(v==='capital'){renderCapital();}
   if(v==='radar'){initRadarTab();}
@@ -3648,6 +3668,40 @@ async function backfillPriceHistoryGaps(){
   }
   if(statusEl)statusEl.textContent=results.length?results.join(' | '):'No coins to check';
 }
+// ═══ HYPE Funding & Open Interest — trial integration ═══
+// Source: Hyperliquid's own public info API (the primary venue HYPE perps
+// actually trade on — not a third-party proxy, no key required).
+// POST {"type":"metaAndAssetCtxs"} -> [meta, assetCtxs] where meta.universe[i].name
+// matches assetCtxs[i] by index. Funding here is HOURLY (Hyperliquid convention),
+// annualized below (×24×365) for comparison with typical CEX 8h-funding framing.
+// This is display-only for now — not wired into any composite score or
+// correlation yet, by design (validate stability/value first, extend later).
+async function loadHypeFunding(){
+  const statusEl=$('#hypeFundingStatus');if(!statusEl)return; // section not in DOM (different view) — skip quietly
+  try{
+    const res=await fetch('https://api.hyperliquid.xyz/info',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({type:'metaAndAssetCtxs'})
+    });
+    if(!res.ok)throw new Error('Hyperliquid info '+res.status);
+    const[meta,ctxs]=await res.json();
+    const idx=(meta.universe||[]).findIndex(u=>u.name==='HYPE');
+    if(idx<0)throw new Error('HYPE not found in Hyperliquid universe');
+    const c=ctxs[idx];
+    const fundingHourly=parseFloat(c.funding);
+    const aprPct=fundingHourly*24*365*100;
+    $('#hypeFundingApr').textContent=(aprPct>=0?'+':'')+aprPct.toFixed(2)+'%';
+    $('#hypeFundingApr').style.color=aprPct>0?'#3BF38B':aprPct<0?'#F5606C':'#94A3B8';
+    $('#hypeOi').textContent='$'+Math.round(parseFloat(c.openInterest)*parseFloat(c.markPx)/1e6*10)/10+'M';
+    $('#hypeMark').textContent='$'+parseFloat(c.markPx).toLocaleString('en-US',{maximumFractionDigits:2});
+    $('#hypeVol').textContent='$'+Math.round(parseFloat(c.dayNtlVlm)/1e6*10)/10+'M';
+    statusEl.textContent='Live from Hyperliquid · updated '+new Date().toLocaleTimeString('en-US');
+  }catch(err){
+    statusEl.textContent='Error: '+(err&&err.message?err.message:String(err));
+  }
+}
+window.loadHypeFunding=loadHypeFunding;
+
 async function init(){LS.load();buildMobileNav();wire();paintNav();
   if(!state.txs)state.txs=hydrate(SEED_TXS);
   setCcy(state.ccy);setView('dashboard');setStatus(false);
@@ -3656,7 +3710,7 @@ async function init(){LS.load();buildMobileNav();wire();paintNav();
   await getPrices();render();  // live prices on top
   await backfillPriceHistoryGaps();render(); // fill any missed days with real history, not flat-fill
   getFG();
-  setInterval(()=>{getFx();getFG();getPrices().then(render);},60000);}
+  setInterval(()=>{getFx();getFG();getPrices().then(render);if(state.view==='mycrypto')loadHypeFunding();},60000);}
 document.addEventListener('DOMContentLoaded',init);
 </script>
 </body>
