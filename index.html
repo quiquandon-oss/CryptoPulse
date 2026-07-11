@@ -627,23 +627,19 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <!-- Per-source breakdown of the LATEST reading (fng/funding/longshort/etc.) -->
       <div class="grid grid-cols-3 sm:grid-cols-5 gap-2" id="pulseSourceRow"></div>
 
-      <!-- ═══ HYPE Funding & Open Interest — trial integration, sourced directly
-           from Hyperliquid's own public info API (the actual exchange HYPE perps
-           trade on, not a third-party proxy). No key required. If this proves
-           stable and useful we'll extend the same pattern (composite scoring,
-           correlation tracking) the way BTC's sentiment sources already work. ═══ -->
+      <!-- ═══ Hyperliquid Funding & Open Interest — HYPE, SOL, LINK, one API call.
+           Direct from Hyperliquid's own public info endpoint, no key required.
+           HYPE's funding now feeds the composite score (source id "hypefunding",
+           weight/confidence adjustable in Settings, same as any other source).
+           SOL and LINK are display-only here — CryptoPulse has never had any
+           funding/positioning data for those two coins before this. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-5">
         <div class="flex items-center justify-between mb-1">
-          <h3 class="text-sm font-semibold">HYPE Perp — Funding &amp; Open Interest</h3>
+          <h3 class="text-sm font-semibold">Hyperliquid — Funding &amp; Open Interest</h3>
           <span class="text-[10px] text-mutet">Hyperliquid (direct, no key)</span>
         </div>
-        <p class="text-[10px] text-mutet mb-3">Trial source — not yet wired into the composite score or correlation. Funding is charged hourly on Hyperliquid; shown here annualized (APR) for comparison with CEX 8h-funding conventions.</p>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="hypeFundingCard">
-          <div class="text-center"><p class="text-[10px] text-mutet mb-1">Funding (APR)</p><p class="tnum font-bold text-lg" id="hypeFundingApr">—</p></div>
-          <div class="text-center"><p class="text-[10px] text-mutet mb-1">Open Interest</p><p class="tnum font-bold text-lg" id="hypeOi">—</p></div>
-          <div class="text-center"><p class="text-[10px] text-mutet mb-1">Mark Price</p><p class="tnum font-bold text-lg" id="hypeMark">—</p></div>
-          <div class="text-center"><p class="text-[10px] text-mutet mb-1">24h Volume</p><p class="tnum font-bold text-lg" id="hypeVol">—</p></div>
-        </div>
+        <p class="text-[10px] text-mutet mb-3">HYPE's funding feeds the composite score (see Settings to adjust its weight). SOL and LINK are shown for reference only — not yet in the composite. Funding is charged hourly on Hyperliquid; shown here annualized (APR) for comparison with CEX 8h-funding conventions.</p>
+        <div class="space-y-3" id="hlAssetCards"></div>
         <p class="text-[10px] text-mutet mt-2" id="hypeFundingStatus">Loading…</p>
       </div>
 
@@ -1876,10 +1872,22 @@ function renderPulseAnalysis(a,statusId,bodyId){
   status.textContent=`${a.pointsTotal} point(s) · ${a.compositeSamples} sample(s)`;
   const fmt=v=>v==null?'—':(v>=0?'+':'')+v.toFixed(2);
   const compColor=a.compositeCorrelation==null?'#94A3B8':Math.abs(a.compositeCorrelation)>=0.3?(a.compositeCorrelation>0?'#3BF38B':'#F5606C'):'#94A3B8';
-  let h=`<div class="flex items-center justify-between mb-3 pb-3 border-b border-line/50">
-    <span class="text-sm font-semibold">Composite</span>
+  let h=`<div class="flex items-center justify-between mb-1 pb-1">
+    <span class="text-sm font-semibold">Composite (Sentiment)</span>
     <span class="tnum font-bold text-lg" style="color:${compColor}">${fmt(a.compositeCorrelation)}</span>
   </div>`;
+  // Technical score's own correlation — only meaningful once technicalScore
+  // has actually been saved to enough /history points (see initSentimentTab,
+  // which now posts it alongside the sentiment composite).
+  if(a.technicalSamples!=null){
+    const techColor=a.technicalCorrelation==null?'#94A3B8':Math.abs(a.technicalCorrelation)>=0.3?(a.technicalCorrelation>0?'#3BF38B':'#F5606C'):'#94A3B8';
+    h+=`<div class="flex items-center justify-between mb-3 pb-3 border-b border-line/50">
+      <span class="text-sm font-semibold">Technical <span class="text-[10px] text-mutet font-normal">(${a.technicalSamples} sample(s))</span></span>
+      <span class="tnum font-bold text-lg" style="color:${techColor}">${a.technicalSamples<20?'—':fmt(a.technicalCorrelation)}</span>
+    </div>`;
+  }else{
+    h+='<div class="mb-3 pb-3 border-b border-line/50"></div>';
+  }
   const perSrc=Object.entries(a.perSourceCorrelation||{}).sort((x,y)=>Math.abs(y[1].correlation||0)-Math.abs(x[1].correlation||0));
   h+=perSrc.map(([name,d])=>{
     const c=d.correlation==null?'#94A3B8':Math.abs(d.correlation)>=0.3?(d.correlation>0?'#3BF38B':'#F5606C'):'#94A3B8';
@@ -2362,6 +2370,7 @@ const COMPOSITE_SOURCES_DEFAULTS=[
   {id:'nasdaq',label:'Nasdaq Composite (FRED)',weight:8,confidence:0.7},
   {id:'sp500',label:'S&P 500 (FRED)',weight:8,confidence:0.7},
   {id:'etfflows',label:'BTC ETF Flows (SoSoValue)',weight:10,confidence:0.8},
+  {id:'hypefunding',label:'HYPE Perp Funding (Hyperliquid)',weight:6,confidence:0.4},
 ];
 function loadSentimentWeights(){
   let overrides={};
@@ -2403,7 +2412,7 @@ function renderSentimentWeightControls(){
 // ---- Orchestration: fetch everything independently, compute, POST to /history ----
 // Each source fails independently (matching Pulse's own per-source resilience) —
 // one API being down doesn't block the rest or the composite.
-async function computeAndSyncCompositeScore(etfResultsFromPanel){
+async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
   const sourceValues={};
   const jobs=[
     ['fng',async()=>({score:fgValue!=null?fgValue:50})], // reuses existing app-wide fgValue, no duplicate fetch
@@ -2421,6 +2430,7 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel){
     ['macrogeo',()=>srcNewsRss('macro')],
     ['geopolitics',()=>srcNewsRss('geopolitics')],
     ['sosovalue',srcSosoValueNews],
+    ['hypefunding',srcHypeFundingForComposite],
   ];
   await Promise.all(jobs.map(async([id,fn])=>{
     try{sourceValues[id]=await fn();}
@@ -2434,7 +2444,7 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel){
   try{
     await fetch(`${PULSE_WORKER_URL}/history`,{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({score:composite,btcPrice:pxUsd('BTC')||null,sources:sourcesSnapshot})
+      body:JSON.stringify({score:composite,technicalScore:typeof technicalScore==='number'?technicalScore:null,btcPrice:pxUsd('BTC')||null,sources:sourcesSnapshot})
     });
   }catch(e){console.warn('Failed to POST composite score to /history:',e.message);}
   return{ok:true,activeCount:active.length,composite};
@@ -2695,7 +2705,7 @@ function renderThreeWayScores(sentimentScore,technicalScore){
 async function initSentimentTab(){
   $('#pulseMeta').textContent='Computing independent composite score…';
   let pulseHistoryForModels=[]; // captured here, reused below — no duplicate /history fetch
-  let latestSourcesForTrader={},compositeForTrader=null;
+  let latestSourcesForTrader={},compositeForTrader=null,technicalScore=null;
   let correlationsForTrader=null,technicalsForTrader=null;
   let probModelForTrader=null,buyNewsForTrader=null;
   // ---- Spot ETF Net Inflow (SoSoValue) — fetched first so the composite
@@ -2711,10 +2721,32 @@ async function initSentimentTab(){
     console.error('Error fetching SoSoValue ETF data:',err);
     $('#sosoEtfList').innerHTML='<p class="text-xs text-mutet col-span-4">Error: '+(err && err.message ? err.message : String(err))+'</p>';
   }
+  // ---- Technical Analysis (BTC): live levels + Technical score. Moved ahead of
+  // the composite score computation below so technicalScore can be saved into
+  // the SAME /history point as the sentiment composite — needed for its own
+  // correlation tracking (was previously computed too late to ever be saved). ----
+  try{
+    const t=await fetchBtcTechnicals();
+    renderTechnicalLevels(t);
+    $('#techStatus').textContent='Live';
+    technicalsForTrader=t;
+    technicalScore=computeTechnicalScore(t);
+  }catch(err){
+    console.error('Error fetching BTC technicals:',err);
+    $('#techStatus').textContent='Error';
+    $('#techLevels').innerHTML='<p class="text-xs text-mutet">Technical error: '+(err&&err.message?err.message:String(err))+'</p>';
+  }
+  try{
+    const latest=await fetchPulseTechnicalEval(technicalsForTrader?technicalsForTrader.closes:null);
+    renderTechnicalLlm(latest);
+  }catch(err){
+    console.error('Error fetching Pulse technical-eval:',err);
+    renderTechnicalLlm(null);
+  }
   // ---- Independently compute + POST a fresh composite score (no longer
   // dependent on Pulse's own frontend being run to keep /history current) ----
   try{
-    const result=await computeAndSyncCompositeScore(etfResultsForComposite);
+    const result=await computeAndSyncCompositeScore(etfResultsForComposite,technicalScore);
     console.log('Composite score computed from',result.activeCount,'of',COMPOSITE_SOURCES.length,'sources:',result.composite);
     compositeForTrader=result.composite;
   }catch(err){
@@ -2754,24 +2786,6 @@ async function initSentimentTab(){
     await syncDcaMetricsToSheet();
   }catch(err){
     console.error('Error syncing DCA metrics to Sheet:',err);
-  }
-  // ---- Technical Analysis (BTC): live levels here + Pulse's LLM read ----
-  try{
-    const t=await fetchBtcTechnicals();
-    renderTechnicalLevels(t);
-    $('#techStatus').textContent='Live';
-    technicalsForTrader=t;
-  }catch(err){
-    console.error('Error fetching BTC technicals:',err);
-    $('#techStatus').textContent='Error';
-    $('#techLevels').innerHTML='<p class="text-xs text-mutet">Technical error: '+(err&&err.message?err.message:String(err))+'</p>';
-  }
-  try{
-    const latest=await fetchPulseTechnicalEval(technicalsForTrader?technicalsForTrader.closes:null);
-    renderTechnicalLlm(latest);
-  }catch(err){
-    console.error('Error fetching Pulse technical-eval:',err);
-    renderTechnicalLlm(null);
   }
   // ---- Probability Model (BTC) — honest frequency counting, not an LLM guess ----
   try{
@@ -2818,12 +2832,12 @@ async function initSentimentTab(){
     $('#traderAnalysisBody').textContent='Technical error: '+(err&&err.message?err.message:String(err));
     if($('#traderAnalysisStatus'))$('#traderAnalysisStatus').textContent='Error';
   }
-  // ---- Three-way read: Sentiment / Technical / Combined ----
+  // ---- Three-way read: Sentiment / Technical / Combined — reuses the
+  // technicalScore computed earlier (before the composite POST), not recomputed ----
   try{
-    const technicalScore=computeTechnicalScore(technicalsForTrader);
     renderThreeWayScores(compositeForTrader,technicalScore);
   }catch(err){
-    console.error('Error computing three-way scores:',err);
+    console.error('Error rendering three-way scores:',err);
   }
   // ---- Combined history chart: Sentiment + Technical + Combined + BTC price ----
   try{
@@ -3675,37 +3689,69 @@ async function backfillPriceHistoryGaps(){
   }
   if(statusEl)statusEl.textContent=results.length?results.join(' | '):'No coins to check';
 }
-// ═══ HYPE Funding & Open Interest — trial integration ═══
-// Source: Hyperliquid's own public info API (the primary venue HYPE perps
-// actually trade on — not a third-party proxy, no key required).
-// POST {"type":"metaAndAssetCtxs"} -> [meta, assetCtxs] where meta.universe[i].name
-// matches assetCtxs[i] by index. Funding here is HOURLY (Hyperliquid convention),
-// annualized below (×24×365) for comparison with typical CEX 8h-funding framing.
-// This is display-only for now — not wired into any composite score or
-// correlation yet, by design (validate stability/value first, extend later).
-async function loadHypeFunding(){
-  const statusEl=$('#hypeFundingStatus');if(!statusEl)return; // section not in DOM (different view) — skip quietly
-  try{
-    const res=await fetch('https://api.hyperliquid.xyz/info',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({type:'metaAndAssetCtxs'})
-    });
-    if(!res.ok)throw new Error('Hyperliquid info '+res.status);
-    const[meta,ctxs]=await res.json();
-    const idx=(meta.universe||[]).findIndex(u=>u.name==='HYPE');
-    if(idx<0)throw new Error('HYPE not found in Hyperliquid universe');
-    const c=ctxs[idx];
-    const fundingHourly=parseFloat(c.funding);
-    const aprPct=fundingHourly*24*365*100;
-    $('#hypeFundingApr').textContent=(aprPct>=0?'+':'')+aprPct.toFixed(2)+'%';
-    $('#hypeFundingApr').style.color=aprPct>0?'#3BF38B':aprPct<0?'#F5606C':'#94A3B8';
-    $('#hypeOi').textContent='$'+Math.round(parseFloat(c.openInterest)*parseFloat(c.markPx)/1e6*10)/10+'M';
-    $('#hypeMark').textContent='$'+parseFloat(c.markPx).toLocaleString('en-US',{maximumFractionDigits:2});
-    $('#hypeVol').textContent='$'+Math.round(parseFloat(c.dayNtlVlm)/1e6*10)/10+'M';
+// ═══ Hyperliquid — Funding & Open Interest for HYPE, SOL, LINK ═══
+// One metaAndAssetCtxs call returns funding/OI/price/volume for every asset on
+// Hyperliquid at once, so we fetch it once and use it two ways:
+//  1. Display (loadHypeFunding): all three coins, refreshed on the Sentiment tab.
+//  2. Composite scoring (srcHypeFundingForComposite): HYPE's funding only, as a
+//     new source ("hypefunding") in the BTC-wide sentiment composite.
+// A short in-memory cache avoids double-fetching when both paths run in the
+// same cycle (composite computation + tab display both call this).
+const HL_ASSETS=['HYPE','SOL','LINK'];
+const HL_CACHE_MS=20000;
+let hlAssetsCache=null,hlAssetsCacheAt=0;
+async function fetchHyperliquidAssets(){
+  if(hlAssetsCache&&Date.now()-hlAssetsCacheAt<HL_CACHE_MS)return hlAssetsCache;
+  const res=await fetch('https://api.hyperliquid.xyz/info',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({type:'metaAndAssetCtxs'})
+  });
+  if(!res.ok)throw new Error('Hyperliquid info '+res.status);
+  const[meta,ctxs]=await res.json();
+  const out={};
+  HL_ASSETS.forEach(sym=>{
+    const idx=(meta.universe||[]).findIndex(u=>u.name===sym);
+    if(idx>=0)out[sym]=ctxs[idx];
+  });
+  hlAssetsCache=out;hlAssetsCacheAt=Date.now();
+  return out;
+}
+// Feeds the composite score — HYPE funding only. Same satur/to0_100 pattern as
+// srcFundingRate (BTC/ETH), scaled for HYPE's typically wider funding swings:
+// scale=50 means a ±50% annualized funding rate approaches saturation, which
+// is a common range for an actively-traded alt perp (vs. ~0.05% per-8h for
+// BTC/ETH, hence their much tighter scale).
+async function srcHypeFundingForComposite(){
+  const assets=await fetchHyperliquidAssets();
+  const c=assets.HYPE;
+  if(!c)throw new Error('HYPE not found in Hyperliquid universe');
+  const aprPct=parseFloat(c.funding)*24*365*100;
+  return{score:to0_100(satur(aprPct,50))};
+}
+function loadHypeFunding(){
+  const statusEl=$('#hypeFundingStatus'),host=$('#hlAssetCards');
+  if(!statusEl||!host)return; // section not in DOM (different view) — skip quietly
+  fetchHyperliquidAssets().then(assets=>{
+    host.innerHTML=HL_ASSETS.map(sym=>{
+      const c=assets[sym];
+      if(!c)return `<div class="text-xs text-mutet">${sym}: not found on Hyperliquid</div>`;
+      const aprPct=parseFloat(c.funding)*24*365*100;
+      const aprColor=aprPct>0?'#3BF38B':aprPct<0?'#F5606C':'#94A3B8';
+      const oiUsd=parseFloat(c.openInterest)*parseFloat(c.markPx);
+      return `<div class="border-t border-line/50 pt-3 first:border-t-0 first:pt-0">
+        <p class="text-xs font-semibold mb-2">${sym}${sym==='HYPE'?' <span class="text-[9px] font-normal text-neon">→ composite</span>':''}</p>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div class="text-center"><p class="text-[10px] text-mutet mb-1">Funding (APR)</p><p class="tnum font-bold text-sm" style="color:${aprColor}">${(aprPct>=0?'+':'')+aprPct.toFixed(2)}%</p></div>
+          <div class="text-center"><p class="text-[10px] text-mutet mb-1">Open Interest</p><p class="tnum font-bold text-sm">$${(oiUsd/1e6).toFixed(1)}M</p></div>
+          <div class="text-center"><p class="text-[10px] text-mutet mb-1">Mark Price</p><p class="tnum font-bold text-sm">$${parseFloat(c.markPx).toLocaleString('en-US',{maximumFractionDigits:2})}</p></div>
+          <div class="text-center"><p class="text-[10px] text-mutet mb-1">24h Volume</p><p class="tnum font-bold text-sm">$${(parseFloat(c.dayNtlVlm)/1e6).toFixed(1)}M</p></div>
+        </div>
+      </div>`;
+    }).join('');
     statusEl.textContent='Live from Hyperliquid · updated '+new Date().toLocaleTimeString('en-US');
-  }catch(err){
+  }).catch(err=>{
     statusEl.textContent='Error: '+(err&&err.message?err.message:String(err));
-  }
+  });
 }
 window.loadHypeFunding=loadHypeFunding;
 
