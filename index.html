@@ -620,8 +620,30 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <span id="pulseLabel" class="text-xs font-semibold px-3 py-1.5 rounded-full whitespace-nowrap">—</span>
         </div>
         <p class="text-xs text-mutet" id="pulseMeta">—</p>
-        <div class="flex items-center justify-end gap-1 text-xs" id="pulseRangeTabs"></div>
+        <div class="flex items-center justify-end gap-2 text-xs">
+          <button id="pulseZoomResetBtn" class="px-2 py-1 rounded-md text-mutet hover:text-white" title="Reset zoom" onclick="resetMainChartZoom()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><path d="M8 11h6"/></svg>
+          </button>
+          <button id="pulseExpandBtn" class="px-2 py-1 rounded-md text-mutet hover:text-white" title="Fullscreen" onclick="openHistoryChartFullscreen()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
+          </button>
+          <div class="flex items-center gap-1" id="pulseRangeTabs"></div>
+        </div>
         <div class="h-[110px]"><canvas id="pulseHistoryChart"></canvas></div>
+
+        <!-- Fullscreen chart overlay: pinch/scroll to zoom, drag to pan (mode 'x'
+             only — zooming the y-axis score scale wouldn't mean anything). -->
+        <div id="pulseChartFullscreen" class="hidden fixed inset-0 z-50 bg-panel p-4 flex flex-col">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-semibold">Sentiment / Technical / Combined / BTC Price</h3>
+            <div class="flex items-center gap-2">
+              <button class="px-2.5 py-1.5 rounded-md text-xs text-mutet hover:text-white border border-line" onclick="resetFullscreenChartZoom()">Reset zoom</button>
+              <button class="px-2.5 py-1.5 rounded-md text-xs bg-panel2 hover:text-white border border-line" onclick="closeHistoryChartFullscreen()">✕ Close</button>
+            </div>
+          </div>
+          <p class="text-[10px] text-mutet mb-2">Scroll/pinch to zoom, drag to pan (horizontal only).</p>
+          <div class="flex-1"><canvas id="pulseHistoryChartFull"></canvas></div>
+        </div>
       </div>
 
       <!-- Per-source breakdown of the LATEST reading (fng/funding/longshort/etc.) -->
@@ -1813,18 +1835,16 @@ function renderPulseRangeTabs(){
     const on=pulseRange===k;const b=document.createElement('button');
     b.className=`px-2.5 py-1 rounded-md ${on?'bg-panel2 text-white border border-line':'text-mutet hover:text-white'}`;
     b.textContent=l;
-    b.onclick=()=>{pulseRange=k;if(pulseLastHistory)renderCombinedHistoryChart(pulseLastHistory,pulseLastTechnicals);};
+    b.onclick=()=>{pulseRange=k;if(pulseLastHistory)renderCombinedHistoryChart(pulseLastHistory,pulseLastTechnicals);
+      const modal=$('#pulseChartFullscreen');if(modal&&!modal.classList.contains('hidden'))openHistoryChartFullscreen();};
     host.appendChild(b);
   });
 }
-function renderCombinedHistoryChart(history,technicalsData){
-  pulseLastHistory=history; pulseLastTechnicals=technicalsData; // cache so the range toggle can re-render without refetching
-  const cv=$('#pulseHistoryChart');if(!cv)return;
+function buildCombinedChartConfig(history,technicalsData){
   const closes0=technicalsData?technicalsData.closes:null;
   const dates0=technicalsData?technicalsData.dates:null;
   const RANGE_DAYS={DAY:1,WEEK:7,'30D':30,ALL:(dates0?dates0.length:365)};
   const lookbackDays=RANGE_DAYS[pulseRange]||90;
-  renderPulseRangeTabs();
   const sentByDate=bucketHistoryByDate(history);
   const closes=closes0,dates=dates0;
   const techByDate=(closes&&dates)?computeTechnicalScoreSeries(closes,dates,lookbackDays):{};
@@ -1841,7 +1861,10 @@ function renderCombinedHistoryChart(history,technicalsData){
     combSeries.push(computeCombinedScore(s,t,weight));
     priceSeries.push(priceByDate[d]!=null?priceByDate[d]:(sentByDate[d]?sentByDate[d].btc:null));
   });
-  const cfg={type:'line',data:{labels:plotDates,datasets:[
+  // Zoom/pan/pinch — the plugin is already bundled (chartjs-plugin-zoom, self-
+  // registers on load), just disabled by default. Mode 'x' only: this is a
+  // time-series, zooming the y-axis (0-100 score scale) wouldn't mean anything.
+  return{type:'line',data:{labels:plotDates,datasets:[
     {label:'Sentiment',data:sentSeries,borderColor:'#4F7DFB',backgroundColor:'transparent',fill:false,tension:0.3,pointRadius:0,borderWidth:2,spanGaps:true,yAxisID:'y'},
     {label:'Technical',data:techSeries,borderColor:'#F5B843',backgroundColor:'transparent',fill:false,tension:0.3,pointRadius:0,borderWidth:2,spanGaps:true,yAxisID:'y'},
     {label:'Combined',data:combSeries,borderColor:'#3BF38B',backgroundColor:'transparent',fill:false,tension:0.3,pointRadius:0,borderWidth:2,borderDash:[4,3],spanGaps:true,yAxisID:'y'},
@@ -1855,11 +1878,41 @@ function renderCombinedHistoryChart(history,technicalsData){
       },
       plugins:{
         legend:{display:true,position:'top',align:'start',labels:{color:'#8891A8',font:{size:9},boxWidth:10,padding:8}},
-        tooltip:{callbacks:{label:c=>c.dataset.label==='BTC Price'?('BTC: $'+(c.parsed.y!=null?Math.round(c.parsed.y).toLocaleString('en-US'):'—')):(c.dataset.label+': '+(c.parsed.y!=null?c.parsed.y:'—'))}}
+        tooltip:{callbacks:{label:c=>c.dataset.label==='BTC Price'?('BTC: $'+(c.parsed.y!=null?Math.round(c.parsed.y).toLocaleString('en-US'):'—')):(c.dataset.label+': '+(c.parsed.y!=null?c.parsed.y:'—'))}},
+        zoom:{
+          pan:{enabled:true,mode:'x'},
+          zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x'}
+        }
       }}};
+}
+function renderCombinedHistoryChart(history,technicalsData){
+  pulseLastHistory=history; pulseLastTechnicals=technicalsData; // cache so the range toggle can re-render without refetching
+  const cv=$('#pulseHistoryChart');if(!cv)return;
+  const cfg=buildCombinedChartConfig(history,technicalsData);
+  renderPulseRangeTabs();
   if(pulseHistoryChartInst){pulseHistoryChartInst.data=cfg.data;pulseHistoryChartInst.options=cfg.options;pulseHistoryChartInst.update();}
   else pulseHistoryChartInst=new Chart(cv,cfg);
 }
+// ---- Fullscreen view: same data, bigger canvas, own Chart instance (Chart.js
+// needs one canvas per instance — can't share the inline chart's canvas). ----
+let pulseHistoryChartFullInst=null;
+function openHistoryChartFullscreen(){
+  if(!pulseLastHistory)return; // nothing rendered yet
+  const modal=$('#pulseChartFullscreen');if(!modal)return;
+  modal.classList.remove('hidden');
+  const cv=$('#pulseHistoryChartFull');
+  const cfg=buildCombinedChartConfig(pulseLastHistory,pulseLastTechnicals);
+  if(pulseHistoryChartFullInst)pulseHistoryChartFullInst.destroy();
+  pulseHistoryChartFullInst=new Chart(cv,cfg);
+}
+function closeHistoryChartFullscreen(){
+  const modal=$('#pulseChartFullscreen');if(!modal)return;
+  modal.classList.add('hidden');
+  if(pulseHistoryChartFullInst){pulseHistoryChartFullInst.destroy();pulseHistoryChartFullInst=null;}
+}
+function resetHistoryChartZoom(inst){if(inst&&inst.resetZoom)inst.resetZoom();}
+function resetMainChartZoom(){resetHistoryChartZoom(pulseHistoryChartInst);}
+function resetFullscreenChartZoom(){resetHistoryChartZoom(pulseHistoryChartFullInst);}
 function renderPulseAnalysis(a,statusId,bodyId){
   statusId=statusId||'pulseAnalysisStatus';bodyId=bodyId||'pulseCorrelationBody';
   const host=$('#'+bodyId);const status=$('#'+statusId);
