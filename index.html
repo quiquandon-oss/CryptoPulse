@@ -259,26 +259,6 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <p class="text-[10px] text-mutet mb-3" id="tgSendStatus"></p>
       <p class="text-[10px] text-mutet mb-3">🤖 Signal = rule-based score from RSI, your cost basis, 30d trend &amp; Fear/Greed — not financial advice.</p>
       <div id="holdingCards" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4"></div>
-
-      <!-- ═══ HYPE Funding & Open Interest — trial integration, sourced directly
-           from Hyperliquid's own public info API (the actual exchange HYPE perps
-           trade on, not a third-party proxy). No key required. If this proves
-           stable and useful we'll extend the same pattern (composite scoring,
-           correlation tracking) the way BTC's sentiment sources already work. ═══ -->
-      <div class="rounded-2xl border border-line bg-panel p-5 mt-4">
-        <div class="flex items-center justify-between mb-1">
-          <h3 class="text-sm font-semibold">HYPE Perp — Funding &amp; Open Interest</h3>
-          <span class="text-[10px] text-mutet">Hyperliquid (direct, no key)</span>
-        </div>
-        <p class="text-[10px] text-mutet mb-3">Trial source — not yet wired into any score or correlation. Funding is charged hourly on Hyperliquid; shown here annualized (APR) for comparison with CEX 8h-funding conventions.</p>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="hypeFundingCard">
-          <div class="text-center"><p class="text-[10px] text-mutet mb-1">Funding (APR)</p><p class="tnum font-bold text-lg" id="hypeFundingApr">—</p></div>
-          <div class="text-center"><p class="text-[10px] text-mutet mb-1">Open Interest</p><p class="tnum font-bold text-lg" id="hypeOi">—</p></div>
-          <div class="text-center"><p class="text-[10px] text-mutet mb-1">Mark Price</p><p class="tnum font-bold text-lg" id="hypeMark">—</p></div>
-          <div class="text-center"><p class="text-[10px] text-mutet mb-1">24h Volume</p><p class="tnum font-bold text-lg" id="hypeVol">—</p></div>
-        </div>
-        <p class="text-[10px] text-mutet mt-2" id="hypeFundingStatus">Loading…</p>
-      </div>
     </section>
 
     <!-- =============== DCA =============== -->
@@ -646,6 +626,26 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
 
       <!-- Per-source breakdown of the LATEST reading (fng/funding/longshort/etc.) -->
       <div class="grid grid-cols-3 sm:grid-cols-5 gap-2" id="pulseSourceRow"></div>
+
+      <!-- ═══ HYPE Funding & Open Interest — trial integration, sourced directly
+           from Hyperliquid's own public info API (the actual exchange HYPE perps
+           trade on, not a third-party proxy). No key required. If this proves
+           stable and useful we'll extend the same pattern (composite scoring,
+           correlation tracking) the way BTC's sentiment sources already work. ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <div class="flex items-center justify-between mb-1">
+          <h3 class="text-sm font-semibold">HYPE Perp — Funding &amp; Open Interest</h3>
+          <span class="text-[10px] text-mutet">Hyperliquid (direct, no key)</span>
+        </div>
+        <p class="text-[10px] text-mutet mb-3">Trial source — not yet wired into the composite score or correlation. Funding is charged hourly on Hyperliquid; shown here annualized (APR) for comparison with CEX 8h-funding conventions.</p>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="hypeFundingCard">
+          <div class="text-center"><p class="text-[10px] text-mutet mb-1">Funding (APR)</p><p class="tnum font-bold text-lg" id="hypeFundingApr">—</p></div>
+          <div class="text-center"><p class="text-[10px] text-mutet mb-1">Open Interest</p><p class="tnum font-bold text-lg" id="hypeOi">—</p></div>
+          <div class="text-center"><p class="text-[10px] text-mutet mb-1">Mark Price</p><p class="tnum font-bold text-lg" id="hypeMark">—</p></div>
+          <div class="text-center"><p class="text-[10px] text-mutet mb-1">24h Volume</p><p class="tnum font-bold text-lg" id="hypeVol">—</p></div>
+        </div>
+        <p class="text-[10px] text-mutet mt-2" id="hypeFundingStatus">Loading…</p>
+      </div>
 
       <!-- Self-validation: does past sentiment actually correlate with FUTURE BTC price
            movement? Real Pearson correlation from Pulse's /analysis endpoint, not a
@@ -1273,11 +1273,11 @@ function setView(v){state.view=v;['dashboard','mycrypto','dca','transactions','s
   $('#viewTitle').textContent={dashboard:'Dashboard',mycrypto:'My Crypto',dca:'DCA',transactions:'Transactions',scenario:'Scenarios',capital:'Capital',radar:'Radar',settings:'Settings'}[v];
   if(v==='dca'){fillAssets();$('#d_date').value=NOW();renderDcaAvgTable();}
   if(v==='dashboard'){renderPerf();renderAlloc();renderDcaDonuts();}
-  if(v==='mycrypto'){renderCards();loadHypeFunding();}
+  if(v==='mycrypto'){renderCards();}
   if(v==='scenario'){renderScenario();}
   if(v==='capital'){renderCapital();}
   if(v==='radar'){initRadarTab();}
-  if(v==='sentiment'){initSentimentTab();}}
+  if(v==='sentiment'){initSentimentTab();loadHypeFunding();}}
 function setCcy(c){state.ccy=c;LS.ccy();
   $$('#ccyToggle button').forEach(b=>{const on=b.dataset.ccy===c;b.className=`px-3 py-1.5 rounded-lg text-xs font-bold ${on?'text-ink bg-white':'text-mutet'}`;});
   render();}
@@ -2575,7 +2575,14 @@ async function fetchTraderAnalysis(payload){
   const res=await fetch(`${PULSE_WORKER_URL}/trader-analysis`,{
     method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
   });
-  if(!res.ok)throw new Error('Worker /trader-analysis responded '+res.status);
+  if(!res.ok){
+    // Read the Worker's actual error body instead of just showing the status code —
+    // the 500/400 alone never told us *why* (e.g. an AI binding error, a bad prompt,
+    // a D1 issue) — this makes the real cause visible in the UI going forward.
+    let detail='';
+    try{const errJson=await res.json();detail=errJson.error||'';}catch(e){}
+    throw new Error('Worker /trader-analysis responded '+res.status+(detail?': '+detail:' (no error detail in response body)'));
+  }
   const json=await res.json();
   if(!json.analysis)throw new Error('Unexpected response shape');
   try{localStorage.setItem(cacheKey,JSON.stringify({analysis:json.analysis,fetchedAt:Date.now()}));}catch(e){}
@@ -3710,7 +3717,7 @@ async function init(){LS.load();buildMobileNav();wire();paintNav();
   await getPrices();render();  // live prices on top
   await backfillPriceHistoryGaps();render(); // fill any missed days with real history, not flat-fill
   getFG();
-  setInterval(()=>{getFx();getFG();getPrices().then(render);if(state.view==='mycrypto')loadHypeFunding();},60000);}
+  setInterval(()=>{getFx();getFG();getPrices().then(render);if(state.view==='sentiment')loadHypeFunding();},60000);}
 document.addEventListener('DOMContentLoaded',init);
 </script>
 </body>
