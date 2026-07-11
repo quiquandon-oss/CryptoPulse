@@ -2279,7 +2279,12 @@ async function srcOnChain(){
 }
 async function srcFredSeries(key){
   const cfg=FRED_CONFIG[key];
-  const res=await fetch(`${PULSE_WORKER_URL}/macro-proxy?series=${cfg.series}&key=${encodeURIComponent(FRED_KEY)}`);
+  // Cache-bust + no-store: oil/usd were observed stuck returning the exact same
+  // value on every reading (confirmed via D1 — 53/62 on 60+ consecutive samples,
+  // never varying), which breaks correlation (zero variance = undefined Pearson).
+  // Most likely cause: an intermediate cache serving a stale response for this
+  // identical URL. Both measures below force a real network hit each time.
+  const res=await fetch(`${PULSE_WORKER_URL}/macro-proxy?series=${cfg.series}&key=${encodeURIComponent(FRED_KEY)}&_=${Date.now()}`,{cache:'no-store'});
   if(!res.ok)throw new Error('Worker macro-proxy '+res.status);
   const json=await res.json();
   if(json.error)throw new Error(json.error);
