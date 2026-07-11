@@ -620,6 +620,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <span id="pulseLabel" class="text-xs font-semibold px-3 py-1.5 rounded-full whitespace-nowrap">—</span>
         </div>
         <p class="text-xs text-mutet" id="pulseMeta">—</p>
+        <div class="flex items-center justify-end gap-1 text-xs" id="pulseRangeTabs"></div>
         <div class="h-[110px]"><canvas id="pulseHistoryChart"></canvas></div>
       </div>
 
@@ -1747,6 +1748,8 @@ function pulseLabelFor(score){
   return{text:'💎 Extreme Bull',color:'#3BF38B'};
 }
 let pulseHistoryChartInst;
+let pulseRange='ALL'; // 'DAY' | 'WEEK' | '30D' | 'ALL' — Day/Week/30D/All toggle for the combined history chart
+let pulseLastHistory=null, pulseLastTechnicals=null; // cached so the range toggle can re-render without refetching
 function renderPulseSentiment(history){
   if(!history.length){
     $('#pulseScore').textContent='—';
@@ -1786,12 +1789,28 @@ function bucketHistoryByDate(history){
 // from Pulse's /history; Technical's real history is computed retroactively
 // from the same price series already fetched — both are genuine historical
 // data, not placeholders waiting to accumulate.
+// Day/Week/30D/All toggle for the combined Sentiment/Technical/Combined/BTC history
+// chart. Re-renders from cached data (pulseLastHistory/pulseLastTechnicals) — no refetch.
+function renderPulseRangeTabs(){
+  const host=$('#pulseRangeTabs');if(!host)return;host.innerHTML='';
+  [['DAY','Day'],['WEEK','Week'],['30D','30D'],['ALL','All']].forEach(([k,l])=>{
+    const on=pulseRange===k;const b=document.createElement('button');
+    b.className=`px-2.5 py-1 rounded-md ${on?'bg-panel2 text-white border border-line':'text-mutet hover:text-white'}`;
+    b.textContent=l;
+    b.onclick=()=>{pulseRange=k;if(pulseLastHistory)renderCombinedHistoryChart(pulseLastHistory,pulseLastTechnicals);};
+    host.appendChild(b);
+  });
+}
 function renderCombinedHistoryChart(history,technicalsData){
+  pulseLastHistory=history; pulseLastTechnicals=technicalsData; // cache so the range toggle can re-render without refetching
   const cv=$('#pulseHistoryChart');if(!cv)return;
-  const lookbackDays=90;
+  const closes0=technicalsData?technicalsData.closes:null;
+  const dates0=technicalsData?technicalsData.dates:null;
+  const RANGE_DAYS={DAY:1,WEEK:7,'30D':30,ALL:(dates0?dates0.length:365)};
+  const lookbackDays=RANGE_DAYS[pulseRange]||90;
+  renderPulseRangeTabs();
   const sentByDate=bucketHistoryByDate(history);
-  const closes=technicalsData?technicalsData.closes:null;
-  const dates=technicalsData?technicalsData.dates:null;
+  const closes=closes0,dates=dates0;
   const techByDate=(closes&&dates)?computeTechnicalScoreSeries(closes,dates,lookbackDays):{};
   const priceByDate={};
   if(closes&&dates)dates.forEach((d,i)=>{priceByDate[d]=closes[i];});
