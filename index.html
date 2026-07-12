@@ -3820,16 +3820,22 @@ async function fetchHyperliquidXyzAssets(){
     body:JSON.stringify({type:'metaAndAssetCtxs',dex:HL_XYZ_DEX})
   });
   if(!res.ok)throw new Error('Hyperliquid xyz info '+res.status);
-  const[meta,ctxs]=await res.json();
+  const json=await res.json();
+  // DIAGNOSTIC: keep the raw response shape visible in case parsing assumptions
+  // below (array destructure, universe/ctxs indices) turn out to be wrong for
+  // a dex-scoped query, not just the asset names within it.
+  window.__hlXyzRaw={isArray:Array.isArray(json),len:Array.isArray(json)?json.length:null,keys:!Array.isArray(json)?Object.keys(json||{}):null};
+  const[meta,ctxs]=json;
   const out={};
-  (meta.universe||[]).forEach((u,i)=>{out[u.name]=ctxs[i];});
+  (meta&&meta.universe||[]).forEach((u,i)=>{out[u.name]=ctxs[i];});
+  window.__hlXyzNames=Object.keys(out); // every asset name this dex query actually returned
   hlXyzCache=out;hlXyzCacheAt=Date.now();
   return out;
 }
 async function srcOilFromHyperliquid(){
   const assets=await fetchHyperliquidXyzAssets();
   const c=assets['BRENTOIL'];
-  if(!c)throw new Error('BRENTOIL not found on Hyperliquid xyz dex');
+  if(!c)throw new Error('BRENTOIL not found. Available on xyz dex: '+(Object.keys(assets).join(', ')||'(none — dex query itself may be failing, see window.__hlXyzRaw)'));
   const mark=parseFloat(c.markPx),prev=parseFloat(c.prevDayPx);
   const pctChange=((mark-prev)/prev)*100;
   // Same invert+scale convention as the old FRED oil source: rising oil price
@@ -3839,7 +3845,7 @@ async function srcOilFromHyperliquid(){
 async function srcUsdFromHyperliquid(){
   const assets=await fetchHyperliquidXyzAssets();
   const c=assets['EURUSD']||assets['EURUSD-USDC'];
-  if(!c)throw new Error('EURUSD not found on Hyperliquid xyz dex');
+  if(!c)throw new Error('EURUSD not found. Available on xyz dex: '+(Object.keys(assets).join(', ')||'(none — dex query itself may be failing, see window.__hlXyzRaw)'));
   const mark=parseFloat(c.markPx),prev=parseFloat(c.prevDayPx);
   const pctChange=((mark-prev)/prev)*100;
   // EURUSD's natural inverse relationship to dollar strength already replicates
