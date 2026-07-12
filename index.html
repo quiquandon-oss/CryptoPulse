@@ -2510,8 +2510,15 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
     ['hypefunding',srcHypeFundingForComposite],
   ];
   await Promise.all(jobs.map(async([id,fn])=>{
-    try{sourceValues[id]=await fn();}
-    catch(e){console.warn('Composite source failed, excluded from this cycle: '+id+' — '+e.message);}
+    try{
+      sourceValues[id]=await fn();
+      if(window.__sourceErrors)delete window.__sourceErrors[id];
+    }
+    catch(e){
+      console.warn('Composite source failed, excluded from this cycle: '+id+' — '+e.message);
+      window.__sourceErrors=window.__sourceErrors||{};
+      window.__sourceErrors[id]={message:e.message,at:new Date().toLocaleTimeString('en-US')};
+    }
   }));
   const active=COMPOSITE_SOURCES.filter(s=>sourceValues[s.id]).map(s=>({...s,value:sourceValues[s.id]}));
   const composite=computeComposite(active);
@@ -2944,6 +2951,13 @@ function renderFredDebugPanel(){
     return `<div>${k}: latest=${v.date0} (${v.value0}) · prev=${v.date1} (${v.value1}) · pctChange=${v.pctChange.toFixed(4)}% · fetched ${v.fetchedAt}</div>`;
   }).join('');
   html+='<div class="text-neon mt-1">oil/usd now sourced live from Hyperliquid (BRENTOIL, EURUSD-USDC) — no publication lag, not shown here.</div>';
+  const errs=window.__sourceErrors||{};
+  if(errs.oil||errs.usd){
+    html+='<div class="text-down mt-2 pt-2 border-t border-line/50">Hyperliquid source errors this cycle:</div>';
+    ['oil','usd'].forEach(k=>{
+      if(errs[k])html+=`<div class="text-down">${k}: ${errs[k].message} (${errs[k].at})</div>`;
+    });
+  }
   host.innerHTML=html;
 }
 
