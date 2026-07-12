@@ -2950,7 +2950,7 @@ function renderFredDebugPanel(){
     if(!v)return `<div class="text-down">${k}: not captured (fetch failed or excluded this cycle)</div>`;
     return `<div>${k}: latest=${v.date0} (${v.value0}) · prev=${v.date1} (${v.value1}) · pctChange=${v.pctChange.toFixed(4)}% · fetched ${v.fetchedAt}</div>`;
   }).join('');
-  html+='<div class="text-neon mt-1">oil/usd now sourced live from Hyperliquid (BRENTOIL, EURUSD-USDC) — no publication lag, not shown here.</div>';
+  html+='<div class="text-neon mt-1">oil/usd now sourced live from Hyperliquid (xyz:BRENTOIL, xyz:DXY) — no publication lag, not shown here.</div>';
   const errs=window.__sourceErrors||{};
   if(errs.oil||errs.usd){
     html+='<div class="text-down mt-2 pt-2 border-t border-line/50">Hyperliquid source errors this cycle:</div>';
@@ -3834,8 +3834,10 @@ async function fetchHyperliquidXyzAssets(){
 }
 async function srcOilFromHyperliquid(){
   const assets=await fetchHyperliquidXyzAssets();
-  const c=assets['BRENTOIL'];
-  if(!c)throw new Error('BRENTOIL not found. Available on xyz dex: '+(Object.keys(assets).join(', ')||'(none — dex query itself may be failing, see window.__hlXyzRaw)'));
+  // Confirmed via the debug panel: universe names on this dex are prefixed
+  // ("xyz:BRENTOIL"), not bare ("BRENTOIL") as first assumed.
+  const c=assets['xyz:BRENTOIL'];
+  if(!c)throw new Error('xyz:BRENTOIL not found. Available on xyz dex: '+(Object.keys(assets).join(', ')||'(none — dex query itself may be failing, see window.__hlXyzRaw)'));
   const mark=parseFloat(c.markPx),prev=parseFloat(c.prevDayPx);
   const pctChange=((mark-prev)/prev)*100;
   // Same invert+scale convention as the old FRED oil source: rising oil price
@@ -3844,19 +3846,16 @@ async function srcOilFromHyperliquid(){
 }
 async function srcUsdFromHyperliquid(){
   const assets=await fetchHyperliquidXyzAssets();
-  // trade[XYZ]'s own specification index (docs.trade.xyz) confirms the
-  // instrument is named "EUR" (tracks the EUR/USD rate) — not "EURUSD" or
-  // "EURUSD-USDC" as displayed in the app UI. Keeping those as fallbacks in
-  // case the API's internal name ever differs from the docs.
-  const c=assets['EUR']||assets['EURUSD']||assets['EURUSD-USDC'];
-  if(!c)throw new Error('EUR not found. Available on xyz dex: '+(Object.keys(assets).join(', ')||'(none — dex query itself may be failing, see window.__hlXyzRaw)'));
+  // The debug panel's full asset list revealed "xyz:DXY" — the actual US
+  // Dollar Index, directly available — a much closer match to the old FRED
+  // DTWEXBGS (broad dollar index) than the EUR/USD proxy used previously.
+  const c=assets['xyz:DXY'];
+  if(!c)throw new Error('xyz:DXY not found. Available on xyz dex: '+(Object.keys(assets).join(', ')||'(none — dex query itself may be failing, see window.__hlXyzRaw)'));
   const mark=parseFloat(c.markPx),prev=parseFloat(c.prevDayPx);
   const pctChange=((mark-prev)/prev)*100;
-  // EUR/USD's natural inverse relationship to dollar strength already replicates
-  // the old DTWEXBGS invert:true behavior: EUR falling means the dollar is
-  // strengthening, which is already a negative pctChange here — no extra sign
-  // flip needed (unlike the oil replacement above, which does need one).
-  return{score:to0_100(satur(pctChange,1.5))};
+  // Same invert+scale convention as the old FRED usd source: rising dollar
+  // index -> lower score (bearish-leaning, tighter global liquidity).
+  return{score:to0_100(satur(-pctChange,1.5))};
 }
 // ═══ Hyperliquid — Funding & Open Interest for HYPE, SOL, LINK ═══
 // One metaAndAssetCtxs call returns funding/OI/price/volume for every asset on
