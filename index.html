@@ -2297,7 +2297,13 @@ function renderSosoEtfFlows(data){
 const FRED_KEY='5f8528bd2d41549ffffc98b5bff419de'; // from Pulse's own frontend source (default input value)
 const FRED_CONFIG={
   oil:{series:'DCOILWTICO',scale:3,invert:true,label:'WTI Oil'},
-  yield10y:{series:'DGS10',scale:0.15,invert:true,label:'10Y Yield'},
+  // scale was 0.15 — so tight that an ordinary -0.44% daily 10Y yield move
+  // (confirmed via the debug panel) saturated the score all the way to 100.
+  // 1.2 puts a ~1.2% daily move at the saturation point instead, closer to
+  // usd's 1.5 and oil's 3 — still the most sensitive of the three, since
+  // yields are typically the most range-bound of the group day-to-day, but
+  // no longer pinned by completely routine moves.
+  yield10y:{series:'DGS10',scale:1.2,invert:true,label:'10Y Yield'},
   usd:{series:'DTWEXBGS',scale:1.5,invert:true,label:'US Dollar Index'},
   nasdaq:{series:'NASDAQCOM',scale:2,invert:false,label:'Nasdaq'},
   sp500:{series:'SP500',scale:2,invert:false,label:'S&P 500'}
