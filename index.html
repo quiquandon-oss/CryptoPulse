@@ -3844,11 +3844,15 @@ async function srcOilFromHyperliquid(){
 }
 async function srcUsdFromHyperliquid(){
   const assets=await fetchHyperliquidXyzAssets();
-  const c=assets['EURUSD']||assets['EURUSD-USDC'];
-  if(!c)throw new Error('EURUSD not found. Available on xyz dex: '+(Object.keys(assets).join(', ')||'(none — dex query itself may be failing, see window.__hlXyzRaw)'));
+  // trade[XYZ]'s own specification index (docs.trade.xyz) confirms the
+  // instrument is named "EUR" (tracks the EUR/USD rate) — not "EURUSD" or
+  // "EURUSD-USDC" as displayed in the app UI. Keeping those as fallbacks in
+  // case the API's internal name ever differs from the docs.
+  const c=assets['EUR']||assets['EURUSD']||assets['EURUSD-USDC'];
+  if(!c)throw new Error('EUR not found. Available on xyz dex: '+(Object.keys(assets).join(', ')||'(none — dex query itself may be failing, see window.__hlXyzRaw)'));
   const mark=parseFloat(c.markPx),prev=parseFloat(c.prevDayPx);
   const pctChange=((mark-prev)/prev)*100;
-  // EURUSD's natural inverse relationship to dollar strength already replicates
+  // EUR/USD's natural inverse relationship to dollar strength already replicates
   // the old DTWEXBGS invert:true behavior: EUR falling means the dollar is
   // strengthening, which is already a negative pctChange here — no extra sign
   // flip needed (unlike the oil replacement above, which does need one).
