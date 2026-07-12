@@ -649,6 +649,16 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <!-- Per-source breakdown of the LATEST reading (fng/funding/longshort/etc.) -->
       <div class="grid grid-cols-3 sm:grid-cols-5 gap-2" id="pulseSourceRow"></div>
 
+      <!-- ═══ TEMPORARY DIAGNOSTIC — remove once oil/usd frozen-value bug is
+           found. Shows the raw FRED observation dates this exact page load
+           received, so we can tell "FRED keeps serving the same date" (real
+           upstream staleness) apart from "different dates, same value"
+           (metric genuinely flat). ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-4">
+        <h3 class="text-xs font-semibold mb-2">Debug: raw FRED observations (this page load)</h3>
+        <div class="space-y-1 text-[10px] font-mono" id="fredDebugPanel">Loading…</div>
+      </div>
+
       <!-- ═══ Hyperliquid Funding & Open Interest — HYPE, SOL, LINK, one API call.
            Direct from Hyperliquid's own public info endpoint, no key required.
            HYPE's funding now feeds the composite score (source id "hypefunding",
@@ -2373,6 +2383,14 @@ async function srcFredSeries(key){
   if(!obs||obs.length<2)throw new Error('Not enough FRED points received');
   const latest=parseFloat(obs[0].value),previous=parseFloat(obs[1].value);
   const pctChange=((latest-previous)/previous)*100;
+  // DIAGNOSTIC (temporary): record the raw dates FRED actually returned, so we
+  // can tell apart "FRED keeps serving the same date/value" (real upstream
+  // staleness) from "different dates, coincidentally near-identical value"
+  // (the metric genuinely isn't moving) — oil/usd have shown a frozen score
+  // for 21+ real hours across ~20 separate app visits, unresolved by two prior
+  // cache fixes. See the Debug panel on the Sentiment tab.
+  window.__fredDebug=window.__fredDebug||{};
+  window.__fredDebug[key]={date0:obs[0].date,value0:obs[0].value,date1:obs[1].date,value1:obs[1].value,pctChange,fetchedAt:new Date().toLocaleTimeString('en-US')};
   return{score:to0_100(satur(cfg.invert?-pctChange:pctChange,cfg.scale))};
 }
 async function srcEtfFlowsFromExisting(etfResults){
@@ -2898,6 +2916,24 @@ async function initSentimentTab(){
   }catch(err){
     console.error('Error rendering combined history chart:',err);
   }
+  // ---- TEMPORARY: raw FRED observation dates, to diagnose the oil/usd
+  // frozen-value bug (see srcFredSeries for what's captured and why) ----
+  try{
+    renderFredDebugPanel();
+  }catch(err){
+    console.error('Error rendering FRED debug panel:',err);
+  }
+}
+function renderFredDebugPanel(){
+  const host=$('#fredDebugPanel');if(!host)return;
+  const d=window.__fredDebug||{};
+  const keys=['oil','usd','yield10y','nasdaq','sp500'];
+  if(!Object.keys(d).length){host.textContent='No FRED data captured this load (all 5 may have failed/excluded).';return;}
+  host.innerHTML=keys.map(k=>{
+    const v=d[k];
+    if(!v)return `<div class="text-down">${k}: not captured (fetch failed or excluded this cycle)</div>`;
+    return `<div>${k}: latest=${v.date0} (${v.value0}) · prev=${v.date1} (${v.value1}) · pctChange=${v.pctChange.toFixed(4)}% · fetched ${v.fetchedAt}</div>`;
+  }).join('');
 }
 
 
