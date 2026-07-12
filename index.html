@@ -2491,9 +2491,9 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
     ['longshort',srcLongShort],
     ['global',srcGlobalMcap],
     ['onchain',srcOnChain],
-    ['oil',()=>srcFredSeries('oil')],
+    ['oil',srcOilFromHyperliquid],
     ['yield10y',()=>srcFredSeries('yield10y')],
-    ['usd',()=>srcFredSeries('usd')],
+    ['usd',srcUsdFromHyperliquid],
     ['nasdaq',()=>srcFredSeries('nasdaq')],
     ['sp500',()=>srcFredSeries('sp500')],
     ['etfflows',()=>srcEtfFlowsFromExisting(etfResultsFromPanel)],
@@ -2927,13 +2927,18 @@ async function initSentimentTab(){
 function renderFredDebugPanel(){
   const host=$('#fredDebugPanel');if(!host)return;
   const d=window.__fredDebug||{};
-  const keys=['oil','usd','yield10y','nasdaq','sp500'];
-  if(!Object.keys(d).length){host.textContent='No FRED data captured this load (all 5 may have failed/excluded).';return;}
-  host.innerHTML=keys.map(k=>{
+  // oil/usd moved off FRED entirely (now Hyperliquid xyz-dex, see
+  // srcOilFromHyperliquid/srcUsdFromHyperliquid) — no longer relevant to this
+  // panel. Kept for yield10y/nasdaq/sp500, which are still FRED-sourced and
+  // where the day-old-on-weekends lag is normal/expected, not a bug.
+  const keys=['yield10y','nasdaq','sp500'];
+  let html=keys.map(k=>{
     const v=d[k];
     if(!v)return `<div class="text-down">${k}: not captured (fetch failed or excluded this cycle)</div>`;
     return `<div>${k}: latest=${v.date0} (${v.value0}) · prev=${v.date1} (${v.value1}) · pctChange=${v.pctChange.toFixed(4)}% · fetched ${v.fetchedAt}</div>`;
   }).join('');
+  html+='<div class="text-neon mt-1">oil/usd now sourced live from Hyperliquid (BRENTOIL, EURUSD-USDC) — no publication lag, not shown here.</div>';
+  host.innerHTML=html;
 }
 
 
@@ -3777,6 +3782,51 @@ async function backfillPriceHistoryGaps(){
     }catch(e){results.push(`${s}: FAILED — ${e.message}`);}
   }
   if(statusEl)statusEl.textContent=results.length?results.join(' | '):'No coins to check';
+}
+// ═══ oil & usd via Hyperliquid's "xyz" builder-deployed perp dex (BRENTOIL,
+// EURUSD-USDC) — replaces FRED for these two specifically. The debug panel
+// confirmed FRED's DCOILWTICO/DTWEXBGS lag real-time by days (up to 10 real
+// days for usd), which meant their score could stay frozen for a full real
+// day or more even with a perfectly correct fetch — correlation could never
+// populate. Hyperliquid prices are continuously live, and each asset context
+// includes prevDayPx (a rolling 24h-ago reference), giving an always-current
+// % change with zero publication lag — a genuine fix, not just a workaround.
+const HL_XYZ_DEX='xyz';
+let hlXyzCache=null,hlXyzCacheAt=0;
+async function fetchHyperliquidXyzAssets(){
+  if(hlXyzCache&&Date.now()-hlXyzCacheAt<HL_CACHE_MS)return hlXyzCache;
+  const res=await fetch('https://api.hyperliquid.xyz/info',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({type:'metaAndAssetCtxs',dex:HL_XYZ_DEX})
+  });
+  if(!res.ok)throw new Error('Hyperliquid xyz info '+res.status);
+  const[meta,ctxs]=await res.json();
+  const out={};
+  (meta.universe||[]).forEach((u,i)=>{out[u.name]=ctxs[i];});
+  hlXyzCache=out;hlXyzCacheAt=Date.now();
+  return out;
+}
+async function srcOilFromHyperliquid(){
+  const assets=await fetchHyperliquidXyzAssets();
+  const c=assets['BRENTOIL'];
+  if(!c)throw new Error('BRENTOIL not found on Hyperliquid xyz dex');
+  const mark=parseFloat(c.markPx),prev=parseFloat(c.prevDayPx);
+  const pctChange=((mark-prev)/prev)*100;
+  // Same invert+scale convention as the old FRED oil source: rising oil price
+  // -> lower score (bearish-leaning, tightening/inflation pressure).
+  return{score:to0_100(satur(-pctChange,3))};
+}
+async function srcUsdFromHyperliquid(){
+  const assets=await fetchHyperliquidXyzAssets();
+  const c=assets['EURUSD']||assets['EURUSD-USDC'];
+  if(!c)throw new Error('EURUSD not found on Hyperliquid xyz dex');
+  const mark=parseFloat(c.markPx),prev=parseFloat(c.prevDayPx);
+  const pctChange=((mark-prev)/prev)*100;
+  // EURUSD's natural inverse relationship to dollar strength already replicates
+  // the old DTWEXBGS invert:true behavior: EUR falling means the dollar is
+  // strengthening, which is already a negative pctChange here — no extra sign
+  // flip needed (unlike the oil replacement above, which does need one).
+  return{score:to0_100(satur(pctChange,1.5))};
 }
 // ═══ Hyperliquid — Funding & Open Interest for HYPE, SOL, LINK ═══
 // One metaAndAssetCtxs call returns funding/OI/price/volume for every asset on
