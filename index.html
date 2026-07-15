@@ -2441,13 +2441,14 @@ const COMPOSITE_SOURCES_DEFAULTS=[
   {id:'geopolitics',label:'Geopolitics (BBC World)',weight:10,confidence:0.6},
   {id:'sosovalue',label:'Macro News (SoSoValue)',weight:13,confidence:0.7},
   {id:'onchain',label:'On-Chain Activity (BTC)',weight:8,confidence:0.5},
-  {id:'oil',label:'WTI Oil (FRED)',weight:6,confidence:0.6},
+  {id:'oil',label:'Brent Oil (Hyperliquid xyz:BRENTOIL)',weight:6,confidence:0.6},
   {id:'yield10y',label:'10Y Treasury Yield (FRED)',weight:6,confidence:0.6},
-  {id:'usd',label:'US Dollar Index (FRED)',weight:6,confidence:0.6},
+  {id:'usd',label:'US Dollar Index (Hyperliquid xyz:DXY)',weight:6,confidence:0.6},
   {id:'nasdaq',label:'Nasdaq Composite (FRED)',weight:8,confidence:0.7},
   {id:'sp500',label:'S&P 500 (FRED)',weight:8,confidence:0.7},
   {id:'etfflows',label:'BTC ETF Flows (SoSoValue)',weight:10,confidence:0.8},
   {id:'hypefunding',label:'HYPE Perp Funding (Hyperliquid)',weight:6,confidence:0.4},
+  {id:'gold',label:'Gold (Hyperliquid xyz:GOLD)',weight:7,confidence:0.5},
 ];
 function loadSentimentWeights(){
   let overrides={};
@@ -2498,6 +2499,7 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
     ['global',srcGlobalMcap],
     ['onchain',srcOnChain],
     ['oil',srcOilFromHyperliquid],
+    ['gold',srcGoldFromHyperliquid],
     ['yield10y',()=>srcFredSeries('yield10y')],
     ['usd',srcUsdFromHyperliquid],
     ['nasdaq',()=>srcFredSeries('nasdaq')],
@@ -3856,6 +3858,22 @@ async function srcUsdFromHyperliquid(){
   // Same invert+scale convention as the old FRED usd source: rising dollar
   // index -> lower score (bearish-leaning, tighter global liquidity).
   return{score:to0_100(satur(-pctChange,1.5))};
+}
+async function srcGoldFromHyperliquid(){
+  const assets=await fetchHyperliquidXyzAssets();
+  const c=assets['xyz:GOLD'];
+  if(!c)throw new Error('xyz:GOLD not found. Available on xyz dex: '+(Object.keys(assets).join(', ')||'(none — dex query itself may be failing, see window.__hlXyzRaw)'));
+  const mark=parseFloat(c.markPx),prev=parseFloat(c.prevDayPx);
+  const pctChange=((mark-prev)/prev)*100;
+  // Genuinely new source, no prior FRED equivalent to match conventions against.
+  // Gold/BTC correlation isn't stable — sometimes both trade as "alternative
+  // store of value" (positive correlation), sometimes gold is a risk-off flight
+  // to safety while BTC gets sold with other risk assets (negative). Picked
+  // invert:false here (rising gold -> higher score) as a starting assumption,
+  // not a confident claim — this is exactly the kind of thing the per-source
+  // correlation panel is for. Once gold has enough samples there, check its
+  // sign: if it comes back reliably negative, flip invert to true.
+  return{score:to0_100(satur(pctChange,2))};
 }
 // ═══ Hyperliquid — Funding & Open Interest for HYPE, SOL, LINK ═══
 // One metaAndAssetCtxs call returns funding/OI/price/volume for every asset on
