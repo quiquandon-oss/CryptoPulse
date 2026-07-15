@@ -657,6 +657,10 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <div class="rounded-2xl border border-line bg-panel p-4">
         <h3 class="text-xs font-semibold mb-2">Debug: raw FRED observations (this page load)</h3>
         <div class="space-y-1 text-[10px] font-mono" id="fredDebugPanel">Loading…</div>
+        <div class="mt-3 pt-3 border-t border-line/50">
+          <button class="px-3 py-1.5 rounded-md text-xs bg-panel2 border border-line hover:text-white" onclick="backfillGoldUsdHistory()">Backfill gold/usd history from Hyperliquid</button>
+          <p class="text-[10px] text-mutet mt-1" id="backfillGoldUsdStatus">One-time — safe to click more than once, does nothing once every row is filled.</p>
+        </div>
       </div>
 
       <!-- ═══ Hyperliquid Funding & Open Interest — HYPE, SOL, LINK, one API call.
@@ -3874,6 +3878,78 @@ async function srcGoldFromHyperliquid(){
   // correlation panel is for. Once gold has enough samples there, check its
   // sign: if it comes back reliably negative, flip invert to true.
   return{score:to0_100(satur(pctChange,2))};
+}
+
+// ═══ One-time backfill: gold + usd history ═══
+// Rows already in D1 from before gold existed (all of them) and before usd
+// moved to Hyperliquid (everything pre-fix) have no real gold/usd data. This
+// fetches actual historical daily closes from Hyperliquid (candleSnapshot),
+// computes each day's score with the EXACT same formula as the live sources
+// (srcGoldFromHyperliquid/srcUsdFromHyperliquid above), and patches only the
+// rows that don't already have that field — never overwrites a real live
+// reading, safe to re-run (does nothing on a second run once complete).
+async function fetchHlDailyCloses(coin,startTime,endTime){
+  const res=await fetch('https://api.hyperliquid.xyz/info',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({type:'candleSnapshot',req:{coin,interval:'1d',startTime,endTime}})
+  });
+  if(!res.ok)throw new Error(coin+' candleSnapshot '+res.status);
+  const candles=await res.json();
+  const byDate={};
+  (candles||[]).forEach(c=>{byDate[new Date(c.t).toISOString().slice(0,10)]=parseFloat(c.c);});
+  return byDate;
+}
+function hlPctChangeForDate(byDate,date){
+  const dates=Object.keys(byDate).sort();
+  const idx=dates.indexOf(date);
+  if(idx<1)return null; // no prior day available to diff against
+  const todayClose=byDate[date],prevClose=byDate[dates[idx-1]];
+  if(todayClose==null||prevClose==null)return null;
+  return((todayClose-prevClose)/prevClose)*100;
+}
+async function backfillGoldUsdHistory(){
+  const status=$('#backfillGoldUsdStatus');
+  const setStatus=t=>{if(status)status.textContent=t;};
+  setStatus('Fetching historical candles from Hyperliquid…');
+  try{
+    const endTime=Date.now();
+    const startTime=endTime-30*86400000; // 30 days back — generous margin past the app's actual history start
+    const[goldByDate,dxyByDate]=await Promise.all([
+      fetchHlDailyCloses('xyz:GOLD',startTime,endTime),
+      fetchHlDailyCloses('xyz:DXY',startTime,endTime)
+    ]);
+    setStatus('Reading existing history…');
+    const histRes=await fetch(`${PULSE_WORKER_URL}/history`,{cache:'no-store'});
+    if(!histRes.ok)throw new Error('/history '+histRes.status);
+    const{history}=await histRes.json();
+    const updates=[];
+    (history||[]).forEach(row=>{
+      let sources={};
+      try{sources=row.sources_json?JSON.parse(row.sources_json):{};}catch(e){}
+      const date=new Date(row.ts).toISOString().slice(0,10);
+      const patch={};
+      if(sources.gold==null){
+        const gp=hlPctChangeForDate(goldByDate,date);
+        if(gp!=null)patch.gold=to0_100(satur(gp,2)); // same formula as srcGoldFromHyperliquid
+      }
+      if(sources.usd==null){
+        const up=hlPctChangeForDate(dxyByDate,date);
+        if(up!=null)patch.usd=to0_100(satur(-up,1.5)); // same formula as srcUsdFromHyperliquid
+      }
+      if(Object.keys(patch).length)updates.push({ts:row.ts,patch});
+    });
+    if(!updates.length){setStatus('Nothing to backfill — every row already has gold/usd, or no matching historical dates were found.');return;}
+    setStatus(`Patching ${updates.length} row(s)…`);
+    const res=await fetch(`${PULSE_WORKER_URL}/backfill-sources`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({updates})
+    });
+    const json=await res.json();
+    if(!res.ok||json.error)throw new Error(json.error||('backfill-sources '+res.status));
+    setStatus(`Done — backfilled ${json.rowsPatched} row(s) with real historical gold/usd data.`);
+  }catch(err){
+    setStatus('Error: '+(err&&err.message?err.message:String(err)));
+  }
 }
 // ═══ Hyperliquid — Funding & Open Interest for HYPE, SOL, LINK ═══
 // One metaAndAssetCtxs call returns funding/OI/price/volume for every asset on
