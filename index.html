@@ -2509,7 +2509,6 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
     ['global',srcGlobalMcap],
     ['onchain',srcOnChain],
     ['oil',srcOilFromHyperliquid],
-    ['gold',srcGoldFromHyperliquid],
     ['yield10y',()=>srcFredSeries('yield10y')],
     ['usd',srcUsdFromHyperliquid],
     ['nasdaq',()=>srcFredSeries('nasdaq')],
@@ -2532,6 +2531,20 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
       window.__sourceErrors[id]={message:e.message,at:new Date().toLocaleTimeString('en-US')};
     }
   }));
+  // Gold runs AFTER the above resolve — its regime classification (competing-
+  // haven vs shared-narrative) needs nasdaq/sp500's scores from this SAME
+  // cycle plus BTC's 24h change, not just gold's own price move.
+  try{
+    const eqScores=[sourceValues.nasdaq?.score,sourceValues.sp500?.score].filter(v=>v!=null);
+    const equitiesScore=eqScores.length?eqScores.reduce((a,b)=>a+b,0)/eqScores.length:null;
+    sourceValues.gold=await srcGoldFromHyperliquid({btcChg:chg24('BTC'),equitiesScore});
+    window.__lastGoldRegime=sourceValues.gold.regime;
+    if(window.__sourceErrors)delete window.__sourceErrors.gold;
+  }catch(e){
+    console.warn('Composite source failed, excluded from this cycle: gold — '+e.message);
+    window.__sourceErrors=window.__sourceErrors||{};
+    window.__sourceErrors.gold={message:e.message,at:new Date().toLocaleTimeString('en-US')};
+  }
   const active=COMPOSITE_SOURCES.filter(s=>sourceValues[s.id]).map(s=>({...s,value:sourceValues[s.id]}));
   const composite=computeComposite(active);
   if(composite==null)return{ok:false,activeCount:0};
@@ -2969,6 +2982,11 @@ function renderFredDebugPanel(){
     ['oil','usd'].forEach(k=>{
       if(errs[k])html+=`<div class="text-down">${k}: ${errs[k].message} (${errs[k].at})</div>`;
     });
+  }
+  if(window.__lastGoldRegime){
+    const isCompeting=window.__lastGoldRegime==='competing-haven';
+    const explain=isCompeting?'gold rise scored as bearish for BTC (opposite-direction move, confirmed by equities)':'gold rise scored as bullish for BTC (same-direction move, or inconclusive)';
+    html+=`<div class="text-neon mt-2 pt-2 border-t border-line/50">gold regime this cycle: <strong>${window.__lastGoldRegime}</strong> — ${explain}</div>`;
   }
   host.innerHTML=html;
 }
@@ -3933,21 +3951,37 @@ async function srcUsdFromHyperliquid(){
   // index -> lower score (bearish-leaning, tighter global liquidity).
   return{score:to0_100(satur(-pctChange,1.5))};
 }
-async function srcGoldFromHyperliquid(){
+// Regime-aware gold scoring — replaces the old fixed-sign assumption.
+// Rationale (from the 5-year BTC/gold analysis this was built on): a single
+// fixed sign is wrong by design, because gold/BTC genuinely trade in two
+// different regimes that take turns (tight tandem Nov'22-Nov'24, sharp
+// decoupling in 2025) — not one unstable relationship, but two distinct
+// mechanisms. This distinguishes them using data already being fetched this
+// same cycle, rather than adding a new metric (Hyperliquid perp volume on a
+// thin synthetic gold market wouldn't reflect real-world haven demand anyway):
+//   - Competing-haven: gold and BTC move OPPOSITE ways, AND equities move
+//     WITH BTC (not with gold) — broad risk-off hit BTC and stocks together
+//     while gold was where capital went instead. Gold's rise -> bearish for BTC.
+//   - Shared-narrative (or inconclusive): gold and BTC move the SAME way, or
+//     equities don't confirm a clean risk-off read. Gold's rise -> bullish,
+//     matching the weak net-positive bias found across the full 5-year window.
+// btcChg (BTC 24h %) and equitiesScore (avg of this cycle's nasdaq/sp500
+// scores, 0-100 centered on 50) are passed in from computeAndSyncCompositeScore
+// once those sources have resolved — gold intentionally runs AFTER them.
+async function srcGoldFromHyperliquid(regimeCtx){
   const assets=await fetchHyperliquidXyzAssets();
   const c=assets['xyz:GOLD'];
   if(!c)throw new Error('xyz:GOLD not found. Available on xyz dex: '+(Object.keys(assets).join(', ')||'(none — dex query itself may be failing, see window.__hlXyzRaw)'));
   const mark=parseFloat(c.markPx),prev=parseFloat(c.prevDayPx);
   const pctChange=((mark-prev)/prev)*100;
-  // Genuinely new source, no prior FRED equivalent to match conventions against.
-  // Gold/BTC correlation isn't stable — sometimes both trade as "alternative
-  // store of value" (positive correlation), sometimes gold is a risk-off flight
-  // to safety while BTC gets sold with other risk assets (negative). Picked
-  // invert:false here (rising gold -> higher score) as a starting assumption,
-  // not a confident claim — this is exactly the kind of thing the per-source
-  // correlation panel is for. Once gold has enough samples there, check its
-  // sign: if it comes back reliably negative, flip invert to true.
-  return{score:to0_100(satur(pctChange,2))};
+  let regime='shared-narrative-or-unclear',invertThisReading=false;
+  const{btcChg,equitiesScore}=regimeCtx||{};
+  if(btcChg!=null&&equitiesScore!=null){
+    const goldUp=pctChange>0,btcUp=btcChg>0,equitiesUp=equitiesScore>50;
+    if(goldUp!==btcUp&&equitiesUp===btcUp){invertThisReading=true;regime='competing-haven';}
+  }
+  const signedPct=invertThisReading?-pctChange:pctChange;
+  return{score:to0_100(satur(signedPct,2)),regime};
 }
 
 // ═══ One-time backfill: gold + usd history ═══
