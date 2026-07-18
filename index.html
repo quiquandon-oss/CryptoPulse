@@ -3273,6 +3273,11 @@ function detectCsvFormat(rows){
   if(k.includes('Asset received')&&k.includes('Asset sent')&&k.includes('ID'))return 'neverless';
   return null;
 }
+// Rough IDR->EUR approximation, same level of rigor as fxOnDate's own hardcoded
+// monthly EUR/USD buckets above (this app has never done live per-transaction
+// historical FX — these are small DCA amounts where a rough constant is fine).
+// ~17,800 IDR/EUR as of mid-2026. Revisit if IDR moves a lot from this range.
+const IDR_PER_EUR=17800;
 function mapRevolut(rows){
   const CRYPTO=Object.keys(META);
   const out=[];
@@ -3282,12 +3287,22 @@ function mapRevolut(rows){
     if(!type)return;                                       // ignore rewards/transfers/fiat ops…
     const sym=(r.Symbol||'').trim().toUpperCase();
     if(!CRYPTO.includes(sym))return;                       // unknown asset (or fiat row) -> skipped
-    const qty=csvNum(r.Quantity),px=csvNum(r.Price);       // '€1,908.30' / '$7.75' handled
+    const qty=csvNum(r.Quantity),px=csvNum(r.Price);       // '€1,908.30' / '$7.75' / '138,920.02 IDR' handled
     const date=csvDate(r.Date);                            // 'Apr 10, 2026, 3:41:03 PM' handled
     if(!(qty>0)||!(px>0)||!date)return;                    // unparsable row -> skipped
     const isUsd=String(r.Price).includes('$');             // 'Buy - Revolut X' rows are priced in USD
+    // Some rows (seen when the account region is Indonesia) have NO $/€ symbol
+    // at all — just a raw number with an "IDR" suffix, e.g. "138,920.02 IDR".
+    // Previously this silently fell through to the EUR branch below, treating
+    // e.g. 138,920.02 IDR as if it were €138,920.02 per token — wrong by a
+    // factor of ~17,800x, which was badly skewing the average price for any
+    // account that had even one IDR-denominated row mixed into the CSV.
+    const isIdr=/IDR/i.test(String(r.Price));
     const fx=fxOnDate(date)||state.fx||FX0;
-    const usd=isUsd?px:px*fx, eur=isUsd?px/fx:px;
+    let usd,eur;
+    if(isIdr){eur=px/IDR_PER_EUR;usd=eur*fx;}
+    else if(isUsd){usd=px;eur=px/fx;}
+    else{eur=px;usd=px*fx;}
     const srcId='rev:'+sym+':'+String(r.Date).trim()+':'+qty.toFixed(8);
     out.push({id:uid(),date,asset:sym,acct:'Revolut',type,qty,price:px,ccy:isUsd?'USD':'EUR',eur,usd,srcId});
   });
