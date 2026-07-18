@@ -2303,7 +2303,11 @@ function renderSosoEtfFlows(data){
 
 const FRED_KEY='5f8528bd2d41549ffffc98b5bff419de'; // from Pulse's own frontend source (default input value)
 const FRED_CONFIG={
-  oil:{series:'DCOILWTICO',scale:3,invert:true,label:'WTI Oil'},
+  // oil and usd used to live here (DCOILWTICO/DTWEXBGS) but were removed once
+  // both moved to Hyperliquid's live xyz:BRENTOIL/xyz:DXY (see
+  // srcOilFromHyperliquid/srcUsdFromHyperliquid) — FRED's publication lag was
+  // the whole reason for the move, so leaving dead config here would've been
+  // a trap for a future edit that looked like it did something but didn't.
   // scale was 0.15 — so tight that an ordinary -0.44% daily 10Y yield move
   // (confirmed via the debug panel) saturated the score all the way to 100.
   // 1.2 puts a ~1.2% daily move at the saturation point instead, closer to
@@ -2311,7 +2315,6 @@ const FRED_CONFIG={
   // yields are typically the most range-bound of the group day-to-day, but
   // no longer pinned by completely routine moves.
   yield10y:{series:'DGS10',scale:1.2,invert:true,label:'10Y Yield'},
-  usd:{series:'DTWEXBGS',scale:1.5,invert:true,label:'US Dollar Index'},
   nasdaq:{series:'NASDAQCOM',scale:2,invert:false,label:'Nasdaq'},
   sp500:{series:'SP500',scale:2,invert:false,label:'S&P 500'}
 };
@@ -3149,8 +3152,14 @@ function renderDcaAvgTable(){
    CAPITAL TAB — invested vs current value per coin
 ═══════════════════════════════════════════════════════════════════ */
 function totalInvested(a){
-  return state.txs.filter(t=>t.asset===a&&t.type==='buy')
-    .reduce((s,t)=>{const p=state.ccy==='USD'?t.usd:t.eur;return s+t.qty*p;},0);
+  // Was: sum of every historical buy, ignoring sells entirely — so a coin with
+  // any sell would compare its gross all-time buy cost against only the
+  // CURRENT (post-sell) holding value, overstating loss / understating gain.
+  // Fix: reuse avg()'s already-correct running cost-basis accounting (which
+  // does handle sells properly) times current quantity — the actual cost
+  // basis of what's still held, consistent with how "current value" is
+  // computed elsewhere (also based on current quantity).
+  return qtyOf(a)*avg(a,state.ccy);
 }
 // ---- Dry Powder Planner ----
 // Deliberately reuses the app's existing, already-correct cost-basis functions
@@ -3238,8 +3247,25 @@ function renderCapital(){
 function csvNum(v){ // strips currency symbols, mojibake, thousands separators, spaces
   if(v==null)return NaN;
   let s=String(v).replace(/[^0-9.,\-]/g,'');
-  if(s.includes(',')&&s.includes('.'))s=s.replace(/,/g,'');            // 1,908.30 -> 1908.30
-  else if(s.includes(',')&&!s.includes('.'))s=s.replace(',','.');      // 1908,30  -> 1908.30
+  const lastComma=s.lastIndexOf(','),lastDot=s.lastIndexOf('.');
+  if(lastComma>-1&&lastDot>-1){
+    // Whichever separator appears LAST is the real decimal point — the old
+    // version always assumed US-style (1,908.30) whenever both were present,
+    // which would silently mis-parse a European-style export (1.908,30 —
+    // dot as thousands, comma as decimal) the same class of bug as the IDR
+    // mislabeling, just a different symptom. Not yet seen in a real export,
+    // but this closes the gap before it needs to.
+    if(lastComma>lastDot)s=s.replace(/\./g,'').replace(',','.');  // 1.908,30 -> 1908.30
+    else s=s.replace(/,/g,'');                                     // 1,908.30 -> 1908.30
+  }else if(lastComma>-1&&!s.includes('.')){
+    // Only commas, no dot: ambiguous between "1,908" (thousands) and "7,75"
+    // (decimal). Heuristic: a single comma followed by exactly 1-2 digits is
+    // almost always a decimal separator; anything else (multiple commas, or
+    // 3+ digits after) is thousands grouping.
+    const parts=s.split(',');
+    if(parts.length===2&&parts[1].length<=2)s=s.replace(',','.');
+    else s=s.replace(/,/g,'');
+  }
   return parseFloat(s);
 }
 const MONTHS={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
