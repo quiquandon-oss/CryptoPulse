@@ -3322,6 +3322,27 @@ function mapNeverless(rows){
 }
 let _lastImportIds=null; // batch just added, kept for one-tap Undo
 function renderTxDbCount(){const el=$('#txDbCount');if(el)el.textContent=state.txs.length+' txns';}
+// Flags rows whose EUR price is wildly out of line with the median for that
+// same asset within this import batch — e.g. a mislabeled-currency row like
+// the IDR case (off by ~17,800x) would show up here immediately instead of
+// silently skewing the average price until someone happens to notice. 5x/÷5
+// is deliberately loose — real price swings within one CSV shouldn't come
+// close to that, so this is meant to catch unit/currency mistakes, not flag
+// genuine volatility.
+function detectPriceOutliers(txs){
+  const byAsset={};
+  txs.forEach(t=>{(byAsset[t.asset]=byAsset[t.asset]||[]).push(t);});
+  const flagged=[];
+  Object.values(byAsset).forEach(list=>{
+    if(list.length<2)return; // nothing to compare against within this batch
+    const prices=list.map(t=>t.eur).filter(p=>p>0).sort((a,b)=>a-b);
+    if(!prices.length)return;
+    const median=prices[Math.floor(prices.length/2)];
+    if(!(median>0))return;
+    list.forEach(t=>{if(t.eur>median*5||t.eur<median/5)flagged.push(t);});
+  });
+  return flagged;
+}
 async function handleCsvFile(file){
   let rows;
   if(file.name.endsWith('.xlsx')||file.name.endsWith('.xls')){
@@ -3355,14 +3376,19 @@ async function handleCsvFile(file){
     return true;});
   const skipped=parsed.length-newTxs.length;
   const label=fmt==='revolut'?'Revolut':'Neverless';
+  const outliers=detectPriceOutliers(newTxs);
+  const outlierHtml=outliers.length?`<div class="mt-2 pt-2 border-t border-down/30">
+      <p class="text-down text-xs font-semibold">⚠ ${outliers.length} row(s) look like a currency/unit mistake, not real price moves:</p>
+      ${outliers.map(t=>`<p class="text-down text-[10px]">${t.date} · ${t.asset} · price ${t.price} ${t.ccy==='USD'?'$':'€'} (≈€${t.eur.toFixed(2)}) — check this row before trusting the average price</p>`).join('')}
+    </div>`:'';
   // ---- single-tap import: no separate "Confirm" step to forget ----
   if(newTxs.length){
     state.txs.push(...newTxs);
     _lastImportIds=newTxs.map(t=>t.id);
     LS.save();render();renderTxDbCount();
-    $('#csvPreviewText').innerHTML=`<strong>${label}</strong> · ✓ <span class="text-up font-bold">${newTxs.length} new transactions imported</span>${skipped?` · <span class="text-mutet">${skipped} already had them</span>`:''}`;
+    $('#csvPreviewText').innerHTML=`<strong>${label}</strong> · ✓ <span class="text-up font-bold">${newTxs.length} new transactions imported</span>${skipped?` · <span class="text-mutet">${skipped} already had them</span>`:''}${outlierHtml}`;
     $('#csvPreview').classList.remove('hidden');
-    toast('✓ '+newTxs.length+' transactions imported');
+    toast(outliers.length?'✓ imported, but '+outliers.length+' row(s) look suspicious — check the preview':'✓ '+newTxs.length+' transactions imported');
     setView('transactions'); // show the result immediately, no extra tap required
   }else{
     $('#csvPreviewText').innerHTML=`<strong>${label}</strong> · ${parsed.length} transactions read — <span class="text-mutet">all ${skipped} were already in this browser, nothing new to add</span>`;
