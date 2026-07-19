@@ -255,8 +255,6 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <h2 class="font-semibold">My Crypto</h2>
         <button id="goDca" class="text-sm font-semibold bg-neon/15 hover:bg-neon/25 text-neon border border-neon/30 rounded-lg px-3 py-1.5 transition">+ DCA</button>
       </div>
-      <div id="alertsBanner" class="hidden mb-3 rounded-xl border border-neon/40 bg-neon/10 px-3 py-2 text-xs font-semibold text-neon"></div>
-      <p class="text-[10px] text-mutet mb-3" id="tgSendStatus"></p>
       <p class="text-[10px] text-mutet mb-3">🤖 Signal = rule-based score from RSI, your cost basis, 30d trend &amp; Fear/Greed — not financial advice.</p>
       <div id="holdingCards" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4"></div>
     </section>
@@ -540,25 +538,8 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         </div>
         <div class="border-t border-line pt-4">
           <h3 class="text-sm font-semibold mb-3">Alerts for this coin</h3>
-          <div class="grid sm:grid-cols-2 gap-3 mb-3">
-            <label class="flex items-center justify-between bg-panel2 rounded-xl px-4 py-3 gap-3">
-              <span class="text-sm">Notify at discount ≥</span>
-              <span class="flex items-center gap-1">
-                <input id="radarDiscountInput" type="number" min="0.5" step="0.5" class="bg-panel2 border border-line rounded-lg px-2 py-1.5 text-sm tnum focus:border-neon outline-none text-right" style="width:64px">
-                <span class="text-sm text-mutet">%</span>
-              </span>
-            </label>
-            <label class="flex items-center justify-between bg-panel2 rounded-xl px-4 py-3 gap-3">
-              <span class="text-sm">Notify below price</span>
-              <input id="radarPriceInput" type="number" step="any" placeholder="optional" class="bg-panel2 border border-line rounded-lg px-2 py-1.5 text-sm tnum focus:border-neon outline-none text-right" style="width:90px">
-            </label>
-          </div>
-          <label class="flex items-center gap-2 mb-3 text-sm">
-            <input id="radarWindowToggle" type="checkbox" checked style="accent-color:#3BF38B">
-            Notify me when the cheapest weekly window opens
-          </label>
-          <button id="radarNotifyBtn" class="w-full text-sm font-medium bg-panel2 hover:bg-line border border-line rounded-lg px-3 py-2.5 transition">🔔 Enable browser notifications</button>
-          <p class="text-xs text-mutet mt-2" id="radarNotifStatus">Notifications are off — this tab must stay open in a browser for alerts to fire.</p>
+          <p class="text-xs text-mutet mb-3">Discount %, price target, and cheap-window alerts are now managed in one place — <strong>Settings → Alerts</strong> — and delivered via Telegram instead of browser notifications (which only fired while this tab was open). Go there to set one up for <span id="radarAlertCoinName">this coin</span>.</p>
+          <button class="w-full text-sm font-medium bg-panel2 hover:bg-line border border-line rounded-lg px-3 py-2.5 transition" onclick="setView('settings')">Go to Settings → Alerts</button>
         </div>
       </div>
     </section>
@@ -827,6 +808,47 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <div id="sentWeightControls" class="space-y-3"></div>
       </div>
 
+      <!-- ═══ Alerts — full rebuild. Checked every 15 min by a Cloudflare Worker
+           cron (independent of this app being open), delivered via Telegram
+           using secrets stored on the Worker (never exposed to the client,
+           unlike the previous hardcoded-token version this replaces). ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-5 space-y-4">
+        <div>
+          <h2 class="font-semibold mb-1">Alerts</h2>
+          <p class="text-xs text-mutet">Checked every 15 minutes on the server side and sent via Telegram — works even when this app is fully closed.</p>
+        </div>
+        <div>
+          <button class="px-3 py-1.5 rounded-md text-xs bg-panel2 border border-line hover:text-white" onclick="sendTestTelegram()">Send test Telegram message</button>
+          <p class="text-[10px] text-mutet mt-1" id="testTelegramStatus"></p>
+        </div>
+        <div class="border-t border-line/50 pt-3">
+          <h3 class="text-sm font-semibold mb-2">New alert</h3>
+          <select id="alertTypeSelect" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm mb-2" onchange="renderAlertFormFields(this.value)">
+            <option value="price">Price crosses threshold</option>
+            <option value="radar_discount">Discount vs 7-day average</option>
+            <option value="radar_window">Historically-cheapest weekly window opens</option>
+            <option value="score_threshold">Sentiment/Technical/Combined score crosses threshold</option>
+            <option value="gold_regime">Gold regime flips to competing-haven</option>
+            <option value="funding_spike">Funding rate spike (BTC/ETH or HYPE)</option>
+            <option value="combo">Combo — price AND score, both true at once</option>
+          </select>
+          <div id="alertFormFields" class="space-y-2"></div>
+          <label class="text-xs text-mutet block mt-2">Cooldown between repeat sends (minutes)
+            <input id="alertCooldownInput" type="number" value="60" min="15" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm mt-1">
+          </label>
+          <button class="w-full mt-3 text-sm font-medium bg-neon/15 hover:bg-neon/25 text-neon border border-neon/30 rounded-lg px-3 py-2.5 transition" onclick="createAlertFromForm()">+ Add alert</button>
+          <p class="text-[10px] text-mutet mt-1" id="alertCreateStatus"></p>
+        </div>
+        <div class="border-t border-line/50 pt-3">
+          <h3 class="text-sm font-semibold mb-2">Active alerts</h3>
+          <div id="alertConfigsList" class="space-y-2 text-xs">Loading…</div>
+        </div>
+        <div class="border-t border-line/50 pt-3">
+          <h3 class="text-sm font-semibold mb-2">Recent activity</h3>
+          <div id="alertLogList" class="space-y-1 text-[10px] font-mono max-h-64 overflow-y-auto">Loading…</div>
+        </div>
+      </div>
+
       <!-- ═══ TEMPORARY DIAGNOSTIC — moved here from the Sentiment tab (was
            cluttering the main view). Remove entirely once oil/usd/gold sourcing
            is fully settled. Shows the raw FRED observation dates from the most
@@ -897,14 +919,13 @@ function fxOnDate(d){const m=+d.slice(5,7);return m<=4?1.175:m===5?1.16:1.145;} 
 const TABC={dashboard:'#3BF38B',mycrypto:'#8B7BFF',dca:'#F5B843',transactions:'#38BDF8',capital:'#06B6D4',scenario:'#A78BFA',radar:'#2A5ADA',sentiment:'#F472B6',settings:'#94A3B8'};
 function paintNav(){document.querySelectorAll('.navitem').forEach(b=>{const c=TABC[b.dataset.view]||'#3BF38B';b.style.setProperty('--tc',c);});}
 
-const state={txs:[],prices:{},fx:FX0,ccy:'USD',view:'dashboard',coin:'ALL',range:'ALL',tType:'buy',tCcy:'USD',expanded:new Set(),detailCoin:null,detailRange:'30d',alerts:{},
-  radar:{coin:'BTC',discountPct:3,priceTarget:'',windowAlert:true,notifyOn:false,cache:{},lastWindowNotif:null,lastDiscountNotif:0}};
+const state={txs:[],prices:{},fx:FX0,ccy:'USD',view:'dashboard',coin:'ALL',range:'ALL',tType:'buy',tCcy:'USD',expanded:new Set(),detailCoin:null,detailRange:'30d',
+  radar:{coin:'BTC',cache:{}}};
 
 /* ---- storage ---- */
 const LS={load(){try{const t=localStorage.getItem('cp2_txs');state.txs=t?JSON.parse(t):null;
   const m=localStorage.getItem('cp2_meta');if(m)Object.assign(META,JSON.parse(m));
   const c=localStorage.getItem('cp2_ccy');if(c)state.ccy=c;
-  const al=localStorage.getItem('cp2_alerts');if(al){try{state.alerts=JSON.parse(al)||{};}catch(e){state.alerts={};}}
   const rd=localStorage.getItem('cp2_radar');if(rd){try{Object.assign(state.radar,JSON.parse(rd));}catch(e){}}
   // Merge saved daily prices into PRICE_HISTORY so charts extend forward
   try{const px=localStorage.getItem('cp2_px');if(px){const saved=JSON.parse(px);
@@ -913,8 +934,7 @@ const LS={load(){try{const t=localStorage.getItem('cp2_txs');state.txs=t?JSON.pa
   save(){localStorage.setItem('cp2_txs',JSON.stringify(state.txs));},
   meta(){localStorage.setItem('cp2_meta',JSON.stringify(META));},
   ccy(){localStorage.setItem('cp2_ccy',state.ccy);},
-  alerts(){localStorage.setItem('cp2_alerts',JSON.stringify(state.alerts));},
-  radar(){const{coin,discountPct,priceTarget,windowAlert}=state.radar;localStorage.setItem('cp2_radar',JSON.stringify({coin,discountPct,priceTarget,windowAlert}));},
+  radar(){localStorage.setItem('cp2_radar',JSON.stringify({coin:state.radar.coin}));},
   px(){try{const raw=localStorage.getItem('cp2_px');const saved=raw?JSON.parse(raw):{};
     // Write today's live price for every held coin
     const today=new Date().toISOString().slice(0,10);
@@ -1060,7 +1080,7 @@ function renderAlloc(){const data=syms().filter(a=>qtyOf(a)>1e-12).map(a=>({a,v:
 function renderCards(){const host=$('#holdingCards');host.innerHTML='';
   const ordered=syms().map(a=>({a,v:statOf(a).val})).filter(o=>qtyOf(o.a)>1e-12).sort((x,y)=>y.v-x.v).map(o=>o.a);
   ordered.forEach(a=>{const s=statOf(a),m=META[a]||{name:a,c:'#888'},up=s.chg>=0,pup=s.pnl>=0,d=pdec(s.p);
-    const v=coinVerdict(a),al=state.alerts[a]||{},hit=checkAlert(a);
+    const v=coinVerdict(a);
     const rsi=calcRSI(a,14),rsiCol=rsi<30?'#3BF38B':rsi>70?'#FF5C72':'#F5B843'; // <30 oversold (green), >70 overbought (red), else neutral (orange)
     const el=document.createElement('div');
     el.className='rounded-2xl border p-4 '+(hit?'border-neon bg-neon/5':'border-line bg-panel');
@@ -1092,20 +1112,10 @@ function renderCards(){const host=$('#holdingCards');host.innerHTML='';
         </div>
         <p class="text-[10px] text-mutet leading-snug">${v.reasons.join(' · ')}</p>
       </div>
-      <details class="mt-2 pt-2 border-t border-line/60">
-        <summary class="text-[10px] text-mutet uppercase tracking-wide cursor-pointer select-none">🔔 Price alert${hit?' · active':''}</summary>
-        <div class="grid grid-cols-2 gap-2 mt-1.5">
-          <div><label class="text-[10px] text-mutet">Alert if below</label>
-            <input type="number" inputmode="decimal" class="alertInput w-full bg-panel2 border border-line rounded-lg px-3 py-2.5 text-sm tnum mt-1" data-coin="${a}" data-dir="below" value="${al.below??''}" placeholder="—"></div>
-          <div><label class="text-[10px] text-mutet">Alert if above</label>
-            <input type="number" inputmode="decimal" class="alertInput w-full bg-panel2 border border-line rounded-lg px-3 py-2.5 text-sm tnum mt-1" data-coin="${a}" data-dir="above" value="${al.above??''}" placeholder="—"></div>
-        </div>
-      </details>
       <button data-view-chart="${a}" class="viewChartBtn mt-3 w-full text-xs font-semibold bg-panel2 hover:bg-line border border-line rounded-lg py-1.5 transition">View chart</button>`;
     host.appendChild(el);});
   ordered.forEach(a=>{const cv=$('#sp_'+a);if(cv)miniSpark(cv,a);});
   wireModal();
-  renderAlertsBanner();
 }
 
 /* ---- transactions + avg impact ---- */
@@ -1312,7 +1322,7 @@ function setView(v){state.view=v;['dashboard','mycrypto','dca','transactions','s
   if(v==='capital'){renderCapital();}
   if(v==='radar'){initRadarTab();}
   if(v==='sentiment'){initSentimentTab();loadHypeFunding();}
-  if(v==='settings'){renderFredDebugPanel();}}
+  if(v==='settings'){renderFredDebugPanel();initAlertsSection();}}
 function setCcy(c){state.ccy=c;LS.ccy();
   $$('#ccyToggle button').forEach(b=>{const on=b.dataset.ccy===c;b.className=`px-3 py-1.5 rounded-lg text-xs font-bold ${on?'text-ink bg-white':'text-mutet'}`;});
   render();}
@@ -1412,10 +1422,7 @@ function paintRadarBadge(){
 }
 async function initRadarTab(){
   populateRadarCoinSelect();paintRadarBadge();
-  $('#radarDiscountInput').value=state.radar.discountPct;
-  $('#radarPriceInput').value=state.radar.priceTarget||'';
-  $('#radarWindowToggle').checked=!!state.radar.windowAlert;
-  updateRadarNotifStatus();
+  if($('#radarAlertCoinName'))$('#radarAlertCoinName').textContent=META[state.radar.coin]?.name||state.radar.coin;
   renderRadarSentimentBadge();
   const myToken=++radarToken; // opening the tab also invalidates any in-flight fetch from before
   await ensureRadarData(state.radar.coin,myToken);
@@ -1639,62 +1646,24 @@ async function updateRadarLive(token){
       const dEl=$('#radarDiscount');dEl.textContent=(discount>=0?'+':'')+discount.toFixed(2)+'%';
       dEl.className='grot font-bold tnum text-lg '+(discount<=0?'text-up':'text-down');
       $('#radarDiscountHint').textContent=discount<=0?'Below its 7-day average':'Above its 7-day average';
-      checkRadarAlerts(usd,discount);
     }else{
       $('#radarDiscount').textContent='—';
       $('#radarDiscountHint').textContent='Waiting for 7-day history…';
     }
   }catch(e){/* silent — next hourly cycle retries */}
 }
-function radarNotify(title,body){
-  if(!('Notification'in window)||Notification.permission!=='granted')return;
-  new Notification(title,{body});
-}
-function checkRadarAlerts(price,discount){
-  if(!state.radar.notifyOn)return;
-  const now=Date.now(),sym=state.radar.coin,m=META[sym]||{name:sym};
-  const thr=+state.radar.discountPct||0,target=+state.radar.priceTarget||0;
-  const discountHit=thr>0&&discount<=-thr,targetHit=target>0&&price<=target;
-  if((discountHit||targetHit)&&now-state.radar.lastDiscountNotif>3600000){
-    state.radar.lastDiscountNotif=now;
-    radarNotify(`${m.name} — opportunity`,`Price ${money(price,pdec(price))} (${discount.toFixed(2)}% vs 7d avg).`+(targetHit?' Your price target is hit.':' Your discount threshold is hit.'));
-  }
-  if(state.radar.windowAlert){
-    const c=state.radar.cache[sym]?.weekly;if(!c)return;
-    const d=new Date(),inWindow=d.getDay()===c.best.day&&Math.floor(d.getHours()/3)===c.best.block;
-    const wid=d.toDateString()+'-'+c.best.block;
-    if(inWindow&&state.radar.lastWindowNotif!==wid){
-      state.radar.lastWindowNotif=wid;
-      radarNotify(`${m.name} — cheap window open`,`It's historically the cheapest window of the week for ${m.name}. Price: ${money(price,pdec(price))}.`);
-    }
-  }
-}
-function updateRadarNotifStatus(){
-  const s=$('#radarNotifStatus');if(!s)return;
-  if(!('Notification'in window)){s.textContent='Notifications are not supported by this browser.';return;}
-  if(Notification.permission==='granted'&&state.radar.notifyOn){s.textContent='Notifications are on — keep this tab open to receive them.';}
-  else{s.textContent='Notifications are off — this tab must stay open in a browser for alerts to fire.';}
-}
 function wireRadar(){
   $('#radarCoin').onchange=async e=>{
     state.radar.coin=e.target.value;LS.radar();paintRadarBadge();
+    if($('#radarAlertCoinName'))$('#radarAlertCoinName').textContent=META[state.radar.coin]?.name||state.radar.coin;
     resetRadarDisplay(); // wipe the old coin's numbers immediately, don't leave them lingering while we fetch
     renderRadarSentimentBadge();
     const myToken=++radarToken; // invalidates any still-pending fetch from the previously selected coin
     await ensureRadarData(state.radar.coin,myToken);
     await updateRadarLive(myToken);
   };
-  $('#radarDiscountInput').oninput=e=>{state.radar.discountPct=+e.target.value||0;LS.radar();};
-  $('#radarPriceInput').oninput=e=>{state.radar.priceTarget=e.target.value;LS.radar();};
-  $('#radarWindowToggle').onchange=e=>{state.radar.windowAlert=e.target.checked;LS.radar();};
-  $('#radarNotifyBtn').onclick=async()=>{
-    if(!('Notification'in window)){updateRadarNotifStatus();return;}
-    const perm=await Notification.requestPermission();
-    state.radar.notifyOn=perm==='granted';updateRadarNotifStatus();
-    if(perm==='granted')radarNotify('CryptoPulse Radar','You will be notified about discount and cheap-window alerts for '+state.radar.coin+' while this tab stays open.');
-  };
   // Radar has its own hourly cycle, decoupled from the app's 60s price loop
-  setInterval(()=>{if(state.view==='radar'||state.radar.notifyOn){ensureRadarData(state.radar.coin);updateRadarLive();}},RADAR_REFRESH_MS);
+  setInterval(()=>{if(state.view==='radar'){ensureRadarData(state.radar.coin);updateRadarLive();}},RADAR_REFRESH_MS);
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -2553,7 +2522,7 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
   try{
     await fetch(`${PULSE_WORKER_URL}/history`,{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({score:composite,technicalScore:typeof technicalScore==='number'?technicalScore:null,btcPrice:pxUsd('BTC')||null,sources:sourcesSnapshot})
+      body:JSON.stringify({score:composite,technicalScore:typeof technicalScore==='number'?technicalScore:null,btcPrice:pxUsd('BTC')||null,sources:sourcesSnapshot,goldRegime:window.__lastGoldRegime||null})
     });
   }catch(e){console.warn('Failed to POST composite score to /history:',e.message);}
   return{ok:true,activeCount:active.length,composite};
@@ -2991,6 +2960,155 @@ function renderFredDebugPanel(){
   host.innerHTML=html;
 }
 
+// ═══ Alerts management (Settings) ═══ — full rebuild. All actual condition-
+// checking happens server-side in the Worker's evaluateAlerts() on its own
+// 15-min cron; this is just CRUD + display against that same D1-backed state,
+// so alerts work whether or not this tab is ever open.
+const ALERT_COINS=['BTC','ETH','SOL','LINK','HYPE'];
+function renderAlertFormFields(type){
+  const host=$('#alertFormFields');if(!host)return;
+  const coinOpts=ALERT_COINS.map(c=>`<option value="${c}">${c}</option>`).join('');
+  const metricOpts=`<option value="sentiment">Sentiment</option><option value="technical">Technical</option><option value="combined">Combined</option>`;
+  const dirOpts=(a,b)=>`<option value="below">${a}</option><option value="above">${b}</option>`;
+  if(type==='price'){
+    host.innerHTML=`<select id="af_coin" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm">${coinOpts}</select>
+      <div class="grid grid-cols-2 gap-2">
+        <select id="af_dir" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm">${dirOpts('Drops below','Rises above')}</select>
+        <input id="af_value" type="number" step="any" placeholder="Price ($)" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm">
+      </div>`;
+  }else if(type==='radar_discount'){
+    host.innerHTML=`<select id="af_coin" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm">${coinOpts}</select>
+      <input id="af_pct" type="number" min="0.5" step="0.5" value="3" placeholder="Discount %" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm">`;
+  }else if(type==='radar_window'){
+    host.innerHTML=`<select id="af_coin" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm">${coinOpts}</select>
+      <p class="text-[10px] text-mutet">Fires whenever "now" falls in that coin's historically-cheapest weekly window (same analysis as the Radar tab).</p>`;
+  }else if(type==='score_threshold'){
+    host.innerHTML=`<select id="af_metric" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm">${metricOpts}</select>
+      <div class="grid grid-cols-2 gap-2">
+        <select id="af_dir" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm">${dirOpts('Drops below','Rises above')}</select>
+        <input id="af_value" type="number" min="0" max="100" placeholder="0-100" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm">
+      </div>
+      <p class="text-[10px] text-mutet">Checked against the last value computed — as fresh as your last Sentiment tab visit, not live-recomputed.</p>`;
+  }else if(type==='gold_regime'){
+    host.innerHTML=`<p class="text-xs text-mutet">Fires whenever gold's regime classification flips to "competing-haven" (gold rising at BTC's expense). No extra settings needed.</p>`;
+  }else if(type==='funding_spike'){
+    host.innerHTML=`<select id="af_source" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm">
+        <option value="funding">BTC/ETH funding (Binance avg)</option><option value="hypefunding">HYPE funding (Hyperliquid)</option>
+      </select>
+      <div class="grid grid-cols-2 gap-2">
+        <select id="af_dir" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm">${dirOpts('Drops below','Rises above')}</select>
+        <input id="af_value" type="number" min="0" max="100" placeholder="0-100 score" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm">
+      </div>
+      <p class="text-[10px] text-mutet">Uses the 0-100 composite score for that source, not the raw funding %.</p>`;
+  }else if(type==='combo'){
+    host.innerHTML=`<p class="text-[10px] text-mutet uppercase tracking-wide">Condition 1 — price</p>
+      <select id="af_c1_coin" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm">${coinOpts}</select>
+      <div class="grid grid-cols-2 gap-2">
+        <select id="af_c1_dir" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm">${dirOpts('Drops below','Rises above')}</select>
+        <input id="af_c1_value" type="number" step="any" placeholder="Price ($)" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm">
+      </div>
+      <p class="text-[10px] text-mutet uppercase tracking-wide mt-2">Condition 2 — score</p>
+      <select id="af_c2_metric" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm">${metricOpts}</select>
+      <div class="grid grid-cols-2 gap-2">
+        <select id="af_c2_dir" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm">${dirOpts('Drops below','Rises above')}</select>
+        <input id="af_c2_value" type="number" min="0" max="100" placeholder="0-100" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm">
+      </div>
+      <p class="text-[10px] text-mutet mt-1">Fires only when BOTH are true at the same 15-min check.</p>`;
+  }
+}
+function describeAlertConfig(type,p){
+  p=p||{};
+  if(type==='price')return `${p.coin} ${p.direction==='below'?'drops below':'rises above'} $${p.value}`;
+  if(type==='radar_discount')return `${p.coin} discount ≥ ${p.discountPct}%`;
+  if(type==='radar_window')return `${p.coin} cheap window opens`;
+  if(type==='score_threshold')return `${p.metric} score ${p.direction==='below'?'drops below':'rises above'} ${p.value}`;
+  if(type==='gold_regime')return 'Gold regime → competing-haven';
+  if(type==='funding_spike')return `${p.source} score ${p.direction==='below'?'drops below':'rises above'} ${p.value}`;
+  if(type==='combo'){
+    const[a,b]=p.conditions||[];
+    return (a?describeAlertConfig(a.type,a.params):'?')+' AND '+(b?describeAlertConfig(b.type,b.params):'?');
+  }
+  return type;
+}
+function createAlertFromForm(){
+  const type=$('#alertTypeSelect').value;
+  const cooldownMinutes=+$('#alertCooldownInput').value||60;
+  let params={};
+  if(type==='price')params={coin:$('#af_coin').value,direction:$('#af_dir').value,value:+$('#af_value').value};
+  else if(type==='radar_discount')params={coin:$('#af_coin').value,discountPct:+$('#af_pct').value};
+  else if(type==='radar_window')params={coin:$('#af_coin').value};
+  else if(type==='score_threshold')params={metric:$('#af_metric').value,direction:$('#af_dir').value,value:+$('#af_value').value};
+  else if(type==='gold_regime')params={};
+  else if(type==='funding_spike')params={source:$('#af_source').value,direction:$('#af_dir').value,value:+$('#af_value').value};
+  else if(type==='combo')params={conditions:[
+    {type:'price',params:{coin:$('#af_c1_coin').value,direction:$('#af_c1_dir').value,value:+$('#af_c1_value').value}},
+    {type:'score_threshold',params:{metric:$('#af_c2_metric').value,direction:$('#af_c2_dir').value,value:+$('#af_c2_value').value}}
+  ]};
+  createAlertConfig(type,params,cooldownMinutes);
+}
+async function createAlertConfig(type,params,cooldownMinutes){
+  const statusEl=$('#alertCreateStatus');
+  if(statusEl)statusEl.textContent='Saving…';
+  try{
+    const res=await fetch(`${PULSE_WORKER_URL}/alert-configs`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,params,cooldownMinutes})});
+    const json=await res.json();
+    if(!res.ok||json.error)throw new Error(json.error||('HTTP '+res.status));
+    if(statusEl)statusEl.textContent='✓ Alert created.';
+    loadAlertConfigs();
+  }catch(err){if(statusEl)statusEl.textContent='Error: '+(err&&err.message?err.message:String(err));}
+}
+async function loadAlertConfigs(){
+  const host=$('#alertConfigsList');if(!host)return;
+  try{
+    const res=await fetch(`${PULSE_WORKER_URL}/alert-configs`,{cache:'no-store'});
+    const{configs}=await res.json();
+    if(!configs||!configs.length){host.innerHTML='<p class="text-mutet">No alerts configured yet.</p>';return;}
+    host.innerHTML=configs.map(c=>{
+      let params={};try{params=JSON.parse(c.params_json);}catch(e){}
+      return `<div class="flex items-center justify-between bg-panel2 rounded-lg px-3 py-2">
+        <div>
+          <p class="font-semibold">${describeAlertConfig(c.type,params)}</p>
+          <p class="text-mutet">cooldown ${c.cooldown_minutes}m${c.last_fired_ts?' · last fired '+new Date(c.last_fired_ts).toLocaleString('en-US'):' · never fired'}</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <input type="checkbox" ${c.enabled?'checked':''} onchange="toggleAlertConfig(${c.id},this.checked)">
+          <button class="text-down font-semibold" onclick="deleteAlertConfig(${c.id})">✕</button>
+        </div>
+      </div>`;
+    }).join('');
+  }catch(err){host.innerHTML='<p class="text-down">Error loading alerts: '+(err&&err.message?err.message:String(err))+'</p>';}
+}
+async function toggleAlertConfig(id,enabled){
+  try{await fetch(`${PULSE_WORKER_URL}/alert-configs/toggle`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,enabled})});loadAlertConfigs();}catch(e){}
+}
+async function deleteAlertConfig(id){
+  if(!confirm('Delete this alert?'))return;
+  try{await fetch(`${PULSE_WORKER_URL}/alert-configs/delete`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});loadAlertConfigs();}catch(e){}
+}
+async function loadAlertLog(){
+  const host=$('#alertLogList');if(!host)return;
+  try{
+    const res=await fetch(`${PULSE_WORKER_URL}/alert-log?limit=20`,{cache:'no-store'});
+    const{log}=await res.json();
+    if(!log||!log.length){host.innerHTML='<p class="text-mutet">No alerts have fired yet.</p>';return;}
+    host.innerHTML=log.map(l=>`<div>${new Date(l.ts).toLocaleString('en-US')} — ${l.message}</div>`).join('');
+  }catch(err){host.innerHTML='<p class="text-down">Error: '+(err&&err.message?err.message:String(err))+'</p>';}
+}
+async function sendTestTelegram(){
+  const statusEl=$('#testTelegramStatus');
+  if(statusEl)statusEl.textContent='Sending…';
+  try{
+    const res=await fetch(`${PULSE_WORKER_URL}/test-telegram`,{method:'POST'});
+    const json=await res.json();
+    if(statusEl)statusEl.textContent=json.ok?'✓ Sent — check Telegram.':'Failed — check that TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID secrets are set on the Worker.';
+  }catch(err){if(statusEl)statusEl.textContent='Error: '+(err&&err.message?err.message:String(err));}
+}
+function initAlertsSection(){
+  renderAlertFormFields($('#alertTypeSelect')?.value||'price');
+  loadAlertConfigs();
+  loadAlertLog();
+}
+
 
 
 /* ---- wire ---- */
@@ -3044,14 +3162,6 @@ function wire(){
   $('#csvUndoBtn').onclick=undoLastImport;
   $('#scenZoomReset').onclick=function(){if(scenChartInst){scenChartInst.resetZoom();$('#scenZoomReset').classList.add('hidden');}};
   wireRadar();
-  $('#holdingCards').addEventListener('change',function(e){
-    const inp=e.target.closest('.alertInput');if(!inp)return;
-    const coin=inp.dataset.coin,dir=inp.dataset.dir,v=inp.value.trim();
-    if(!state.alerts[coin])state.alerts[coin]={};
-    if(v==='')delete state.alerts[coin][dir];else state.alerts[coin][dir]=+v;
-    if(!Object.keys(state.alerts[coin]).length)delete state.alerts[coin];
-    LS.alerts();renderAlertsBanner();
-  });
 }
 
 
@@ -3669,84 +3779,6 @@ function coinVerdict(a){
 }
 // price alerts — live/stateless: "triggered" is just "condition currently true",
 // no stored flags to manage, the banner clears itself the moment price moves back
-function checkAlert(a){
-  const al=state.alerts[a];if(!al)return null;
-  const p=pxNow(a);
-  if(al.below!=null&&al.below!==''&&p<=+al.below)return{dir:'below',thr:+al.below,p};
-  if(al.above!=null&&al.above!==''&&p>=+al.above)return{dir:'above',thr:+al.above,p};
-  return null;
-}
-// ---- Direct browser→Telegram price alerts ----
-// Calls Telegram's Bot API straight from the browser (no Apps Script/cron in the
-// loop) — this is what makes it immediate, at the honest cost of only firing while
-// this tab is open, same limitation as the browser-notification feature in Radar.
-// Telegram messages have no color support at all — emoji + bold is the closest
-// real equivalent, not a euphemism for actual color.
-const TG_BOT_TOKEN='8645774831:AAFF8tjInBOdmEjIiJ4jazmGd3AWi8-gh-I';
-const TG_CHAT_ID='8481279979';
-const TG_ALERT_COOLDOWN_MS=6*60*60000; // 6h — same cooldown convention already used on the Apps Script side
-async function sendTelegramPriceAlert(asset,hit){
-  const statusEl=$('#tgSendStatus');
-  const key='cp2_tg_alert_'+asset+'_'+hit.dir;
-  const last=+(localStorage.getItem(key)||0);
-  if(Date.now()-last<TG_ALERT_COOLDOWN_MS){
-    if(statusEl)statusEl.textContent=`Telegram: ${asset} ${hit.dir} alert on cooldown (last sent ${Math.round((Date.now()-last)/60000)}m ago)`;
-    return;
-  }
-  // Set the cooldown IMMEDIATELY, before the network call — not after it resolves.
-  // Fixes a real check-then-act race: if render() fires again (60s timer, tab switch,
-  // refresh button, or a second browser tab) while the first call is still awaiting
-  // its fetch, the old code would let a second call slip through the same cooldown
-  // check before the first had written anything — producing duplicate/near-simultaneous
-  // sends, exactly what happened here.
-  localStorage.setItem(key,String(Date.now()));
-  const name=(META[asset]||{name:asset}).name;
-  const isBelow=hit.dir==='below';
-  const emoji=isBelow?'🟢':'🔴';
-  const label=isBelow?'BUY ZONE — dropped below':'TARGET REACHED — rose above';
-  const text=`${emoji} <b>${label}</b>\n${name} (${asset}) is now ${money(hit.p,pdec(hit.p))}, past your threshold of ${money(hit.thr,pdec(hit.thr))}.`;
-  const url=`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`;
-  const body=JSON.stringify({chat_id:TG_CHAT_ID,text,parse_mode:'HTML'});
-  try{
-    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body});
-    const respText=await res.text();
-    if(statusEl)statusEl.textContent=`Telegram: ${asset} ${hit.dir} — HTTP ${res.status} — ${respText.slice(0,120)}`;
-    if(!res.ok)localStorage.removeItem(key); // failed — don't block a real retry next cycle
-  }catch(e){
-    // Same defensive fallback that fixed the Apps Script CORS issue earlier — if the
-    // normal request is blocked, try no-cors so it can at least be sent, even though
-    // we then can't read whether it actually succeeded.
-    console.error('Telegram price alert failed (normal mode) for '+asset+':',e);
-    try{
-      await fetch(url,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body});
-      if(statusEl)statusEl.textContent=`Telegram: ${asset} ${hit.dir} — sent via no-cors fallback (normal mode blocked: ${e.message}) — check your Telegram to confirm`;
-    }catch(e2){
-      if(statusEl)statusEl.textContent=`Telegram: ${asset} ${hit.dir} — FAILED both modes — ${e2.message}`;
-      console.error('Telegram price alert failed (no-cors fallback too) for '+asset+':',e2);
-      localStorage.removeItem(key); // both attempts failed outright — allow a retry next cycle
-    }
-  }
-}
-const PRICE_FRESHNESS_MS=5*60000; // 5 min — a suspended/backgrounded tab waking up with a frozen state.prices
-// value should never be treated as "live" just because the variable still holds a number.
-function isPriceFresh(a){
-  const fetchedAt=state.prices[a]?.fetchedAt;
-  return fetchedAt&&(Date.now()-fetchedAt)<PRICE_FRESHNESS_MS;
-}
-function renderAlertsBanner(){
-  const host=$('#alertsBanner');if(!host)return;
-  const hits=syms().filter(a=>qtyOf(a)>1e-12).map(a=>({a,hit:checkAlert(a)})).filter(o=>o.hit);
-  // Only fire Telegram for hits backed by a genuinely fresh price — this is the actual
-  // fix for the stale-tab bug: a suspended tab waking up hours later still has real
-  // numbers sitting in state.prices, just old ones, and this catches exactly that case
-  // regardless of how many tabs are open or how long one's been backgrounded.
-  hits.forEach(o=>{if(isPriceFresh(o.a))sendTelegramPriceAlert(o.a,o.hit);});
-  if(!hits.length){host.classList.add('hidden');return;}
-  host.classList.remove('hidden');
-  const m=a=>(META[a]||{name:a}).name;
-  host.innerHTML='🔔 '+hits.map(o=>{const dir=o.hit.dir==='below'?'dropped below':'rose above';
-    return m(o.a)+' '+dir+' '+money(o.hit.thr,pdec(o.hit.thr));}).join(' · ');
-}
 async function getFG(){
   try{
     const r=await fetch('https://api.alternative.me/fng/?limit=1');
