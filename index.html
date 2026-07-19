@@ -1083,7 +1083,7 @@ function renderCards(){const host=$('#holdingCards');host.innerHTML='';
     const v=coinVerdict(a);
     const rsi=calcRSI(a,14),rsiCol=rsi<30?'#3BF38B':rsi>70?'#FF5C72':'#F5B843'; // <30 oversold (green), >70 overbought (red), else neutral (orange)
     const el=document.createElement('div');
-    el.className='rounded-2xl border p-4 '+(hit?'border-neon bg-neon/5':'border-line bg-panel');
+    el.className='rounded-2xl border p-4 border-line bg-panel';
     el.innerHTML=`<div class="flex items-center gap-2.5 mb-3">
         <span class="h-9 w-9 rounded-full flex items-center justify-center grot font-bold text-xs" style="background:${m.c}22;color:${m.c}">${a.slice(0,3)}</span>
         <div><p class="font-semibold leading-tight text-sm">${m.name}</p><p class="text-xs text-mutet">${a}</p></div>
