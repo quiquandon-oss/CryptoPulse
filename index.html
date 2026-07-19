@@ -2975,6 +2975,13 @@ function renderFredDebugPanel(){
     const explain=isCompeting?'gold rise scored as bearish for BTC (opposite-direction move, confirmed by equities)':'gold rise scored as bullish for BTC (same-direction move, or inconclusive)';
     html+=`<div class="text-neon mt-2 pt-2 border-t border-line/50">gold regime this cycle: <strong>${window.__lastGoldRegime}</strong> — ${explain}</div>`;
   }
+  if(window.__hlXyzDebug){
+    html+='<div class="mt-2 pt-2 border-t border-line/50">Raw Hyperliquid xyz fields (DXY frozen at score 50 investigation):</div>';
+    Object.entries(window.__hlXyzDebug).forEach(([name,c])=>{
+      if(c==='not found'){html+=`<div class="text-down">${name}: not found in xyz universe</div>`;return;}
+      html+=`<div>${name}: markPx=${c.markPx} · prevDayPx=${c.prevDayPx} · oraclePx=${c.oraclePx} · midPx=${c.midPx}</div>`;
+    });
+  }
   host.innerHTML=html;
 }
 
@@ -3973,6 +3980,16 @@ async function fetchHyperliquidXyzAssets(){
   const out={};
   (meta&&meta.universe||[]).forEach((u,i)=>{out[u.name]=ctxs[i];});
   window.__hlXyzNames=Object.keys(out); // every asset name this dex query actually returned
+  // DIAGNOSTIC: usd (xyz:DXY) has been frozen at score 50 on all 86 readings so
+  // far (confirmed via D1) — meaning markPx===prevDayPx exactly, every single
+  // time. Capturing the raw fields for DXY plus GOLD/BRENTOIL (which DO vary,
+  // as a working comparison) so we can see whether DXY's prevDayPx is missing/
+  // null/equal-to-markPx, versus a genuine (if implausible) zero-movement read.
+  window.__hlXyzDebug={};
+  ['xyz:DXY','xyz:GOLD','xyz:BRENTOIL'].forEach(name=>{
+    const c=out[name];
+    window.__hlXyzDebug[name]=c?{markPx:c.markPx,prevDayPx:c.prevDayPx,oraclePx:c.oraclePx,midPx:c.midPx,allKeys:Object.keys(c)}:'not found';
+  });
   hlXyzCache=out;hlXyzCacheAt=Date.now();
   return out;
 }
