@@ -3986,7 +3986,7 @@ async function fetchHyperliquidXyzAssets(){
   // as a working comparison) so we can see whether DXY's prevDayPx is missing/
   // null/equal-to-markPx, versus a genuine (if implausible) zero-movement read.
   window.__hlXyzDebug={};
-  ['xyz:DXY','xyz:GOLD','xyz:BRENTOIL'].forEach(name=>{
+  ['xyz:DXY','xyz:GOLD','xyz:BRENTOIL','xyz:EUR'].forEach(name=>{
     const c=out[name];
     window.__hlXyzDebug[name]=c?{markPx:c.markPx,prevDayPx:c.prevDayPx,oraclePx:c.oraclePx,midPx:c.midPx,allKeys:Object.keys(c)}:'not found';
   });
