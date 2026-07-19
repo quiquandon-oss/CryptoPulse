@@ -2411,23 +2411,35 @@ async function srcSosoValueNews(){
 // own frontend, where weight adjustments reset on every reload. Defaults match Pulse's
 // original weights exactly; only what you actually change gets overridden.
 const COMPOSITE_SOURCES_DEFAULTS=[
-  {id:'fng',label:'Fear & Greed Index',weight:25,confidence:1.0},
+  // Weights nudged from actual measured day-level correlation with next-day BTC
+  // return (12-13 real days of data — genuinely small, treat as directional
+  // hints not confident optimization). Sources with decent, intuitive-direction
+  // correlation got a modest bump; near-zero or clearly-too-early sources got a
+  // modest trim. Two sources (cryptonews -0.66, geopolitics -0.49) showed the
+  // strongest-looking numbers but were deliberately left UNCHANGED — with only
+  // 12 points and 17 sources being compared, some will look "significant" by
+  // chance alone (multiple-comparisons risk), and there's no clear mechanism
+  // for why news/geopolitics sentiment would swing that strongly-contrarian.
+  // usd was cut hard (6->2): confirmed via D1 to be frozen at exactly 50 on
+  // ALL 86 readings since it launched — a real bug (Hyperliquid xyz:DXY isn't
+  // varying), separate from this reweighting, still needs its own fix.
+  {id:'fng',label:'Fear & Greed Index',weight:28,confidence:1.0},
   {id:'funding',label:'Funding Rate (BTC/ETH perp)',weight:15,confidence:1.0},
-  {id:'longshort',label:'Long/Short Ratio (accounts)',weight:15,confidence:1.0},
-  {id:'global',label:'Market Cap 24h (global)',weight:15,confidence:1.0},
+  {id:'longshort',label:'Long/Short Ratio (accounts)',weight:18,confidence:1.0},
+  {id:'global',label:'Market Cap 24h (global)',weight:12,confidence:1.0},
   {id:'cryptonews',label:'Crypto News (CoinTelegraph)',weight:15,confidence:0.7},
-  {id:'macrogeo',label:'Macro Economy (Investing.com)',weight:12,confidence:0.7},
+  {id:'macrogeo',label:'Macro Economy (Investing.com)',weight:8,confidence:0.7},
   {id:'geopolitics',label:'Geopolitics (BBC World)',weight:10,confidence:0.6},
-  {id:'sosovalue',label:'Macro News (SoSoValue)',weight:13,confidence:0.7},
+  {id:'sosovalue',label:'Macro News (SoSoValue)',weight:15,confidence:0.7},
   {id:'onchain',label:'On-Chain Activity (BTC)',weight:8,confidence:0.5},
   {id:'oil',label:'Brent Oil (Hyperliquid xyz:BRENTOIL)',weight:6,confidence:0.6},
-  {id:'yield10y',label:'10Y Treasury Yield (FRED)',weight:6,confidence:0.6},
-  {id:'usd',label:'US Dollar Index (Hyperliquid xyz:DXY)',weight:6,confidence:0.6},
-  {id:'nasdaq',label:'Nasdaq Composite (FRED)',weight:8,confidence:0.7},
-  {id:'sp500',label:'S&P 500 (FRED)',weight:8,confidence:0.7},
+  {id:'yield10y',label:'10Y Treasury Yield (FRED)',weight:5,confidence:0.6},
+  {id:'usd',label:'US Dollar Index (Hyperliquid xyz:DXY)',weight:2,confidence:0.6},
+  {id:'nasdaq',label:'Nasdaq Composite (FRED)',weight:6,confidence:0.7},
+  {id:'sp500',label:'S&P 500 (FRED)',weight:6,confidence:0.7},
   {id:'etfflows',label:'BTC ETF Flows (SoSoValue)',weight:10,confidence:0.8},
-  {id:'hypefunding',label:'HYPE Perp Funding (Hyperliquid)',weight:6,confidence:0.4},
-  {id:'gold',label:'Gold (Hyperliquid xyz:GOLD)',weight:7,confidence:0.5},
+  {id:'hypefunding',label:'HYPE Perp Funding (Hyperliquid)',weight:4,confidence:0.4},
+  {id:'gold',label:'Gold (Hyperliquid xyz:GOLD)',weight:5,confidence:0.5},
 ];
 function loadSentimentWeights(){
   let overrides={};
@@ -2750,9 +2762,15 @@ function computeTechnicalScoreSeries(closes,dates,lookbackDays){
   return series;
 }
 function loadCombinedWeight(){
-  let w=50;
+  // Default was 50/50. Adjusted to 42/58 (sentiment/technical) based on actual
+  // measured day-level correlation with next-day BTC return: composite -0.25
+  // vs technical +0.58 (n=12-13 real days — genuinely too little data for a
+  // confident permanent split, this is a modest directional nudge, not an
+  // optimization; revisit once more days accumulate). Still user-overridable
+  // via the slider — this only changes what a first-time/reset user starts at.
+  let w=42;
   try{const raw=localStorage.getItem('cp2_combined_weight');if(raw!=null)w=parseInt(raw,10);}catch(e){}
-  return isNaN(w)?50:w;
+  return isNaN(w)?42:w;
 }
 function saveCombinedWeight(w){
   try{localStorage.setItem('cp2_combined_weight',String(w));}catch(e){}
