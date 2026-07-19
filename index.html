@@ -3100,7 +3100,7 @@ async function sendTestTelegram(){
   try{
     const res=await fetch(`${PULSE_WORKER_URL}/test-telegram`,{method:'POST'});
     const json=await res.json();
-    if(statusEl)statusEl.textContent=json.ok?'✓ Sent — check Telegram.':'Failed — check that TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID secrets are set on the Worker.';
+    if(statusEl)statusEl.textContent=json.ok?'✓ Sent — check Telegram.':'Failed: '+(json.detail||'unknown reason');
   }catch(err){if(statusEl)statusEl.textContent='Error: '+(err&&err.message?err.message:String(err));}
 }
 function initAlertsSection(){
