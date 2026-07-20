@@ -626,7 +626,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <div class="flex items-center gap-1" id="pulseRangeTabs"></div>
         </div>
         <div class="h-[110px]"><canvas id="pulseHistoryChart"></canvas></div>
-        <p class="text-[10px] text-mutet mt-1">Trend (this view) refits to whatever range you're looking at; Trend (long-term) is fit once on all history and stays stable. Tap either name in the legend to hide/show it.</p>
+        <p class="text-[10px] text-mutet mt-1">Trend (this view) refits to whatever range you're looking at; Trend (long-term) is fit once on all history and stays stable. Same logic applies to the BTC price trend lines, hidden by default — tap any trend name in the legend to show/hide it.</p>
 
         <!-- Fullscreen chart overlay: pinch/scroll to zoom, drag to pan (mode 'x'
              only — zooming the y-axis score scale wouldn't mean anything). -->
@@ -1869,9 +1869,12 @@ function buildCombinedChartConfig(history,technicalsData,isFullscreen){
   });
   const longTermFit=linearRegressionFit(allComb);
   const dateIndex={};allDates.forEach((d,i)=>{dateIndex[d]=i;});
+  // Same long-term-fit-once approach, applied to BTC price instead of Combined.
+  const allPrice=allDates.map(d=>priceByDate[d]!=null?priceByDate[d]:(sentByDate[d]?sentByDate[d].btc:null));
+  const priceLongTermFit=linearRegressionFit(allPrice);
 
   const plotDates=allDates.filter(d=>d>=cutoff);
-  const sentSeries=[],techSeries=[],combSeries=[],priceSeries=[],longTermTrend=[];
+  const sentSeries=[],techSeries=[],combSeries=[],priceSeries=[],longTermTrend=[],priceLongTermTrend=[];
   plotDates.forEach(d=>{
     const s=sentByDate[d]?sentByDate[d].score:null;
     const t=techByDate[d]!=null?techByDate[d]:null;
@@ -1879,11 +1882,14 @@ function buildCombinedChartConfig(history,technicalsData,isFullscreen){
     combSeries.push(computeCombinedScore(s,t,weight));
     priceSeries.push(priceByDate[d]!=null?priceByDate[d]:(sentByDate[d]?sentByDate[d].btc:null));
     longTermTrend.push(longTermFit?longTermFit.slope*dateIndex[d]+longTermFit.intercept:null);
+    priceLongTermTrend.push(priceLongTermFit?priceLongTermFit.slope*dateIndex[d]+priceLongTermFit.intercept:null);
   });
   // Short-term trend: fit fresh on just what's currently visible — this is the
   // one that changes shape as you switch Day/Week/30D/All, by design.
   const shortTermFit=linearRegressionFit(combSeries);
   const shortTermTrend=shortTermFit?combSeries.map((_,i)=>shortTermFit.slope*i+shortTermFit.intercept):combSeries.map(()=>null);
+  const priceShortTermFit=linearRegressionFit(priceSeries);
+  const priceShortTermTrend=priceShortTermFit?priceSeries.map((_,i)=>priceShortTermFit.slope*i+priceShortTermFit.intercept):priceSeries.map(()=>null);
   // Zoom/pan/pinch — the plugin is already bundled (chartjs-plugin-zoom, self-
   // registers on load), just disabled by default. Mode 'x' only: this is a
   // time-series, zooming the y-axis (0-100 score scale) wouldn't mean anything.
@@ -1894,6 +1900,12 @@ function buildCombinedChartConfig(history,technicalsData,isFullscreen){
     {label:'BTC Price',data:priceSeries,borderColor:'#8891A8',backgroundColor:'transparent',fill:false,tension:0.3,pointRadius:0,borderWidth:1.5,spanGaps:true,yAxisID:'y1'},
     {label:'Trend (this view)',data:shortTermTrend,borderColor:'#FF6B9D',backgroundColor:'transparent',fill:false,tension:0,pointRadius:0,borderWidth:1.5,borderDash:[2,2],spanGaps:true,yAxisID:'y'},
     {label:'Trend (long-term)',data:longTermTrend,borderColor:'#A78BFA',backgroundColor:'transparent',fill:false,tension:0,pointRadius:0,borderWidth:1.5,borderDash:[6,3],spanGaps:true,yAxisID:'y'},
+    // BTC price trend lines — same short-term/long-term regression logic as
+    // the Combined score's, just fit on price instead. Hidden by default (per
+    // request) since four always-visible lines is already a lot on a phone
+    // screen; tap the legend name to turn either on.
+    {label:'BTC Trend (this view)',data:priceShortTermTrend,borderColor:'#2DD4BF',backgroundColor:'transparent',fill:false,tension:0,pointRadius:0,borderWidth:1.5,borderDash:[2,2],spanGaps:true,yAxisID:'y1',hidden:true},
+    {label:'BTC Trend (long-term)',data:priceLongTermTrend,borderColor:'#FB923C',backgroundColor:'transparent',fill:false,tension:0,pointRadius:0,borderWidth:1.5,borderDash:[6,3],spanGaps:true,yAxisID:'y1',hidden:true},
   ]},
     options:{responsive:true,maintainAspectRatio:false,animation:false,
       scales:{
