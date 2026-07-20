@@ -623,7 +623,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <button id="pulseExpandBtn" class="px-2 py-1 rounded-md text-mutet hover:text-white" title="Fullscreen" onclick="openHistoryChartFullscreen()">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
           </button>
-          <div class="flex items-center gap-1" id="pulseRangeTabs"></div>
+          <div class="flex items-center gap-1 pulse-range-tabs" id="pulseRangeTabs"></div>
         </div>
         <div class="h-[110px]"><canvas id="pulseHistoryChart"></canvas></div>
         <p class="text-[10px] text-mutet mt-1">Trend (this view) refits to whatever range you're looking at; Trend (long-term) is fit once on all history and stays stable. Same logic applies to the BTC price trend lines, hidden by default — tap any trend name in the legend to show/hide it.</p>
@@ -639,6 +639,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             </div>
           </div>
           <p class="text-[10px] text-mutet mb-2">Scroll/pinch to zoom, drag to pan (horizontal only).</p>
+          <div class="flex items-center gap-1 mb-2 pulse-range-tabs"></div>
           <div class="flex-1"><canvas id="pulseHistoryChartFull"></canvas></div>
         </div>
       </div>
@@ -1818,14 +1819,17 @@ function bucketHistoryByDate(history){
 // Day/Week/30D/All toggle for the combined Sentiment/Technical/Combined/BTC history
 // chart. Re-renders from cached data (pulseLastHistory/pulseLastTechnicals) — no refetch.
 function renderPulseRangeTabs(){
-  const host=$('#pulseRangeTabs');if(!host)return;host.innerHTML='';
-  [['DAY','Day'],['WEEK','Week'],['30D','30D'],['ALL','All']].forEach(([k,l])=>{
-    const on=pulseRange===k;const b=document.createElement('button');
-    b.className=`px-4 py-2.5 rounded-lg text-sm font-medium ${on?'bg-panel2 text-white border border-line':'text-mutet hover:text-white'}`;
-    b.textContent=l;
-    b.onclick=()=>{pulseRange=k;if(pulseLastHistory)renderCombinedHistoryChart(pulseLastHistory,pulseLastTechnicals);
-      const modal=$('#pulseChartFullscreen');if(modal&&!modal.classList.contains('hidden'))openHistoryChartFullscreen();};
-    host.appendChild(b);
+  const hosts=document.querySelectorAll('.pulse-range-tabs');if(!hosts.length)return;
+  hosts.forEach(host=>{
+    host.innerHTML='';
+    [['DAY','Day'],['WEEK','Week'],['30D','30D'],['ALL','All']].forEach(([k,l])=>{
+      const on=pulseRange===k;const b=document.createElement('button');
+      b.className=`px-4 py-2.5 rounded-lg text-sm font-medium ${on?'bg-panel2 text-white border border-line':'text-mutet hover:text-white'}`;
+      b.textContent=l;
+      b.onclick=()=>{pulseRange=k;if(pulseLastHistory)renderCombinedHistoryChart(pulseLastHistory,pulseLastTechnicals);
+        const modal=$('#pulseChartFullscreen');if(modal&&!modal.classList.contains('hidden'))openHistoryChartFullscreen();};
+      host.appendChild(b);
+    });
   });
 }
 // Simple least-squares linear regression over index positions (0,1,2...),
@@ -1945,6 +1949,7 @@ function openHistoryChartFullscreen(){
   if(!pulseLastHistory)return; // nothing rendered yet
   const modal=$('#pulseChartFullscreen');if(!modal)return;
   modal.classList.remove('hidden');
+  renderPulseRangeTabs();
   const cv=$('#pulseHistoryChartFull');
   const cfg=buildCombinedChartConfig(pulseLastHistory,pulseLastTechnicals,true);
   if(pulseHistoryChartFullInst)pulseHistoryChartFullInst.destroy();
