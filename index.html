@@ -626,6 +626,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <div class="flex items-center gap-1" id="pulseRangeTabs"></div>
         </div>
         <div class="h-[110px]"><canvas id="pulseHistoryChart"></canvas></div>
+        <p class="text-[10px] text-mutet mt-1">Trend (this view) refits to whatever range you're looking at; Trend (long-term) is fit once on all history and stays stable. Tap either name in the legend to hide/show it.</p>
 
         <!-- Fullscreen chart overlay: pinch/scroll to zoom, drag to pan (mode 'x'
              only — zooming the y-axis score scale wouldn't mean anything). -->
@@ -1826,6 +1827,23 @@ function renderPulseRangeTabs(){
     host.appendChild(b);
   });
 }
+// Simple least-squares linear regression over index positions (0,1,2...),
+// skipping nulls. Returns null if fewer than 2 usable points — not enough to
+// mean anything. This is a plain trend fit (straight line through the data),
+// not a moving average or anything fancier — the honest, standard definition
+// of "trend line" a chartist would mean, nothing more exotic.
+function linearRegressionFit(values){
+  const pts=[];values.forEach((v,i)=>{if(v!=null)pts.push([i,v]);});
+  if(pts.length<2)return null;
+  const n=pts.length;
+  const sumX=pts.reduce((a,[x])=>a+x,0),sumY=pts.reduce((a,[,y])=>a+y,0);
+  const sumXY=pts.reduce((a,[x,y])=>a+x*y,0),sumX2=pts.reduce((a,[x])=>a+x*x,0);
+  const denom=n*sumX2-sumX*sumX;
+  if(denom===0)return null;
+  const slope=(n*sumXY-sumX*sumY)/denom;
+  const intercept=(sumY-slope*sumX)/n;
+  return{slope,intercept};
+}
 function buildCombinedChartConfig(history,technicalsData){
   const closes0=technicalsData?technicalsData.closes:null;
   const dates0=technicalsData?technicalsData.dates:null;
@@ -1837,16 +1855,34 @@ function buildCombinedChartConfig(history,technicalsData){
   const priceByDate={};
   if(closes&&dates)dates.forEach((d,i)=>{priceByDate[d]=closes[i];});
   const cutoff=new Date(Date.now()-lookbackDays*86400000).toISOString().slice(0,10);
-  const plotDates=[...new Set([...Object.keys(sentByDate),...Object.keys(techByDate)])].filter(d=>d>=cutoff).sort();
   const weight=loadCombinedWeight();
-  const sentSeries=[],techSeries=[],combSeries=[],priceSeries=[];
+  // Long-term trend needs the FULL combined series (unfiltered by the current
+  // range) fit once, then evaluated only across whatever's currently visible —
+  // this is what makes it stay a stable long-run line instead of jumping
+  // around every time the range toggle changes, unlike the short-term one.
+  const allDates=[...new Set([...Object.keys(sentByDate),...Object.keys(techByDate)])].sort();
+  const allComb=allDates.map(d=>{
+    const s=sentByDate[d]?sentByDate[d].score:null;
+    const t=techByDate[d]!=null?techByDate[d]:null;
+    return computeCombinedScore(s,t,weight);
+  });
+  const longTermFit=linearRegressionFit(allComb);
+  const dateIndex={};allDates.forEach((d,i)=>{dateIndex[d]=i;});
+
+  const plotDates=allDates.filter(d=>d>=cutoff);
+  const sentSeries=[],techSeries=[],combSeries=[],priceSeries=[],longTermTrend=[];
   plotDates.forEach(d=>{
     const s=sentByDate[d]?sentByDate[d].score:null;
     const t=techByDate[d]!=null?techByDate[d]:null;
     sentSeries.push(s);techSeries.push(t);
     combSeries.push(computeCombinedScore(s,t,weight));
     priceSeries.push(priceByDate[d]!=null?priceByDate[d]:(sentByDate[d]?sentByDate[d].btc:null));
+    longTermTrend.push(longTermFit?longTermFit.slope*dateIndex[d]+longTermFit.intercept:null);
   });
+  // Short-term trend: fit fresh on just what's currently visible — this is the
+  // one that changes shape as you switch Day/Week/30D/All, by design.
+  const shortTermFit=linearRegressionFit(combSeries);
+  const shortTermTrend=shortTermFit?combSeries.map((_,i)=>shortTermFit.slope*i+shortTermFit.intercept):combSeries.map(()=>null);
   // Zoom/pan/pinch — the plugin is already bundled (chartjs-plugin-zoom, self-
   // registers on load), just disabled by default. Mode 'x' only: this is a
   // time-series, zooming the y-axis (0-100 score scale) wouldn't mean anything.
@@ -1855,6 +1891,8 @@ function buildCombinedChartConfig(history,technicalsData){
     {label:'Technical',data:techSeries,borderColor:'#F5B843',backgroundColor:'transparent',fill:false,tension:0.3,pointRadius:0,borderWidth:2,spanGaps:true,yAxisID:'y'},
     {label:'Combined',data:combSeries,borderColor:'#3BF38B',backgroundColor:'transparent',fill:false,tension:0.3,pointRadius:0,borderWidth:2,borderDash:[4,3],spanGaps:true,yAxisID:'y'},
     {label:'BTC Price',data:priceSeries,borderColor:'#8891A8',backgroundColor:'transparent',fill:false,tension:0.3,pointRadius:0,borderWidth:1.5,spanGaps:true,yAxisID:'y1'},
+    {label:'Trend (this view)',data:shortTermTrend,borderColor:'#FF6B9D',backgroundColor:'transparent',fill:false,tension:0,pointRadius:0,borderWidth:1.5,borderDash:[2,2],spanGaps:true,yAxisID:'y'},
+    {label:'Trend (long-term)',data:longTermTrend,borderColor:'#A78BFA',backgroundColor:'transparent',fill:false,tension:0,pointRadius:0,borderWidth:1.5,borderDash:[6,3],spanGaps:true,yAxisID:'y'},
   ]},
     options:{responsive:true,maintainAspectRatio:false,animation:false,
       scales:{
@@ -1863,8 +1901,16 @@ function buildCombinedChartConfig(history,technicalsData){
         y1:{position:'right',ticks:{color:'#8891A8',font:{size:9},callback:v=>'$'+Math.round(v/1000)+'K'},grid:{display:false}}
       },
       plugins:{
-        legend:{display:true,position:'top',align:'start',labels:{color:'#8891A8',font:{size:9},boxWidth:10,padding:8}},
-        tooltip:{callbacks:{label:c=>c.dataset.label==='BTC Price'?('BTC: $'+(c.parsed.y!=null?Math.round(c.parsed.y).toLocaleString('en-US'):'—')):(c.dataset.label+': '+(c.parsed.y!=null?c.parsed.y:'—'))}},
+        legend:{display:true,position:'top',align:'start',labels:{color:'#8891A8',font:{size:9},boxWidth:10,padding:8},onClick:(e,item,legend)=>{
+          // Default Chart.js behavior (toggle dataset visibility on legend tap)
+          // — this is what makes both trend lines hideable/showable, no extra
+          // buttons needed. Kept explicit here just so it's not accidentally
+          // overridden by a future edit to this options block.
+          const ci=legend.chart,meta=ci.getDatasetMeta(item.datasetIndex);
+          meta.hidden=meta.hidden===null?!ci.data.datasets[item.datasetIndex].hidden:null;
+          ci.update();
+        }},
+        tooltip:{callbacks:{label:c=>c.dataset.label==='BTC Price'?('BTC: $'+(c.parsed.y!=null?Math.round(c.parsed.y).toLocaleString('en-US'):'—')):(c.dataset.label+': '+(c.parsed.y!=null?c.parsed.y.toFixed(1):'—'))}},
         zoom:{
           pan:{enabled:true,mode:'x'},
           zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x'}
@@ -2962,7 +3008,7 @@ function renderFredDebugPanel(){
     if(!v)return `<div class="text-down">${k}: not captured (fetch failed or excluded this cycle)</div>`;
     return `<div>${k}: latest=${v.date0} (${v.value0}) · prev=${v.date1} (${v.value1}) · pctChange=${v.pctChange.toFixed(4)}% · fetched ${v.fetchedAt}</div>`;
   }).join('');
-  html+='<div class="text-neon mt-1">oil/usd now sourced live from Hyperliquid (xyz:BRENTOIL, xyz:DXY) — no publication lag, not shown here.</div>';
+  html+='<div class="text-neon mt-1">oil/usd now sourced live from Hyperliquid (xyz:BRENTOIL, xyz:EUR) — no publication lag, not shown here.</div>';
   const errs=window.__sourceErrors||{};
   if(errs.oil||errs.usd){
     html+='<div class="text-down mt-2 pt-2 border-t border-line/50">Hyperliquid source errors this cycle:</div>';
@@ -4007,16 +4053,20 @@ async function srcOilFromHyperliquid(){
 }
 async function srcUsdFromHyperliquid(){
   const assets=await fetchHyperliquidXyzAssets();
-  // The debug panel's full asset list revealed "xyz:DXY" — the actual US
-  // Dollar Index, directly available — a much closer match to the old FRED
-  // DTWEXBGS (broad dollar index) than the EUR/USD proxy used previously.
-  const c=assets['xyz:DXY'];
-  if(!c)throw new Error('xyz:DXY not found. Available on xyz dex: '+(Object.keys(assets).join(', ')||'(none — dex query itself may be failing, see window.__hlXyzRaw)'));
+  // xyz:DXY turned out to be dead — confirmed via raw-field check (markPx,
+  // prevDayPx, oraclePx all identical, midPx null: no real order book, no
+  // actual trading happening on that instrument, just an echoed oracle price).
+  // xyz:EUR checked out liquid (all four fields genuinely distinct, real
+  // midPx) — switched to that. EUR/USD's natural inverse relationship to
+  // dollar strength replicates the old DTWEXBGS invert:true behavior on its
+  // own: EUR falling means the dollar is strengthening, which is already a
+  // negative pctChange here — no extra sign flip needed (unlike oil, which
+  // does need one since it's not an inverse-of-USD instrument).
+  const c=assets['xyz:EUR'];
+  if(!c)throw new Error('xyz:EUR not found. Available on xyz dex: '+(Object.keys(assets).join(', ')||'(none — dex query itself may be failing, see window.__hlXyzRaw)'));
   const mark=parseFloat(c.markPx),prev=parseFloat(c.prevDayPx);
   const pctChange=((mark-prev)/prev)*100;
-  // Same invert+scale convention as the old FRED usd source: rising dollar
-  // index -> lower score (bearish-leaning, tighter global liquidity).
-  return{score:to0_100(satur(-pctChange,1.5))};
+  return{score:to0_100(satur(pctChange,1.5))};
 }
 // Regime-aware gold scoring — replaces the old fixed-sign assumption.
 // Rationale (from the 5-year BTC/gold analysis this was built on): a single
