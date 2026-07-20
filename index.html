@@ -1845,7 +1845,7 @@ function linearRegressionFit(values){
   const intercept=(sumY-slope*sumX)/n;
   return{slope,intercept};
 }
-function buildCombinedChartConfig(history,technicalsData){
+function buildCombinedChartConfig(history,technicalsData,isFullscreen){
   const closes0=technicalsData?technicalsData.closes:null;
   const dates0=technicalsData?technicalsData.dates:null;
   const RANGE_DAYS={DAY:1,WEEK:7,'30D':30,ALL:(dates0?dates0.length:365)};
@@ -1902,7 +1902,7 @@ function buildCombinedChartConfig(history,technicalsData){
         y1:{position:'right',ticks:{color:'#8891A8',font:{size:9},callback:v=>'$'+Math.round(v/1000)+'K'},grid:{display:false}}
       },
       plugins:{
-        legend:{display:true,position:'top',align:'start',labels:{color:'#8891A8',font:{size:9},boxWidth:10,padding:8},onClick:(e,item,legend)=>{
+        legend:{display:true,position:'top',align:'start',labels:{color:'#8891A8',font:{size:isFullscreen?14:10},boxWidth:isFullscreen?18:12,boxHeight:isFullscreen?18:12,padding:isFullscreen?18:10},onClick:(e,item,legend)=>{
           // Default Chart.js behavior (toggle dataset visibility on legend tap)
           // — this is what makes both trend lines hideable/showable, no extra
           // buttons needed. Kept explicit here just so it's not accidentally
@@ -1934,7 +1934,7 @@ function openHistoryChartFullscreen(){
   const modal=$('#pulseChartFullscreen');if(!modal)return;
   modal.classList.remove('hidden');
   const cv=$('#pulseHistoryChartFull');
-  const cfg=buildCombinedChartConfig(pulseLastHistory,pulseLastTechnicals);
+  const cfg=buildCombinedChartConfig(pulseLastHistory,pulseLastTechnicals,true);
   if(pulseHistoryChartFullInst)pulseHistoryChartFullInst.destroy();
   pulseHistoryChartFullInst=new Chart(cv,cfg);
 }
