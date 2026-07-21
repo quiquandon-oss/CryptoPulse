@@ -453,6 +453,61 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       </div>
     </section>
 
+    <!-- =============== CYCLES (new, separate from Scenarios above — nothing
+         in the original tab was touched) =============== -->
+    <section id="v-cycles" class="hidden space-y-4">
+      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+        <h2 class="font-semibold mb-1">Where are we in the cycle?</h2>
+        <p class="text-xs text-mutet mb-4">Crypto moves in halving-driven ~4-year cycles, historically. This adds cycle-aware context on top of the Scenarios tab's static Bear/Base/Bull — it doesn't replace it.</p>
+        <div class="grid grid-cols-2 gap-3 mb-3">
+          <div class="bg-panel2 rounded-xl p-3">
+            <p class="text-[10px] text-mutet uppercase tracking-wide">Since last halving</p>
+            <p class="text-lg font-bold tnum" id="cycHalvingDays">—</p>
+            <p class="text-[10px] text-mutet" id="cycHalvingDate">Apr 20, 2024</p>
+          </div>
+          <div class="bg-panel2 rounded-xl p-3">
+            <p class="text-[10px] text-mutet uppercase tracking-wide">Since cycle ATH</p>
+            <p class="text-lg font-bold tnum text-down" id="cycAthDrawdown">—</p>
+            <p class="text-[10px] text-mutet" id="cycAthDate">$126,198 · Oct 6, 2025</p>
+          </div>
+        </div>
+        <div class="bg-panel2 rounded-xl p-3 mb-3">
+          <p class="text-xs font-semibold mb-1">Historical phase estimate: <span id="cycPhaseLabel" class="text-neon">—</span></p>
+          <p class="text-[10px] text-mutet" id="cycPhaseDetail">—</p>
+        </div>
+        <div class="bg-panel2 rounded-xl p-3">
+          <p class="text-[10px] text-mutet leading-snug">⚠ Honest caveat: this cycle already broke the classic pattern — BTC consolidated for 5 months right after the April 2024 halving instead of rallying immediately, unlike 2012/2016/2020. Whether the 4-year cycle model still holds given ETFs and institutional treasuries is a genuine, unresolved debate — treat the phase label above as a historical prior, not a forecast.</p>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+        <h2 class="font-semibold mb-1">Diminishing returns, cycle over cycle</h2>
+        <p class="text-xs text-mutet mb-3">Documented pattern: each cycle's peak % gain has been smaller than the last — not because BTC is weakening, but because a larger market cap needs proportionally more capital to move the same percentage. The Scenarios tab's Bull case doesn't adjust for this; here's the same case with a partial discount applied.</p>
+        <div class="space-y-2" id="cycDiminishingTable"></div>
+        <p class="text-[10px] text-mutet mt-2">Discount factor is a judgment call (0.65x on the Bull case only, Bear/Base untouched — diminishing returns is specifically an upside/mania phenomenon), not a calibrated model. Adjust if you disagree with the assumption.</p>
+      </div>
+
+      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+        <h2 class="font-semibold mb-1">Live conditions right now</h2>
+        <p class="text-xs text-mutet mb-3">What the Sentiment tab's own engine currently reads — shown here for context, not fed into the scenario math above.</p>
+        <div id="cycLiveConditions" class="grid grid-cols-2 gap-3 text-xs">Loading…</div>
+      </div>
+
+      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+        <h2 class="font-semibold mb-1">Per-coin distance from ATH</h2>
+        <p class="text-xs text-mutet mb-3">Altcoins historically lag/overshoot BTC's cycle timing (dominance rotation) — each coin can genuinely be in a different phase of its own.</p>
+        <div id="cycPerCoinAth" class="space-y-2 text-xs"></div>
+      </div>
+
+      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold">Portfolio fan chart (±1σ band)</h2>
+        </div>
+        <p class="text-xs text-mutet mb-3">Base case ± one annualized standard deviation (same live/static volatility source as the Break-even Probability table), instead of three discrete lines implying more precision than a cyclical asset really has.</p>
+        <div class="h-[220px]"><canvas id="cycFanChart"></canvas></div>
+      </div>
+    </section>
+
     <!-- =============== CAPITAL =============== -->
     <section id="v-capital" class="hidden space-y-4">
       <div class="glow rounded-2xl border border-line bg-panel p-5">
@@ -1315,13 +1370,14 @@ function wireModal(){
   });
   $('#chartModal').onclick=(e)=>{if(e.target===$('#chartModal'))closeChartModal();};
 }
-function setView(v){state.view=v;['dashboard','mycrypto','dca','transactions','scenario','capital','radar','sentiment','settings'].forEach(x=>$('#v-'+x).classList.toggle('hidden',x!==v));
+function setView(v){state.view=v;['dashboard','mycrypto','dca','transactions','scenario','cycles','capital','radar','sentiment','settings'].forEach(x=>$('#v-'+x).classList.toggle('hidden',x!==v));
   $$('#nav .navitem,#navMobile .navitem').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
-  $('#viewTitle').textContent={dashboard:'Dashboard',mycrypto:'My Crypto',dca:'DCA',transactions:'Transactions',scenario:'Scenarios',capital:'Capital',radar:'Radar',settings:'Settings'}[v];
+  $('#viewTitle').textContent={dashboard:'Dashboard',mycrypto:'My Crypto',dca:'DCA',transactions:'Transactions',scenario:'Scenarios',cycles:'Cycles',capital:'Capital',radar:'Radar',settings:'Settings'}[v];
   if(v==='dca'){fillAssets();$('#d_date').value=NOW();renderDcaAvgTable();}
   if(v==='dashboard'){renderPerf();renderAlloc();renderDcaDonuts();}
   if(v==='mycrypto'){renderCards();}
   if(v==='scenario'){renderScenario();}
+  if(v==='cycles'){renderCyclesTab();}
   if(v==='capital'){renderCapital();}
   if(v==='radar'){initRadarTab();}
   if(v==='sentiment'){initSentimentTab();loadHypeFunding();}
@@ -3201,7 +3257,7 @@ function initAlertsSection(){
 
 
 /* ---- wire ---- */
-function buildMobileNav(){const host=$('#navMobile');[['dashboard','Dashboard'],['mycrypto','My Crypto'],['dca','DCA'],['transactions','Transactions'],['scenario','Scenarios'],['capital','Capital'],['radar','Radar'],['sentiment','Sentiment'],['settings','Settings']].forEach(([v,l])=>{
+function buildMobileNav(){const host=$('#navMobile');[['dashboard','Dashboard'],['mycrypto','My Crypto'],['dca','DCA'],['transactions','Transactions'],['scenario','Scenarios'],['cycles','Cycles'],['capital','Capital'],['radar','Radar'],['sentiment','Sentiment'],['settings','Settings']].forEach(([v,l])=>{
   const b=document.createElement('button');b.dataset.view=v;b.className='navitem flex-0 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap';
   b.textContent=l;b.onclick=()=>setView(v);host.appendChild(b);});}
 
@@ -3758,6 +3814,115 @@ function scenZoomStateChanged({chart}){
   const btn=$('#scenZoomReset');if(!btn)return;
   btn.classList.toggle('hidden',!chart.isZoomedOrPanned());
 }
+
+/* ════════════════════════════════════════════════════════════════
+   CYCLES TAB — cycle-phase-aware context layered on top of the
+   Scenarios tab, without touching anything in that tab. Built from:
+   halving date (fact), cycle ATH (fact, both sourced externally and
+   documented below), diminishing-returns discount (explicit judgment
+   call, not a calibrated model), live Sentiment-engine readout
+   (context only, not fed into the scenario math), per-coin ATH
+   distance (reuses existing COIN_PARAMS.ath), and a ±1σ fan chart
+   (reuses the same sigmaFor() volatility source as Break-even
+   Probability already does).
+═══════════════════════════════════════════════════════════════════ */
+const HALVING_DATE=new Date('2024-04-20T00:00:00Z'); // most recent BTC halving, block reward 6.25->3.125
+const CYCLE_ATH={date:new Date('2025-10-06T00:00:00Z'),price:126198}; // this cycle's BTC ATH, both externally sourced facts
+const DIMINISHING_FACTOR=0.65; // judgment call — see caption in the UI, not a calibrated figure
+
+function renderCyclesTab(){
+  const now=new Date();
+  // ---- Halving position + phase estimate ----
+  const halDays=Math.floor((now-HALVING_DATE)/86400000);
+  const halMonths=(halDays/30.44).toFixed(1);
+  $('#cycHalvingDays').textContent=halDays+' days';
+  $('#cycHalvingDate').textContent='(~'+halMonths+' months) · Apr 20, 2024';
+  let phase,detail;
+  if(halDays<=548){
+    phase='Pre/mid bull run';
+    detail='Historically (2012/2016/2020 cycles), the post-halving rally has run 12-18 months before peaking. This cycle diverged early — 5 months of consolidation before rallying — so treat the timing loosely, not the classic pattern exactly.';
+  }else if(halDays<=1096){
+    phase='Post-peak correction';
+    detail='Historically, the 6-18 months after a cycle top have been a correction/bear phase. This cycle\u2019s ATH ($126,198, Oct 2025) fits that window — if the pattern holds, this phase historically runs into roughly 12-18 months post-peak.';
+  }else{
+    phase='Late-cycle consolidation';
+    detail='Historically, the stretch before the next halving has been accumulation/consolidation. No strong directional prior either way at this point in past cycles.';
+  }
+  $('#cycPhaseLabel').textContent=phase;
+  $('#cycPhaseDetail').textContent=detail;
+  // ---- ATH drawdown ----
+  const athDays=Math.floor((now-CYCLE_ATH.date)/86400000);
+  const btcNow=pxUsd('BTC');
+  if(btcNow>0){
+    const dd=(btcNow-CYCLE_ATH.price)/CYCLE_ATH.price*100;
+    $('#cycAthDrawdown').textContent=(dd>=0?'+':'')+dd.toFixed(1)+'%';
+    $('#cycAthDrawdown').className='text-lg font-bold tnum '+(dd<0?'text-down':'text-up');
+  }
+  $('#cycAthDate').textContent='$'+CYCLE_ATH.price.toLocaleString('en-US')+' · '+athDays+'d ago (Oct 6, 2025)';
+
+  // ---- Diminishing-returns-adjusted Bull case ----
+  const t=totals();const cur=t.val;
+  const rawBull=SCEN.bull.map(m=>cur*m);
+  const adjMult=SCEN.bull.map(m=>1+(m-1)*DIMINISHING_FACTOR);
+  const adjBull=adjMult.map(m=>cur*m);
+  const horizons=['6M','2Y','5Y'];
+  $('#cycDiminishingTable').innerHTML=horizons.map((h,i)=>`
+    <div class="flex items-center justify-between bg-panel2 rounded-lg px-3 py-2">
+      <span class="text-mutet text-xs">${h}</span>
+      <span class="text-xs">Raw: <span class="text-up font-semibold tnum">${money(rawBull[i+1])}</span></span>
+      <span class="text-xs">Adjusted: <span class="font-semibold tnum" style="color:#F5B843">${money(adjBull[i+1])}</span></span>
+    </div>`).join('');
+
+  // ---- Live conditions from the Sentiment engine (context only) ----
+  const liveEl=$('#cycLiveConditions');
+  fetch(`${PULSE_WORKER_URL}/history`,{cache:'no-store'}).then(r=>r.json()).then(({history})=>{
+    if(!history||!history.length){liveEl.innerHTML='<p class="text-mutet col-span-2">No Sentiment data yet — visit the Sentiment tab first.</p>';return;}
+    const latest=history[history.length-1];
+    const combined=(latest.score!=null&&latest.technicalScore!=null)?Math.round((latest.score+latest.technicalScore)/2):null;
+    liveEl.innerHTML=`
+      <div class="bg-panel2 rounded-lg px-3 py-2"><p class="text-mutet text-[10px]">Sentiment</p><p class="font-bold tnum">${latest.score??'—'}</p></div>
+      <div class="bg-panel2 rounded-lg px-3 py-2"><p class="text-mutet text-[10px]">Technical</p><p class="font-bold tnum">${latest.technicalScore??'—'}</p></div>
+      <div class="bg-panel2 rounded-lg px-3 py-2"><p class="text-mutet text-[10px]">Combined</p><p class="font-bold tnum">${combined??'—'}</p></div>
+      <div class="bg-panel2 rounded-lg px-3 py-2"><p class="text-mutet text-[10px]">Gold regime</p><p class="font-bold text-xs">${latest.goldRegime||'—'}</p></div>`;
+  }).catch(err=>{liveEl.innerHTML='<p class="text-down col-span-2">Error: '+(err&&err.message?err.message:String(err))+'</p>';});
+
+  // ---- Per-coin distance from ATH ----
+  const athEl=$('#cycPerCoinAth');
+  athEl.innerHTML=Object.entries(COIN_PARAMS).map(([coin,cp])=>{
+    const px=pxUsd(coin);if(!px||!cp.ath)return'';
+    const dd=(px-cp.ath)/cp.ath*100;
+    return `<div class="flex items-center justify-between bg-panel2 rounded-lg px-3 py-2">
+      <span class="font-semibold">${coin}</span>
+      <span class="text-mutet">$${px.toLocaleString('en-US',{maximumFractionDigits:2})} vs ATH $${cp.ath.toLocaleString('en-US')}</span>
+      <span class="font-bold tnum ${dd<0?'text-down':'text-up'}">${(dd>=0?'+':'')+dd.toFixed(1)}%</span>
+    </div>`;
+  }).join('');
+
+  // ---- Fan chart: Base ± 1 annualized sigma, portfolio-value-weighted across
+  // held coins (ignores cross-coin correlation — a real simplification, but an
+  // honest one to disclose rather than pretend a precise portfolio sigma). ----
+  const heldCoins=syms().filter(a=>qtyOf(a)>1e-12);
+  let sigmaSum=0,valSum=0;
+  heldCoins.forEach(a=>{const v=statOf(a).val;const{sigma}=sigmaFor(a);sigmaSum+=sigma*v;valSum+=v;});
+  const portSigma=valSum>0?sigmaSum/valSum:0.7;
+  const Ts=[0,0.5,2,5];
+  const base=SCEN.base.map(m=>cur*m);
+  const upper=Ts.map((T,i)=>T===0?cur:base[i]*Math.exp(portSigma*Math.sqrt(T)));
+  const lower=Ts.map((T,i)=>T===0?cur:base[i]*Math.exp(-portSigma*Math.sqrt(T)));
+  const fanCv=$('#cycFanChart');
+  const fanCfg={type:'line',data:{labels:['Now','6M','2Y','5Y'],datasets:[
+    {label:'+1σ',data:upper,borderColor:'transparent',backgroundColor:'rgba(59,243,139,0.12)',fill:'+1',pointRadius:0,tension:0.3},
+    {label:'Base',data:base,borderColor:'#94A3B8',borderWidth:2,borderDash:[5,3],fill:false,pointRadius:3,tension:0.3},
+    {label:'-1σ',data:lower,borderColor:'transparent',backgroundColor:'rgba(255,92,114,0.12)',fill:'-1',pointRadius:0,tension:0.3},
+  ]},options:{responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.dataset.label+': '+money(c.raw)}}},
+    scales:{x:{grid:{display:false},ticks:{color:'#7A8499',font:{size:10}}},
+      y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#7A8499',font:{size:9},callback:v=>symC()+(v>=1000?(v/1000).toFixed(1)+'K':v.toFixed(0))}}}
+  }};
+  if(cycFanChartInst){cycFanChartInst.data=fanCfg.data;cycFanChartInst.options=fanCfg.options;cycFanChartInst.update();}
+  else cycFanChartInst=new Chart(fanCv,fanCfg);
+}
+let cycFanChartInst;
 
 
 /* ════════════════════════════════════════════════════════════════
