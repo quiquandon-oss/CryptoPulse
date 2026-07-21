@@ -481,9 +481,9 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           </div>
           <div class="flex flex-col items-center">
             <div class="relative w-6 h-24 rounded-full bg-panel2 overflow-hidden">
-              <div class="absolute left-0 right-0 bg-down/20" id="cycGaugeHistBand" style="top:0;height:0"></div>
-              <div class="absolute left-0 right-0 bottom-0 bg-down rounded-full" id="cycGaugeFill" style="height:0"></div>
-              <div class="absolute left-0 right-0 h-0.5 bg-white" id="cycGaugeMarker" style="top:0"></div>
+              <div class="absolute left-0 right-0" id="cycGaugeHistBand" style="top:0;height:0;background:rgba(255,45,85,0.25)"></div>
+              <div class="absolute left-0 right-0 bottom-0 rounded-full" id="cycGaugeFill" style="height:0;background:#FF2D55;box-shadow:0 0 8px rgba(255,45,85,0.6)"></div>
+              <div class="absolute left-0 right-0 bg-white" id="cycGaugeMarker" style="top:0;height:2px"></div>
             </div>
             <p class="text-xs font-bold tnum mt-1" id="cycAthDrawdown">—</p>
             <p class="text-[9px] text-mutet text-center">vs ATH $126,198<br>shaded = past bottoms</p>
@@ -3977,13 +3977,18 @@ function renderCyclesTab(){
     const px=pxUsd(coin);if(!px||!cp.ath)return'';
     const dd=(px-cp.ath)/cp.ath*100;
     const barPct=Math.max(2,Math.min(100,100+dd)); // dd is <=0 normally; 0%=full bar (at ATH), -100%=empty
+    // Brighter, more saturated fluo colors — and heights set via inline style
+    // (not the "h-full" utility class, which doesn't exist in this app's
+    // precompiled Tailwind build, so the fill was silently rendering at zero
+    // height before — every bar looked identical regardless of the real %).
+    const fillColor=dd<-70?'#FF2D55':dd<-40?'#FFC400':'#00FF9C';
     return `<div>
       <div class="flex items-center justify-between mb-1">
         <span class="font-semibold">${coin}</span>
         <span class="font-bold tnum ${dd<0?'text-down':'text-up'}">${(dd>=0?'+':'')+dd.toFixed(1)}%</span>
       </div>
-      <div class="w-full h-2 rounded-full bg-panel2 overflow-hidden">
-        <div class="h-full rounded-full" style="width:${barPct}%;background:${dd<-70?'#FF5C72':dd<-40?'#F5B843':'#3BF38B'}"></div>
+      <div class="w-full rounded-full bg-panel2 overflow-hidden" style="height:10px">
+        <div style="width:${barPct}%;height:10px;background:${fillColor};border-radius:9999px;box-shadow:0 0 6px ${fillColor}80"></div>
       </div>
       <p class="text-[9px] text-mutet mt-0.5">$${px.toLocaleString('en-US',{maximumFractionDigits:2})} vs ATH $${cp.ath.toLocaleString('en-US')}</p>
     </div>`;
