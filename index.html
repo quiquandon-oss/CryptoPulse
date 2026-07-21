@@ -511,6 +511,17 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <p class="text-[10px] text-mutet mt-2">Portfolio-adjusted Bull case discount factor is a judgment call (0.65x on the gain portion only), not a calibrated model.</p>
       </div>
 
+      <!-- ═══ Regime Scorecard — the "pattern across everything" view: instead
+           of trusting any single signal (ETF flows, funding, sentiment, gold
+           regime, per-coin phase) alone, count how many currently point the
+           same direction. One wobble in one factor means nothing; several
+           aligned at once is the actual signal. ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+        <h2 class="font-semibold mb-1">Regime Scorecard</h2>
+        <p class="text-xs text-mutet mb-3">How many of the signals this app already tracks are currently pointing the same direction — not a new number, just counting agreement across what you have.</p>
+        <div id="cycRegimeScorecard">Loading…</div>
+      </div>
+
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <h2 class="font-semibold mb-1">Live conditions right now</h2>
         <p class="text-xs text-mutet mb-3">What the Sentiment tab's own engine currently reads — shown here for context, not fed into the scenario math above.</p>
@@ -3958,18 +3969,90 @@ function renderCyclesTab(){
       <span class="text-xs">Adjusted: <span class="font-semibold tnum" style="color:#F5B843">${money(adjBull[i+1])}</span></span>
     </div>`).join('');
 
-  // ---- Live conditions from the Sentiment engine (context only) ----
+  // ---- Live conditions + Regime Scorecard — ONE fetch feeds both, reusing
+  // multiple rows of D1 history (needed for the ETF flow trend comparison,
+  // not just the single latest reading). ----
   const liveEl=$('#cycLiveConditions');
+  const scoreEl=$('#cycRegimeScorecard');
   fetch(`${PULSE_WORKER_URL}/history`,{cache:'no-store'}).then(r=>r.json()).then(({history})=>{
-    if(!history||!history.length){liveEl.innerHTML='<p class="text-mutet col-span-2">No Sentiment data yet — visit the Sentiment tab first.</p>';return;}
+    if(!history||!history.length){
+      liveEl.innerHTML='<p class="text-mutet col-span-2">No Sentiment data yet — visit the Sentiment tab first.</p>';
+      if(scoreEl)scoreEl.innerHTML='<p class="text-mutet">No Sentiment data yet — visit the Sentiment tab first.</p>';
+      return;
+    }
     const latest=history[history.length-1];
+    let latestSources={};try{latestSources=latest.sources_json?JSON.parse(latest.sources_json):{};}catch(e){}
     const combined=(latest.score!=null&&latest.technicalScore!=null)?Math.round((latest.score+latest.technicalScore)/2):null;
     liveEl.innerHTML=`
       <div class="bg-panel2 rounded-lg px-3 py-2"><p class="text-mutet text-[10px]">Sentiment</p><p class="font-bold tnum">${latest.score??'—'}</p></div>
       <div class="bg-panel2 rounded-lg px-3 py-2"><p class="text-mutet text-[10px]">Technical</p><p class="font-bold tnum">${latest.technicalScore??'—'}</p></div>
       <div class="bg-panel2 rounded-lg px-3 py-2"><p class="text-mutet text-[10px]">Combined</p><p class="font-bold tnum">${combined??'—'}</p></div>
       <div class="bg-panel2 rounded-lg px-3 py-2"><p class="text-mutet text-[10px]">Gold regime</p><p class="font-bold text-xs">${latest.goldRegime||'—'}</p></div>`;
-  }).catch(err=>{liveEl.innerHTML='<p class="text-down col-span-2">Error: '+(err&&err.message?err.message:String(err))+'</p>';});
+
+    if(!scoreEl)return;
+    // ETF flow trend: latest etfflows score vs whatever reading sits closest to
+    // ~7 days ago — a single day means nothing (same lesson as the real ETF
+    // flow data: "one session doesn't confirm a trend"), so this compares two
+    // points a week apart instead of reading the latest number in isolation.
+    const weekAgoTs=latest.ts-7*86400000;
+    let closest=null,closestDiff=Infinity;
+    history.forEach(p=>{const diff=Math.abs(p.ts-weekAgoTs);if(diff<closestDiff){closestDiff=diff;closest=p;}});
+    let closestSources={};try{closestSources=closest&&closest.sources_json?JSON.parse(closest.sources_json):{};}catch(e){}
+    const etfNow=latestSources.etfflows,etfPast=closestSources.etfflows;
+    const etfDelta=(etfNow!=null&&etfPast!=null)?etfNow-etfPast:null;
+
+    const factors=[];
+    const tagOf=(v,bullAt,bearAt)=>v==null?'neutral':v>=bullAt?'bullish':v<=bearAt?'bearish':'neutral';
+    factors.push({label:'Combined score',display:combined!=null?combined:'—',tag:tagOf(combined,60,40)});
+    factors.push({label:'BTC/ETH funding',display:latestSources.funding??'—',tag:tagOf(latestSources.funding,55,45)});
+    factors.push({label:'HYPE funding',display:latestSources.hypefunding??'—',tag:tagOf(latestSources.hypefunding,55,45)});
+    factors.push({label:'ETF flow trend (7d)',display:etfDelta!=null?(etfDelta>=0?'+':'')+etfDelta.toFixed(0):'—',tag:etfDelta==null?'neutral':etfDelta>=10?'bullish':etfDelta<=-10?'bearish':'neutral'});
+    factors.push({label:'Gold regime',display:latest.goldRegime==='competing-haven'?'competing-haven':(latest.goldRegime||'—'),tag:latest.goldRegime==='competing-haven'?'bearish':'neutral'});
+    // Per-coin phase alignment — reuses the exact same coinPhaseAnalysis()
+    // used in the per-coin section below, just tallied into bullish/bearish counts.
+    let coinBull=0,coinBear=0,coinTotal=0;
+    Object.entries(COIN_PARAMS).forEach(([coin,cp])=>{
+      const px=pxUsd(coin);if(!px||!cp.ath)return;
+      const dd=(px-cp.ath)/cp.ath*100;
+      const{phaseColor}=coinPhaseAnalysis(coin,cp,dd);
+      coinTotal++;
+      if(phaseColor==='#00FF9C')coinBull++;else if(phaseColor==='#FF2D55')coinBear++;
+    });
+    const coinNet=coinBull-coinBear;
+    factors.push({label:'Per-coin phase mix',display:`${coinBull}\u2191 / ${coinBear}\u2193 of ${coinTotal}`,tag:coinNet>0?'bullish':coinNet<0?'bearish':'neutral'});
+
+    const tagColor={bullish:'#00FF9C',bearish:'#FF2D55',neutral:'#F5B843'};
+    const bullCount=factors.filter(f=>f.tag==='bullish').length;
+    const bearCount=factors.filter(f=>f.tag==='bearish').length;
+    const netScore=bullCount-bearCount;
+    const overallLabel=netScore>=2?'Leaning bullish':netScore<=-2?'Leaning bearish':'Mixed / no clear alignment';
+    const overallColor=netScore>=2?'#00FF9C':netScore<=-2?'#FF2D55':'#F5B843';
+
+    scoreEl.innerHTML=`
+      <div class="flex items-center justify-between mb-3 pb-3 border-b border-line/50">
+        <div>
+          <p class="text-2xl font-bold" style="color:${overallColor}">${bullCount}/${factors.length}</p>
+          <p class="text-[10px] text-mutet">signals aligned bullish</p>
+        </div>
+        <div class="text-right">
+          <p class="text-sm font-semibold" style="color:${overallColor}">${overallLabel}</p>
+          <p class="text-[10px] text-mutet">${bearCount}/${factors.length} aligned bearish</p>
+        </div>
+      </div>
+      <div class="space-y-1.5">
+        ${factors.map(f=>`
+          <div class="flex items-center justify-between text-xs">
+            <span class="text-mutet">${f.label}</span>
+            <span class="flex items-center gap-1.5">
+              <span class="font-semibold tnum">${f.display}</span>
+              <span style="width:8px;height:8px;border-radius:50%;display:inline-block;background:${tagColor[f.tag]}"></span>
+            </span>
+          </div>`).join('')}
+      </div>`;
+  }).catch(err=>{
+    liveEl.innerHTML='<p class="text-down col-span-2">Error: '+(err&&err.message?err.message:String(err))+'</p>';
+    if(scoreEl)scoreEl.innerHTML='<p class="text-down">Error: '+(err&&err.message?err.message:String(err))+'</p>';
+  });
 
   // ---- Per-coin distance from ATH — horizontal ruler bars ----
   const athEl=$('#cycPerCoinAth');
