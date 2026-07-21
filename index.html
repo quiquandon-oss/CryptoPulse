@@ -3982,6 +3982,7 @@ function renderCyclesTab(){
     // precompiled Tailwind build, so the fill was silently rendering at zero
     // height before — every bar looked identical regardless of the real %).
     const fillColor=dd<-70?'#FF2D55':dd<-40?'#FFC400':'#00FF9C';
+    const{phase,phaseColor}=coinPhaseAnalysis(coin,cp,dd);
     return `<div>
       <div class="flex items-center justify-between mb-1">
         <span class="font-semibold">${coin}</span>
@@ -3990,7 +3991,8 @@ function renderCyclesTab(){
       <div class="w-full rounded-full bg-panel2 overflow-hidden" style="height:10px">
         <div style="width:${barPct}%;height:10px;background:${fillColor};border-radius:9999px;box-shadow:0 0 6px ${fillColor}80"></div>
       </div>
-      <p class="text-[9px] text-mutet mt-0.5">$${px.toLocaleString('en-US',{maximumFractionDigits:2})} vs ATH $${cp.ath.toLocaleString('en-US')}</p>
+      <p class="text-[9px] mt-1 font-semibold" style="color:${phaseColor}">${phase}</p>
+      <p class="text-[9px] text-mutet">$${px.toLocaleString('en-US',{maximumFractionDigits:2})} vs ATH $${cp.ath.toLocaleString('en-US')} (${new Date(cp.athDate).toLocaleDateString('en-US',{month:'short',year:'numeric'})})</p>
     </div>`;
   }).join('');
 
@@ -4028,13 +4030,49 @@ let cycFanChartInst,cycOverlayChartInst,cycDiminishingChartInst;
    P  = N(d2)  where  d2 = [ln(S/K) + (μ-½σ²)T] / (σ√T)
 ═══════════════════════════════════════════════════════════════════ */
 const COIN_PARAMS={
-  BTC: {mu:0.50,sigma:0.65,ath:109000},
-  ETH: {mu:0.45,sigma:0.85,ath:4900},
-  SOL: {mu:0.60,sigma:1.20,ath:260},
-  LINK:{mu:0.40,sigma:1.10,ath:53},
-  HYPE:{mu:0.55,sigma:1.30,ath:150},
+  // ATH values corrected (were stale) — sourced: BTC $126,198 Oct 6 2025;
+  // ETH $4,953 Aug 25 2025; SOL $294 Jan 19 2025 (TRUMP-memecoin-driven spike);
+  // LINK $52.99 May 10 2021 — genuinely the real ATH, LINK has NOT made a new
+  // high this entire 2024-2026 cycle, unlike the other four; HYPE $76.89 Jun 16
+  // 2026 — was wrongly set to $150 (nearly 2x too high), making HYPE look far
+  // deeper in "drawdown" than it actually is.
+  BTC: {mu:0.50,sigma:0.65,ath:126198,athDate:'2025-10-06'},
+  ETH: {mu:0.45,sigma:0.85,ath:4953,athDate:'2025-08-25'},
+  SOL: {mu:0.60,sigma:1.20,ath:294,athDate:'2025-01-19'},
+  LINK:{mu:0.40,sigma:1.10,ath:52.99,athDate:'2021-05-10'},
+  HYPE:{mu:0.55,sigma:1.30,ath:76.89,athDate:'2026-06-16'},
 };
 const BEAR_START=new Date('2025-01-20');
+// Per-coin cycle phase — combines three signals rather than just drawdown depth
+// alone, since depth alone can't tell "still falling" from "basing near a
+// bottom", and can't tell "just corrected off a fresh high" from "stuck below
+// an old one":
+//  1. How deep the drawdown from ATH is
+//  2. How RECENTLY that ATH was set (a fresh ATH + a pullback reads very
+//     differently from a multi-year-old ATH the coin still hasn't reclaimed)
+//  3. The 30-day trend (still declining vs stabilizing/bouncing) — reuses
+//     trend30(), already computed elsewhere in the app
+function coinPhaseAnalysis(coin,cp,dd){
+  const athAgeDays=Math.floor((Date.now()-new Date(cp.athDate))/86400000);
+  const t30=trend30(coin);
+  if(athAgeDays<=90){
+    return{phase:'Fresh ATH, early pullback',phaseColor:'#00FF9C'};
+  }
+  if(athAgeDays>1000){
+    return{phase:'Multi-cycle laggard — hasn\u2019t reclaimed its old high',phaseColor:'#FF2D55'};
+  }
+  if(dd>=-30){
+    return{phase:t30>=0?'Near highs, still resilient':'Early pullback from highs',phaseColor:t30>=0?'#00FF9C':'#FFC400'};
+  }
+  if(dd>=-60){
+    return{phase:t30>=0?'Mid-correction, stabilizing':'Mid-correction, still declining',phaseColor:'#FFC400'};
+  }
+  if(dd>=-85){
+    return{phase:t30>=0?'Deep correction, possibly basing':'Deep correction, still declining',phaseColor:'#FF2D55'};
+  }
+  return{phase:'Extreme drawdown — rare historically',phaseColor:'#FF2D55'};
+}
+
 let fgValue=null;
 
 function normCDF(x){
