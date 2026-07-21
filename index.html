@@ -456,35 +456,59 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
     <!-- =============== CYCLES (new, separate from Scenarios above — nothing
          in the original tab was touched) =============== -->
     <section id="v-cycles" class="hidden space-y-4">
-      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+      <!-- ═══ Hero row: phase icon (color-tinted), circular cycle dial, ATH
+           drawdown gauge — replaces the old plain stat-card grid. ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5" id="cycHeroCard">
         <h2 class="font-semibold mb-1">Where are we in the cycle?</h2>
         <p class="text-xs text-mutet mb-4">Crypto moves in halving-driven ~4-year cycles, historically. This adds cycle-aware context on top of the Scenarios tab's static Bear/Base/Bull — it doesn't replace it.</p>
-        <div class="grid grid-cols-2 gap-3 mb-3">
-          <div class="bg-panel2 rounded-xl p-3">
-            <p class="text-[10px] text-mutet uppercase tracking-wide">Since last halving</p>
-            <p class="text-lg font-bold tnum" id="cycHalvingDays">—</p>
-            <p class="text-[10px] text-mutet" id="cycHalvingDate">Apr 20, 2024</p>
+        <div class="grid grid-cols-3 gap-3 items-center mb-3">
+          <div class="text-center">
+            <div class="text-4xl mb-1" id="cycPhaseIcon">—</div>
+            <p class="text-xs font-semibold" id="cycPhaseLabel">—</p>
+            <p class="text-[10px] text-mutet" id="cycHalvingDays">—</p>
           </div>
-          <div class="bg-panel2 rounded-xl p-3">
-            <p class="text-[10px] text-mutet uppercase tracking-wide">Since cycle ATH</p>
-            <p class="text-lg font-bold tnum text-down" id="cycAthDrawdown">—</p>
-            <p class="text-[10px] text-mutet" id="cycAthDate">$126,198 · Oct 6, 2025</p>
+          <div class="flex flex-col items-center">
+            <svg viewBox="0 0 100 100" class="w-24 h-24">
+              <circle cx="50" cy="50" r="42" fill="none" stroke="#232A44" stroke-width="8"/>
+              <g transform="rotate(-90 50 50)">
+                <circle cx="50" cy="50" r="42" fill="none" stroke="#3BF38B" stroke-width="8" stroke-dasharray="98.95 264.9" stroke-dashoffset="0"/>
+                <circle cx="50" cy="50" r="42" fill="none" stroke="#FF5C72" stroke-width="8" stroke-dasharray="98.95 264.9" stroke-dashoffset="-98.95"/>
+                <circle cx="50" cy="50" r="42" fill="none" stroke="#F5B843" stroke-width="8" stroke-dasharray="65.98 264.9" stroke-dashoffset="-197.9"/>
+              </g>
+              <circle id="cycDialMarker" cx="50" cy="8" r="5" fill="#fff" stroke="#0B0E14" stroke-width="2"/>
+            </svg>
+            <p class="text-[9px] text-mutet mt-1">position in ~4yr cycle</p>
+          </div>
+          <div class="flex flex-col items-center">
+            <div class="relative w-6 h-24 rounded-full bg-panel2 overflow-hidden">
+              <div class="absolute left-0 right-0 bg-down/20" id="cycGaugeHistBand" style="top:0;height:0"></div>
+              <div class="absolute left-0 right-0 bottom-0 bg-down rounded-full" id="cycGaugeFill" style="height:0"></div>
+              <div class="absolute left-0 right-0 h-0.5 bg-white" id="cycGaugeMarker" style="top:0"></div>
+            </div>
+            <p class="text-xs font-bold tnum mt-1" id="cycAthDrawdown">—</p>
+            <p class="text-[9px] text-mutet text-center">vs ATH $126,198<br>shaded = past bottoms</p>
           </div>
         </div>
-        <div class="bg-panel2 rounded-xl p-3 mb-3">
-          <p class="text-xs font-semibold mb-1">Historical phase estimate: <span id="cycPhaseLabel" class="text-neon">—</span></p>
-          <p class="text-[10px] text-mutet" id="cycPhaseDetail">—</p>
-        </div>
-        <div class="bg-panel2 rounded-xl p-3">
+        <p class="text-[10px] text-mutet" id="cycPhaseDetail">—</p>
+        <div class="bg-panel2 rounded-xl p-3 mt-3">
           <p class="text-[10px] text-mutet leading-snug">⚠ Honest caveat: this cycle already broke the classic pattern — BTC consolidated for 5 months right after the April 2024 halving instead of rallying immediately, unlike 2012/2016/2020. Whether the 4-year cycle model still holds given ETFs and institutional treasuries is a genuine, unresolved debate — treat the phase label above as a historical prior, not a forecast.</p>
         </div>
       </div>
 
+      <!-- Historical cycle overlay — the single highest-value addition per the
+           brainstorm: see all 4 cycles on the same "days since halving" axis. -->
+      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+        <h2 class="font-semibold mb-1">This cycle vs. the last three</h2>
+        <p class="text-xs text-mutet mb-3">BTC price indexed to 100 on halving day, log scale. Connects sourced checkpoints (halving → peak → bottom) for each past cycle, not continuous daily data — CryptoPulse doesn't have dense price history back to 2012 embedded. Current cycle's "now" point uses live price.</p>
+        <div class="h-[220px]"><canvas id="cycOverlayChart"></canvas></div>
+      </div>
+
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <h2 class="font-semibold mb-1">Diminishing returns, cycle over cycle</h2>
-        <p class="text-xs text-mutet mb-3">Documented pattern: each cycle's peak % gain has been smaller than the last — not because BTC is weakening, but because a larger market cap needs proportionally more capital to move the same percentage. The Scenarios tab's Bull case doesn't adjust for this; here's the same case with a partial discount applied.</p>
-        <div class="space-y-2" id="cycDiminishingTable"></div>
-        <p class="text-[10px] text-mutet mt-2">Discount factor is a judgment call (0.65x on the Bull case only, Bear/Base untouched — diminishing returns is specifically an upside/mania phenomenon), not a calibrated model. Adjust if you disagree with the assumption.</p>
+        <p class="text-xs text-mutet mb-3">Documented pattern: each cycle's peak % gain has been smaller than the last — not because BTC is weakening, but because a larger market cap needs proportionally more capital to move the same percentage.</p>
+        <div class="h-[160px]"><canvas id="cycDiminishingChart"></canvas></div>
+        <div class="space-y-2 mt-3" id="cycDiminishingTable"></div>
+        <p class="text-[10px] text-mutet mt-2">Portfolio-adjusted Bull case discount factor is a judgment call (0.65x on the gain portion only), not a calibrated model.</p>
       </div>
 
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
@@ -496,7 +520,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <h2 class="font-semibold mb-1">Per-coin distance from ATH</h2>
         <p class="text-xs text-mutet mb-3">Altcoins historically lag/overshoot BTC's cycle timing (dominance rotation) — each coin can genuinely be in a different phase of its own.</p>
-        <div id="cycPerCoinAth" class="space-y-2 text-xs"></div>
+        <div id="cycPerCoinAth" class="space-y-3 text-xs"></div>
       </div>
 
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
@@ -3829,38 +3853,99 @@ function scenZoomStateChanged({chart}){
 const HALVING_DATE=new Date('2024-04-20T00:00:00Z'); // most recent BTC halving, block reward 6.25->3.125
 const CYCLE_ATH={date:new Date('2025-10-06T00:00:00Z'),price:126198}; // this cycle's BTC ATH, both externally sourced facts
 const DIMINISHING_FACTOR=0.65; // judgment call — see caption in the UI, not a calibrated figure
+const CYCLE_LEN_DAYS=1460; // ~4 years, for the circular dial
+// Sourced checkpoints for the 3 completed cycles (halving price, peak day/price,
+// bottom day/price) — see CoinGecko's "When Bitcoin All-Time Highs" study and
+// Bitcoin Suisse's halving/cycle analysis. Current cycle's start price is the
+// same externally-sourced ~$63,900 April 20 2024 halving-day price; its "now"
+// point uses live data instead of another static checkpoint.
+const HALVING_HISTORY=[
+  {label:'2012',color:'#7A8499',startPrice:12,peakDay:368,peakPrice:1127,bottomDay:778,bottomPrice:152},
+  {label:'2016',color:'#8891A8',startPrice:650,peakDay:525,peakPrice:19665,bottomDay:888,bottomPrice:3200},
+  {label:'2020',color:'#A78BFA',startPrice:8500,peakDay:549,peakPrice:69044,bottomDay:912,bottomPrice:15500},
+];
+const CURRENT_CYCLE_START_PRICE=63900;
 
 function renderCyclesTab(){
   const now=new Date();
   // ---- Halving position + phase estimate ----
   const halDays=Math.floor((now-HALVING_DATE)/86400000);
   const halMonths=(halDays/30.44).toFixed(1);
-  $('#cycHalvingDays').textContent=halDays+' days';
-  $('#cycHalvingDate').textContent='(~'+halMonths+' months) · Apr 20, 2024';
-  let phase,detail;
+  $('#cycHalvingDays').textContent=halDays+'d (~'+halMonths+'mo) since halving';
+  let phase,detail,icon,tint;
   if(halDays<=548){
-    phase='Pre/mid bull run';
+    phase='Pre/mid bull run';icon='🚀';tint='rgba(59,243,139,0.06)';
     detail='Historically (2012/2016/2020 cycles), the post-halving rally has run 12-18 months before peaking. This cycle diverged early — 5 months of consolidation before rallying — so treat the timing loosely, not the classic pattern exactly.';
   }else if(halDays<=1096){
-    phase='Post-peak correction';
+    phase='Post-peak correction';icon='🐻';tint='rgba(255,92,114,0.06)';
     detail='Historically, the 6-18 months after a cycle top have been a correction/bear phase. This cycle\u2019s ATH ($126,198, Oct 2025) fits that window — if the pattern holds, this phase historically runs into roughly 12-18 months post-peak.';
   }else{
-    phase='Late-cycle consolidation';
+    phase='Late-cycle consolidation';icon='🌱';tint='rgba(245,184,67,0.06)';
     detail='Historically, the stretch before the next halving has been accumulation/consolidation. No strong directional prior either way at this point in past cycles.';
   }
+  $('#cycPhaseIcon').textContent=icon;
   $('#cycPhaseLabel').textContent=phase;
   $('#cycPhaseDetail').textContent=detail;
-  // ---- ATH drawdown ----
-  const athDays=Math.floor((now-CYCLE_ATH.date)/86400000);
+  $('#cycHeroCard').style.background=`linear-gradient(180deg, ${tint}, transparent 40%)`;
+
+  // ---- Circular dial marker: position around a ~4yr circle, halving at 12 o'clock ----
+  const progress=(halDays%CYCLE_LEN_DAYS)/CYCLE_LEN_DAYS;
+  const angleRad=(progress*360-90)*Math.PI/180;
+  $('#cycDialMarker').setAttribute('cx',(50+42*Math.cos(angleRad)).toFixed(2));
+  $('#cycDialMarker').setAttribute('cy',(50+42*Math.sin(angleRad)).toFixed(2));
+
+  // ---- ATH drawdown gauge ----
   const btcNow=pxUsd('BTC');
+  const gaugeH=96;
   if(btcNow>0){
     const dd=(btcNow-CYCLE_ATH.price)/CYCLE_ATH.price*100;
     $('#cycAthDrawdown').textContent=(dd>=0?'+':'')+dd.toFixed(1)+'%';
-    $('#cycAthDrawdown').className='text-lg font-bold tnum '+(dd<0?'text-down':'text-up');
+    $('#cycAthDrawdown').className='text-xs font-bold tnum mt-1 '+(dd<0?'text-down':'text-up');
+    const ddClamped=Math.max(-100,Math.min(0,dd));
+    const fillPx=Math.abs(ddClamped)/100*gaugeH;
+    $('#cycGaugeFill').style.height=fillPx.toFixed(0)+'px';
+    $('#cycGaugeMarker').style.top=(gaugeH-fillPx).toFixed(0)+'px';
   }
-  $('#cycAthDate').textContent='$'+CYCLE_ATH.price.toLocaleString('en-US')+' · '+athDays+'d ago (Oct 6, 2025)';
+  // shaded band = where the 3 previous cycle bottoms landed, -77% to -86% off their ATHs
+  $('#cycGaugeHistBand').style.top=(0.77*gaugeH).toFixed(0)+'px';
+  $('#cycGaugeHistBand').style.height=(0.09*gaugeH).toFixed(0)+'px';
 
-  // ---- Diminishing-returns-adjusted Bull case ----
+  // ---- Historical cycle overlay chart (log scale, days-since-halving x-axis) ----
+  const curNowIdx=btcNow>0?100*btcNow/CURRENT_CYCLE_START_PRICE:null;
+  const curPeakIdx=100*CYCLE_ATH.price/CURRENT_CYCLE_START_PRICE;
+  const overlayDatasets=HALVING_HISTORY.map(c=>({
+    label:c.label,borderColor:c.color,backgroundColor:'transparent',borderWidth:1.5,pointRadius:3,tension:0,
+    data:[{x:0,y:100},{x:c.peakDay,y:100*c.peakPrice/c.startPrice},{x:c.bottomDay,y:100*c.bottomPrice/c.startPrice}]
+  }));
+  overlayDatasets.push({
+    label:'2024 (current)',borderColor:'#3BF38B',backgroundColor:'transparent',borderWidth:3,pointRadius:4,tension:0,
+    data:[{x:0,y:100},{x:534,y:curPeakIdx}].concat(curNowIdx!=null&&halDays>534?[{x:halDays,y:curNowIdx}]:[])
+  });
+  const overlayCv=$('#cycOverlayChart');
+  const overlayCfg={type:'line',data:{datasets:overlayDatasets},options:{responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:true,position:'top',labels:{color:'#8891A8',font:{size:9},boxWidth:10,padding:6}},
+      tooltip:{callbacks:{label:c=>c.dataset.label+': index '+c.parsed.y.toFixed(0)+' at day '+c.parsed.x}}},
+    scales:{
+      x:{type:'linear',title:{display:true,text:'days since halving',color:'#7A8499',font:{size:9}},grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#7A8499',font:{size:9}}},
+      y:{type:'logarithmic',title:{display:true,text:'index (halving=100)',color:'#7A8499',font:{size:9}},grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#7A8499',font:{size:9}}}
+    }}};
+  if(cycOverlayChartInst){cycOverlayChartInst.data=overlayCfg.data;cycOverlayChartInst.options=overlayCfg.options;cycOverlayChartInst.update();}
+  else cycOverlayChartInst=new Chart(overlayCv,overlayCfg);
+
+  // ---- Diminishing-returns bar chart + adjusted-Bull table ----
+  const roiPct=HALVING_HISTORY.map(c=>(c.peakPrice-c.startPrice)/c.startPrice*100);
+  roiPct.push((CYCLE_ATH.price-CURRENT_CYCLE_START_PRICE)/CURRENT_CYCLE_START_PRICE*100);
+  const dimCv=$('#cycDiminishingChart');
+  const dimCfg={type:'bar',data:{labels:['2012','2016','2020','2024'],datasets:[{
+    data:roiPct,backgroundColor:['#7A8499','#8891A8','#A78BFA','#3BF38B'],borderRadius:4}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'+'+c.raw.toFixed(0)+'% halving-to-peak'}}},
+      scales:{x:{grid:{display:false},ticks:{color:'#7A8499',font:{size:10}}},
+        y:{type:'logarithmic',grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#7A8499',font:{size:9},callback:v=>[10,100,1000,10000].includes(v)?'+'+v+'%':''}}}
+    }};
+  if(cycDiminishingChartInst){cycDiminishingChartInst.data=dimCfg.data;cycDiminishingChartInst.options=dimCfg.options;cycDiminishingChartInst.update();}
+  else cycDiminishingChartInst=new Chart(dimCv,dimCfg);
+
   const t=totals();const cur=t.val;
   const rawBull=SCEN.bull.map(m=>cur*m);
   const adjMult=SCEN.bull.map(m=>1+(m-1)*DIMINISHING_FACTOR);
@@ -3886,15 +3971,21 @@ function renderCyclesTab(){
       <div class="bg-panel2 rounded-lg px-3 py-2"><p class="text-mutet text-[10px]">Gold regime</p><p class="font-bold text-xs">${latest.goldRegime||'—'}</p></div>`;
   }).catch(err=>{liveEl.innerHTML='<p class="text-down col-span-2">Error: '+(err&&err.message?err.message:String(err))+'</p>';});
 
-  // ---- Per-coin distance from ATH ----
+  // ---- Per-coin distance from ATH — horizontal ruler bars ----
   const athEl=$('#cycPerCoinAth');
   athEl.innerHTML=Object.entries(COIN_PARAMS).map(([coin,cp])=>{
     const px=pxUsd(coin);if(!px||!cp.ath)return'';
     const dd=(px-cp.ath)/cp.ath*100;
-    return `<div class="flex items-center justify-between bg-panel2 rounded-lg px-3 py-2">
-      <span class="font-semibold">${coin}</span>
-      <span class="text-mutet">$${px.toLocaleString('en-US',{maximumFractionDigits:2})} vs ATH $${cp.ath.toLocaleString('en-US')}</span>
-      <span class="font-bold tnum ${dd<0?'text-down':'text-up'}">${(dd>=0?'+':'')+dd.toFixed(1)}%</span>
+    const barPct=Math.max(2,Math.min(100,100+dd)); // dd is <=0 normally; 0%=full bar (at ATH), -100%=empty
+    return `<div>
+      <div class="flex items-center justify-between mb-1">
+        <span class="font-semibold">${coin}</span>
+        <span class="font-bold tnum ${dd<0?'text-down':'text-up'}">${(dd>=0?'+':'')+dd.toFixed(1)}%</span>
+      </div>
+      <div class="w-full h-2 rounded-full bg-panel2 overflow-hidden">
+        <div class="h-full rounded-full" style="width:${barPct}%;background:${dd<-70?'#FF5C72':dd<-40?'#F5B843':'#3BF38B'}"></div>
+      </div>
+      <p class="text-[9px] text-mutet mt-0.5">$${px.toLocaleString('en-US',{maximumFractionDigits:2})} vs ATH $${cp.ath.toLocaleString('en-US')}</p>
     </div>`;
   }).join('');
 
@@ -3922,7 +4013,7 @@ function renderCyclesTab(){
   if(cycFanChartInst){cycFanChartInst.data=fanCfg.data;cycFanChartInst.options=fanCfg.options;cycFanChartInst.update();}
   else cycFanChartInst=new Chart(fanCv,fanCfg);
 }
-let cycFanChartInst;
+let cycFanChartInst,cycOverlayChartInst,cycDiminishingChartInst;
 
 
 /* ════════════════════════════════════════════════════════════════
