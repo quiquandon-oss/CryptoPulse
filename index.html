@@ -4638,7 +4638,38 @@ function loadHypeFunding(){
 }
 window.loadHypeFunding=loadHypeFunding;
 
-async function init(){LS.load();buildMobileNav();wire();paintNav();
+// Swipe left/right to move between tabs, mirroring the same order as the nav
+// bar. Deliberately conservative about when it fires: excludes anything
+// starting on a <canvas> (charts already have their own pinch/pan zoom, don't
+// want to fight that), inside any horizontally-scrollable element (nav bar,
+// DCA table, Radar heatmap, other tables — swiping those should scroll them,
+// not change tabs), or inside the fullscreen chart modal. Also requires a
+// clearly horizontal gesture (bigger than vertical movement) past a real
+// distance threshold, so normal vertical page-scrolling never triggers it.
+const TAB_ORDER=['dashboard','mycrypto','dca','transactions','scenario','cycles','capital','radar','sentiment','settings'];
+function wireSwipeNav(){
+  const main=document.querySelector('main');
+  if(!main)return;
+  let startX=0,startY=0,startTarget=null,touching=false;
+  main.addEventListener('touchstart',e=>{
+    if(e.touches.length!==1){touching=false;return;}
+    startX=e.touches[0].clientX;startY=e.touches[0].clientY;
+    startTarget=e.target;touching=true;
+  },{passive:true});
+  main.addEventListener('touchend',e=>{
+    if(!touching)return;touching=false;
+    if(startTarget&&(startTarget.closest('canvas')||startTarget.closest('.overflow-x-auto')||startTarget.closest('#pulseChartFullscreen')))return;
+    const t=e.changedTouches[0];
+    const dx=t.clientX-startX,dy=t.clientY-startY;
+    if(Math.abs(dx)<70||Math.abs(dx)<Math.abs(dy)*1.5)return; // not a clear, deliberate horizontal swipe
+    const idx=TAB_ORDER.indexOf(state.view);
+    if(idx<0)return;
+    const nextIdx=dx<0?idx+1:idx-1; // swipe left -> next tab, swipe right -> previous tab
+    if(nextIdx<0||nextIdx>=TAB_ORDER.length)return;
+    setView(TAB_ORDER[nextIdx]);
+  },{passive:true});
+}
+async function init(){LS.load();buildMobileNav();wire();paintNav();wireSwipeNav();
   if(!state.txs)state.txs=hydrate(SEED_TXS);
   setCcy(state.ccy);setView('dashboard');setStatus(false);
   render();                    // instant: real embedded history (chart already moves)
