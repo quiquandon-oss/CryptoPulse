@@ -518,7 +518,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            aligned at once is the actual signal. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <h2 class="font-semibold mb-1">Regime Scorecard</h2>
-        <p class="text-xs text-mutet mb-3">Grouped by how far out each signal actually speaks to — short-term positioning, medium-term trend confirmation, long-term structure — instead of blending everything into one number. Now includes on-chain activity (CoinMetrics, free) checked against price, not just price alone.</p>
+        <p class="text-xs text-mutet mb-3">Grouped by how far out each signal actually speaks to — short-term positioning, medium-term trend confirmation, long-term structure — instead of blending everything into one number. A factor with no data this cycle shows why (grayed out) and is excluded from the ratio, not counted as a silent neutral vote.</p>
         <div id="cycRegimeScorecard">Loading…</div>
       </div>
 
@@ -4034,27 +4034,37 @@ function renderCyclesTab(){
 
     // ---- SHORT-TERM (days): immediate sentiment/positioning reads ----
     const shortTerm=[
-      {label:'Combined score',display:combined!=null?combined:'—',tag:tagOf(combined,60,40)},
-      {label:'BTC/ETH funding',display:latestSources.funding??'—',tag:tagOf(latestSources.funding,55,45)},
-      {label:'HYPE funding',display:latestSources.hypefunding??'—',tag:tagOf(latestSources.hypefunding,55,45)},
+      combined!=null
+        ?{label:'Combined score',display:combined,tag:tagOf(combined,60,40),available:true}
+        :{label:'Combined score',display:'—',tag:'neutral',available:false,reason:'Sentiment or Technical score missing from the latest reading'},
+      latestSources.funding!=null
+        ?{label:'BTC/ETH funding',display:latestSources.funding,tag:tagOf(latestSources.funding,55,45),available:true}
+        :{label:'BTC/ETH funding',display:'—',tag:'neutral',available:false,reason:'Not included in the latest Sentiment reading (source likely failed that cycle)'},
+      latestSources.hypefunding!=null
+        ?{label:'HYPE funding',display:latestSources.hypefunding,tag:tagOf(latestSources.hypefunding,55,45),available:true}
+        :{label:'HYPE funding',display:'—',tag:'neutral',available:false,reason:'Not included in the latest Sentiment reading (source likely failed that cycle)'},
     ];
 
     // ---- MEDIUM-TERM (weeks): trend-based reads, not single-day snapshots ----
     const midTerm=[
-      {label:'ETF flow trend (7d)',display:etfDelta!=null?(etfDelta>=0?'+':'')+etfDelta.toFixed(0):'—',tag:etfDelta==null?'neutral':etfDelta>=10?'bullish':etfDelta<=-10?'bearish':'neutral'},
-      {label:'Gold regime',display:latest.goldRegime==='competing-haven'?'competing-haven':(latest.goldRegime||'—'),tag:latest.goldRegime==='competing-haven'?'bearish':'neutral'},
+      etfDelta!=null
+        ?{label:'ETF flow trend (7d)',display:(etfDelta>=0?'+':'')+etfDelta.toFixed(0),tag:etfDelta>=10?'bullish':etfDelta<=-10?'bearish':'neutral',available:true}
+        :{label:'ETF flow trend (7d)',display:'—',tag:'neutral',available:false,reason:'etfflows missing from the latest reading, or no ~7-day-old reading found to compare against'},
+      latest.goldRegime
+        ?{label:'Gold regime',display:latest.goldRegime,tag:latest.goldRegime==='competing-haven'?'bearish':'neutral',available:true}
+        :{label:'Gold regime',display:'—',tag:'neutral',available:false,reason:'No gold regime classification in the latest reading'},
     ];
     if(onchain&&!onchain.error){
-      midTerm.push({label:'On-chain vs price (30d)',display:onchain.label,tag:onchain.tag});
+      midTerm.push({label:'On-chain vs price (30d)',display:onchain.label,tag:onchain.tag,available:true});
       window.__lastOnChainDivergence=onchain; // exposed for Trader Analysis
     }else{
-      midTerm.push({label:'On-chain vs price (30d)',display:'—',tag:'neutral'});
+      midTerm.push({label:'On-chain vs price (30d)',display:'—',tag:'neutral',available:false,reason:(onchain&&onchain.error)||'CoinMetrics fetch failed or returned too little history'});
     }
     if(rotation&&!rotation.error){
-      midTerm.push({label:'BTC vs Nasdaq (30d)',display:rotation.label,tag:rotation.tag});
+      midTerm.push({label:'BTC vs Nasdaq (30d)',display:rotation.label,tag:rotation.tag,available:true});
       window.__lastSectorRotation=rotation; // exposed for Trader Analysis
     }else{
-      midTerm.push({label:'BTC vs Nasdaq (30d)',display:'—',tag:'neutral'});
+      midTerm.push({label:'BTC vs Nasdaq (30d)',display:'—',tag:'neutral',available:false,reason:(rotation&&rotation.error)||'Nasdaq or BTC trend fetch failed'});
     }
 
     // ---- LONG-TERM (months+): structural/cycle-position reads ----
@@ -4067,27 +4077,33 @@ function renderCyclesTab(){
       if(phaseColor==='#00FF9C')coinBull++;else if(phaseColor==='#FF2D55')coinBear++;
     });
     const coinNet=coinBull-coinBear;
-    const longTerm=[
-      {label:'Per-coin phase mix',display:`${coinBull}\u2191 / ${coinBear}\u2193 of ${coinTotal}`,tag:coinNet>0?'bullish':coinNet<0?'bearish':'neutral'},
-    ];
+    const longTerm=coinTotal>0
+      ?[{label:'Per-coin phase mix',display:`${coinBull}\u2191 / ${coinBear}\u2193 of ${coinTotal}`,tag:coinNet>0?'bullish':coinNet<0?'bearish':'neutral',available:true}]
+      :[{label:'Per-coin phase mix',display:'—',tag:'neutral',available:false,reason:'No live prices available for any tracked coin'}];
     if(longTermEma&&!longTermEma.error){
       const alignment=classifyTechnicalAlignment(longTermEma.ema50,latest.technicalScore);
       if(alignment){
-        longTerm.push({label:'50mo EMA alignment',display:alignment.label,tag:alignment.tag});
+        longTerm.push({label:'50mo EMA alignment',display:alignment.label,tag:alignment.tag,available:true});
         window.__lastTechnicalAlignment=alignment; // exposed for Trader Analysis
+      }else{
+        longTerm.push({label:'50mo EMA alignment',display:'—',tag:'neutral',available:false,reason:'No live BTC price available to compare against the EMA'});
       }
     }else{
-      longTerm.push({label:'50mo EMA alignment',display:'—',tag:'neutral'});
+      longTerm.push({label:'50mo EMA alignment',display:'—',tag:'neutral',available:false,reason:(longTermEma&&longTermEma.error)||'CoinGecko long-history fetch failed'});
     }
 
     const tagColor={bullish:'#00FF9C',bearish:'#FF2D55',neutral:'#F5B843'};
     const allFactors=[...shortTerm,...midTerm,...longTerm];
-    const bullCount=allFactors.filter(f=>f.tag==='bullish').length;
-    const bearCount=allFactors.filter(f=>f.tag==='bearish').length;
+    // Only factors that actually have data this cycle count toward the ratio —
+    // an unavailable factor tagged "neutral" would otherwise silently dilute
+    // the bullish/bearish fraction rather than being excluded from it.
+    const countedFactors=allFactors.filter(f=>f.available!==false);
+    const bullCount=countedFactors.filter(f=>f.tag==='bullish').length;
+    const bearCount=countedFactors.filter(f=>f.tag==='bearish').length;
     const netScore=bullCount-bearCount;
     const overallLabel=netScore>=2?'Leaning bullish':netScore<=-2?'Leaning bearish':'Mixed / no clear alignment';
     const overallColor=netScore>=2?'#00FF9C':netScore<=-2?'#FF2D55':'#F5B843';
-    window.__lastRegimeScorecard={shortTerm,midTerm,longTerm,bullCount,bearCount,total:allFactors.length,overallLabel}; // exposed for Trader Analysis
+    window.__lastRegimeScorecard={shortTerm,midTerm,longTerm,bullCount,bearCount,total:countedFactors.length,overallLabel}; // exposed for Trader Analysis
 
     // ---- Event calendar as a CONFIDENCE MODIFIER, not a bullish/bearish vote —
     // a nearby FOMC decision means near-term reads are more likely positioning
@@ -4102,20 +4118,24 @@ function renderCyclesTab(){
       </div>`;
 
     const renderColumn=(title,list)=>{
-      const b=list.filter(f=>f.tag==='bullish').length,r=list.filter(f=>f.tag==='bearish').length;
+      const counted=list.filter(f=>f.available!==false);
+      const b=counted.filter(f=>f.tag==='bullish').length,r=counted.filter(f=>f.tag==='bearish').length;
       return `<div class="bg-panel2 rounded-xl p-3">
         <div class="flex items-center justify-between mb-2">
           <p class="text-[10px] uppercase tracking-wide text-mutet">${title}</p>
-          <p class="text-[10px] tnum" style="color:${b>r?'#00FF9C':r>b?'#FF2D55':'#F5B843'}">${b}\u2191${r}\u2193</p>
+          <p class="text-[10px] tnum" style="color:${b>r?'#00FF9C':r>b?'#FF2D55':'#F5B843'}">${b}\u2191${r}\u2193 of ${counted.length}</p>
         </div>
         <div class="space-y-1.5">
           ${list.map(f=>`
-            <div class="flex items-center justify-between text-[11px]">
-              <span class="text-mutet">${f.label}</span>
-              <span class="flex items-center gap-1">
-                <span class="font-semibold tnum">${f.display}</span>
-                <span style="width:7px;height:7px;border-radius:50%;display:inline-block;background:${tagColor[f.tag]}"></span>
-              </span>
+            <div class="text-[11px]">
+              <div class="flex items-center justify-between">
+                <span class="text-mutet">${f.label}</span>
+                <span class="flex items-center gap-1">
+                  <span class="font-semibold tnum">${f.display}</span>
+                  <span style="width:7px;height:7px;border-radius:50%;display:inline-block;background:${f.available===false?'#3A4258':tagColor[f.tag]}"></span>
+                </span>
+              </div>
+              ${f.available===false?`<p class="text-[9px] text-mutet italic mt-0.5">${f.reason}</p>`:''}
             </div>`).join('')}
         </div>
       </div>`;
@@ -4125,12 +4145,12 @@ function renderCyclesTab(){
       ${fomcBanner}
       <div class="flex items-center justify-between mb-3 pb-3 border-b border-line/50">
         <div>
-          <p class="text-2xl font-bold" style="color:${overallColor}">${bullCount}/${allFactors.length}</p>
+          <p class="text-2xl font-bold" style="color:${overallColor}">${bullCount}/${countedFactors.length}</p>
           <p class="text-[10px] text-mutet">signals aligned bullish</p>
         </div>
         <div class="text-right">
           <p class="text-sm font-semibold" style="color:${overallColor}">${overallLabel}</p>
-          <p class="text-[10px] text-mutet">${bearCount}/${allFactors.length} aligned bearish</p>
+          <p class="text-[10px] text-mutet">${bearCount}/${countedFactors.length} aligned bearish</p>
         </div>
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
