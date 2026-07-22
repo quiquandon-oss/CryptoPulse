@@ -552,12 +552,26 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-center justify-between mb-1">
           <h2 class="font-semibold">Portfolio fan chart (±1σ band)</h2>
+          <button id="cycFanExpandBtn" class="px-2 py-1 rounded-md text-mutet hover:text-white" title="Fullscreen" onclick="openCycFanFullscreen()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
+          </button>
         </div>
         <p class="text-xs text-mutet mb-3">Base case ± one annualized standard deviation (same live/static volatility source as the Break-even Probability table), instead of three discrete lines implying more precision than a cyclical asset really has.</p>
         <div class="h-[240px]"><canvas id="cycFanChart"></canvas></div>
         <p id="cycFanAssumptions" class="text-[10px] text-mutet mt-2 leading-snug"></p>
       </div>
     </section>
+
+    <!-- Fullscreen fan chart overlay: own Chart.js instance (Chart.js needs one
+         canvas per instance — can't share the inline chart's canvas). -->
+    <div id="cycFanChartFullscreen" class="hidden fixed inset-0 z-50 bg-panel p-4 flex flex-col">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-sm font-semibold">Portfolio fan chart (±1σ band)</h3>
+        <button class="px-2.5 py-1.5 rounded-md text-xs bg-panel2 hover:text-white border border-line" onclick="closeCycFanFullscreen()">✕ Close</button>
+      </div>
+      <div class="flex-1"><canvas id="cycFanChartFull"></canvas></div>
+      <p id="cycFanAssumptionsFull" class="text-[10px] text-mutet mt-2 leading-snug"></p>
+    </div>
 
     <!-- =============== CAPITAL =============== -->
     <section id="v-capital" class="hidden space-y-4">
@@ -4224,7 +4238,20 @@ function renderCyclesTab(){
   const base=SCEN.base.map(m=>cur*m);
   const upper=Ts.map((T,i)=>T===0?cur:base[i]*Math.exp(portSigma*Math.sqrt(T)));
   const lower=Ts.map((T,i)=>T===0?cur:base[i]*Math.exp(-portSigma*Math.sqrt(T)));
+  // Cached so the fullscreen button can rebuild an identical chart in its own
+  // canvas (Chart.js needs one canvas per instance) without recomputing.
+  cycFanLastState={Ts,base,upper,lower,portSigma};
   const fanCv=$('#cycFanChart');
+  const fanCfg=buildFanChartConfig(cycFanLastState,false);
+  if(cycFanChartInst){cycFanChartInst.data=fanCfg.data;cycFanChartInst.options=fanCfg.options;cycFanChartInst.update();}
+  else cycFanChartInst=new Chart(fanCv,fanCfg);
+  renderFanAssumptions('#cycFanAssumptions',cycFanLastState);
+}
+let cycFanLastState=null,cycFanChartFullInst=null;
+// ---- Shared config builder — used for both the inline chart and the
+// fullscreen overlay chart, so the two never drift out of sync. ----
+function buildFanChartConfig(state,isFullscreen){
+  const{Ts,base,upper,lower}=state;
   const TICK_LABELS={0:'Now',0.5:'6M',2:'2Y',5:'5Y'};
   const fmtShort=v=>symC()+(Math.abs(v)>=1000?(v/1000).toFixed(1)+'K':v.toFixed(0));
   // Real (x,y) points instead of evenly-spaced categories — a linear x-axis
@@ -4233,36 +4260,52 @@ function renderCyclesTab(){
   const upperPts=Ts.map((T,i)=>({x:T,y:upper[i]}));
   const basePts=Ts.map((T,i)=>({x:T,y:base[i]}));
   const lowerPts=Ts.map((T,i)=>({x:T,y:lower[i]}));
-  const fanCfg={type:'line',data:{datasets:[
+  const fs=isFullscreen?{label:11,tick:12,legend:12}:{label:9,tick:10,legend:10};
+  return{type:'line',data:{datasets:[
     {label:'+1σ',data:upperPts,borderColor:'transparent',backgroundColor:'rgba(59,243,139,0.12)',fill:'+1',pointRadius:0,tension:0.3,
-      datalabels:{display:(ctx)=>ctx.dataIndex>0,align:'top',offset:6,color:'#3BF38B',font:{size:9,weight:'600'},formatter:v=>fmtShort(v.y)}},
-    {label:'Base',data:basePts,borderColor:'#94A3B8',borderWidth:2,borderDash:[5,3],fill:false,pointRadius:3,tension:0.3,
-      datalabels:{display:true,align:(ctx)=>ctx.dataIndex===0?'right':'bottom',offset:6,color:'#E5E7EB',font:{size:9,weight:'700'},formatter:v=>fmtShort(v.y)}},
+      datalabels:{display:(ctx)=>ctx.dataIndex>0,align:'top',offset:6,color:'#3BF38B',font:{size:fs.label,weight:'600'},formatter:v=>fmtShort(v.y)}},
+    {label:'Base',data:basePts,borderColor:'#94A3B8',borderWidth:2,borderDash:[5,3],fill:false,pointRadius:isFullscreen?4:3,tension:0.3,
+      datalabels:{display:true,align:(ctx)=>ctx.dataIndex===0?'right':'bottom',offset:6,color:'#E5E7EB',font:{size:fs.label,weight:'700'},formatter:v=>fmtShort(v.y)}},
     {label:'-1σ',data:lowerPts,borderColor:'transparent',backgroundColor:'rgba(255,92,114,0.12)',fill:'-1',pointRadius:0,tension:0.3,
-      datalabels:{display:(ctx)=>ctx.dataIndex>0,align:'bottom',offset:6,color:'#FF5C72',font:{size:9,weight:'600'},formatter:v=>fmtShort(v.y)}},
+      datalabels:{display:(ctx)=>ctx.dataIndex>0,align:'bottom',offset:6,color:'#FF5C72',font:{size:fs.label,weight:'600'},formatter:v=>fmtShort(v.y)}},
   ]},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:16,right:12}},
     plugins:{
-      legend:{display:true,position:'bottom',labels:{color:'#7A8499',boxWidth:10,boxHeight:10,font:{size:10},padding:12}},
+      legend:{display:true,position:'bottom',labels:{color:'#7A8499',boxWidth:10,boxHeight:10,font:{size:fs.legend},padding:12}},
       tooltip:{callbacks:{label:c=>c.dataset.label+': '+money(c.raw.y)}},
+      zoom:isFullscreen?{pan:{enabled:true,mode:'x'},zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x'}}:undefined,
     },
     scales:{
       x:{type:'linear',min:0,max:5,grid:{display:false},
         afterBuildTicks:axis=>{axis.ticks=Object.keys(TICK_LABELS).map(v=>({value:+v}));},
-        ticks:{color:'#7A8499',font:{size:10},callback:v=>TICK_LABELS[v]??''}},
-      y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#7A8499',font:{size:9},callback:v=>fmtShort(v)}}}
+        ticks:{color:'#7A8499',font:{size:fs.tick},callback:v=>TICK_LABELS[v]??''}},
+      y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#7A8499',font:{size:fs.tick-1},callback:v=>fmtShort(v)}}}
   }};
-  if(cycFanChartInst){cycFanChartInst.data=fanCfg.data;cycFanChartInst.options=fanCfg.options;cycFanChartInst.update();}
-  else cycFanChartInst=new Chart(fanCv,fanCfg);
-  // ---- Assumptions disclosure: the band's actual math, not left implicit ----
-  const fanAssumEl=$('#cycFanAssumptions');
-  if(fanAssumEl){
-    const horizonYears=Ts[Ts.length-1];
-    const baseMultEnd=SCEN.base[SCEN.base.length-1];
-    const baseCagr=baseMultEnd>0?Math.pow(baseMultEnd,1/horizonYears)-1:null;
-    fanAssumEl.textContent='Model: Base case implies ~'+(baseCagr!=null?(baseCagr*100).toFixed(0)+'%/yr':'n/a')+
-      ' compounded return; band width uses your live portfolio volatility (σ≈'+(portSigma*100).toFixed(0)+'%/yr, value-weighted across held coins). '+
-      'Log-normal, ignores cross-coin correlation — a simplification, not a forecast.';
-  }
+}
+// ---- Assumptions disclosure: the band's actual math, not left implicit ----
+function renderFanAssumptions(selector,state){
+  const el=$(selector);if(!el)return;
+  const{Ts,portSigma}=state;
+  const horizonYears=Ts[Ts.length-1];
+  const baseMultEnd=SCEN.base[SCEN.base.length-1];
+  const baseCagr=baseMultEnd>0?Math.pow(baseMultEnd,1/horizonYears)-1:null;
+  el.textContent='Model: Base case implies ~'+(baseCagr!=null?(baseCagr*100).toFixed(0)+'%/yr':'n/a')+
+    ' compounded return; band width uses your live portfolio volatility (σ≈'+(portSigma*100).toFixed(0)+'%/yr, value-weighted across held coins). '+
+    'Log-normal, ignores cross-coin correlation — a simplification, not a forecast.';
+}
+function openCycFanFullscreen(){
+  if(!cycFanLastState)return; // nothing rendered yet
+  const modal=$('#cycFanChartFullscreen');if(!modal)return;
+  modal.classList.remove('hidden');
+  const cv=$('#cycFanChartFull');
+  const cfg=buildFanChartConfig(cycFanLastState,true);
+  if(cycFanChartFullInst)cycFanChartFullInst.destroy();
+  cycFanChartFullInst=new Chart(cv,cfg);
+  renderFanAssumptions('#cycFanAssumptionsFull',cycFanLastState);
+}
+function closeCycFanFullscreen(){
+  const modal=$('#cycFanChartFullscreen');if(!modal)return;
+  modal.classList.add('hidden');
+  if(cycFanChartFullInst){cycFanChartFullInst.destroy();cycFanChartFullInst=null;}
 }
 let cycFanChartInst,cycOverlayChartInst,cycDiminishingChartInst;
 
