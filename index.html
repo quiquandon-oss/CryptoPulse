@@ -518,7 +518,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            aligned at once is the actual signal. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <h2 class="font-semibold mb-1">Regime Scorecard</h2>
-        <p class="text-xs text-mutet mb-3">How many of the signals this app already tracks are currently pointing the same direction — not a new number, just counting agreement across what you have.</p>
+        <p class="text-xs text-mutet mb-3">Grouped by how far out each signal actually speaks to — short-term positioning, medium-term trend confirmation, long-term structure — instead of blending everything into one number. Now includes on-chain activity (CoinMetrics, free) checked against price, not just price alone.</p>
         <div id="cycRegimeScorecard">Loading…</div>
       </div>
 
@@ -3074,7 +3074,12 @@ async function initSentimentTab(){
         maCrossover:t.crossover,swingStructure:t.swing?t.swing.structure:null,divergence:t.divergence
       },
       probabilityModel:probModelForTrader||{insufficient:true},
-      buyTheNews:buyNewsForTrader||{}
+      buyTheNews:buyNewsForTrader||{},
+      // Populated only if the Cycles tab has been visited this session — same
+      // cross-tab pattern already used for gold regime. Worker prompt treats
+      // their absence as "not available", not as a bearish/bullish signal.
+      regimeScorecard:window.__lastRegimeScorecard||null,
+      onChainDivergence:window.__lastOnChainDivergence||null
     };
     const result=await fetchTraderAnalysis(payload);
     renderTraderAnalysis(result);
@@ -3974,7 +3979,10 @@ function renderCyclesTab(){
   // not just the single latest reading). ----
   const liveEl=$('#cycLiveConditions');
   const scoreEl=$('#cycRegimeScorecard');
-  fetch(`${PULSE_WORKER_URL}/history`,{cache:'no-store'}).then(r=>r.json()).then(({history})=>{
+  Promise.all([
+    fetch(`${PULSE_WORKER_URL}/history`,{cache:'no-store'}).then(r=>r.json()).catch(()=>({history:[]})),
+    fetchOnChainDivergence().catch(err=>({error:err.message})),
+  ]).then(([{history},onchain])=>{
     if(!history||!history.length){
       liveEl.innerHTML='<p class="text-mutet col-span-2">No Sentiment data yet — visit the Sentiment tab first.</p>';
       if(scoreEl)scoreEl.innerHTML='<p class="text-mutet">No Sentiment data yet — visit the Sentiment tab first.</p>';
@@ -3988,6 +3996,7 @@ function renderCyclesTab(){
       <div class="bg-panel2 rounded-lg px-3 py-2"><p class="text-mutet text-[10px]">Technical</p><p class="font-bold tnum">${latest.technicalScore??'—'}</p></div>
       <div class="bg-panel2 rounded-lg px-3 py-2"><p class="text-mutet text-[10px]">Combined</p><p class="font-bold tnum">${combined??'—'}</p></div>
       <div class="bg-panel2 rounded-lg px-3 py-2"><p class="text-mutet text-[10px]">Gold regime</p><p class="font-bold text-xs">${latest.goldRegime||'—'}</p></div>`;
+    window.__lastLiveConditions={score:latest.score,technicalScore:latest.technicalScore,combined,goldRegime:latest.goldRegime}; // exposed for the Trader Analysis payload
 
     if(!scoreEl)return;
     // ETF flow trend: latest etfflows score vs whatever reading sits closest to
@@ -4001,15 +4010,28 @@ function renderCyclesTab(){
     const etfNow=latestSources.etfflows,etfPast=closestSources.etfflows;
     const etfDelta=(etfNow!=null&&etfPast!=null)?etfNow-etfPast:null;
 
-    const factors=[];
     const tagOf=(v,bullAt,bearAt)=>v==null?'neutral':v>=bullAt?'bullish':v<=bearAt?'bearish':'neutral';
-    factors.push({label:'Combined score',display:combined!=null?combined:'—',tag:tagOf(combined,60,40)});
-    factors.push({label:'BTC/ETH funding',display:latestSources.funding??'—',tag:tagOf(latestSources.funding,55,45)});
-    factors.push({label:'HYPE funding',display:latestSources.hypefunding??'—',tag:tagOf(latestSources.hypefunding,55,45)});
-    factors.push({label:'ETF flow trend (7d)',display:etfDelta!=null?(etfDelta>=0?'+':'')+etfDelta.toFixed(0):'—',tag:etfDelta==null?'neutral':etfDelta>=10?'bullish':etfDelta<=-10?'bearish':'neutral'});
-    factors.push({label:'Gold regime',display:latest.goldRegime==='competing-haven'?'competing-haven':(latest.goldRegime||'—'),tag:latest.goldRegime==='competing-haven'?'bearish':'neutral'});
-    // Per-coin phase alignment — reuses the exact same coinPhaseAnalysis()
-    // used in the per-coin section below, just tallied into bullish/bearish counts.
+
+    // ---- SHORT-TERM (days): immediate sentiment/positioning reads ----
+    const shortTerm=[
+      {label:'Combined score',display:combined!=null?combined:'—',tag:tagOf(combined,60,40)},
+      {label:'BTC/ETH funding',display:latestSources.funding??'—',tag:tagOf(latestSources.funding,55,45)},
+      {label:'HYPE funding',display:latestSources.hypefunding??'—',tag:tagOf(latestSources.hypefunding,55,45)},
+    ];
+
+    // ---- MEDIUM-TERM (weeks): trend-based reads, not single-day snapshots ----
+    const midTerm=[
+      {label:'ETF flow trend (7d)',display:etfDelta!=null?(etfDelta>=0?'+':'')+etfDelta.toFixed(0):'—',tag:etfDelta==null?'neutral':etfDelta>=10?'bullish':etfDelta<=-10?'bearish':'neutral'},
+      {label:'Gold regime',display:latest.goldRegime==='competing-haven'?'competing-haven':(latest.goldRegime||'—'),tag:latest.goldRegime==='competing-haven'?'bearish':'neutral'},
+    ];
+    if(onchain&&!onchain.error){
+      midTerm.push({label:'On-chain vs price (30d)',display:onchain.label,tag:onchain.tag});
+      window.__lastOnChainDivergence=onchain; // exposed for Trader Analysis
+    }else{
+      midTerm.push({label:'On-chain vs price (30d)',display:'—',tag:'neutral'});
+    }
+
+    // ---- LONG-TERM (months+): structural/cycle-position reads ----
     let coinBull=0,coinBear=0,coinTotal=0;
     Object.entries(COIN_PARAMS).forEach(([coin,cp])=>{
       const px=pxUsd(coin);if(!px||!cp.ath)return;
@@ -4019,35 +4041,54 @@ function renderCyclesTab(){
       if(phaseColor==='#00FF9C')coinBull++;else if(phaseColor==='#FF2D55')coinBear++;
     });
     const coinNet=coinBull-coinBear;
-    factors.push({label:'Per-coin phase mix',display:`${coinBull}\u2191 / ${coinBear}\u2193 of ${coinTotal}`,tag:coinNet>0?'bullish':coinNet<0?'bearish':'neutral'});
+    const longTerm=[
+      {label:'Per-coin phase mix',display:`${coinBull}\u2191 / ${coinBear}\u2193 of ${coinTotal}`,tag:coinNet>0?'bullish':coinNet<0?'bearish':'neutral'},
+    ];
 
     const tagColor={bullish:'#00FF9C',bearish:'#FF2D55',neutral:'#F5B843'};
-    const bullCount=factors.filter(f=>f.tag==='bullish').length;
-    const bearCount=factors.filter(f=>f.tag==='bearish').length;
+    const allFactors=[...shortTerm,...midTerm,...longTerm];
+    const bullCount=allFactors.filter(f=>f.tag==='bullish').length;
+    const bearCount=allFactors.filter(f=>f.tag==='bearish').length;
     const netScore=bullCount-bearCount;
     const overallLabel=netScore>=2?'Leaning bullish':netScore<=-2?'Leaning bearish':'Mixed / no clear alignment';
     const overallColor=netScore>=2?'#00FF9C':netScore<=-2?'#FF2D55':'#F5B843';
+    window.__lastRegimeScorecard={shortTerm,midTerm,longTerm,bullCount,bearCount,total:allFactors.length,overallLabel}; // exposed for Trader Analysis
+
+    const renderColumn=(title,list)=>{
+      const b=list.filter(f=>f.tag==='bullish').length,r=list.filter(f=>f.tag==='bearish').length;
+      return `<div class="bg-panel2 rounded-xl p-3">
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-[10px] uppercase tracking-wide text-mutet">${title}</p>
+          <p class="text-[10px] tnum" style="color:${b>r?'#00FF9C':r>b?'#FF2D55':'#F5B843'}">${b}\u2191${r}\u2193</p>
+        </div>
+        <div class="space-y-1.5">
+          ${list.map(f=>`
+            <div class="flex items-center justify-between text-[11px]">
+              <span class="text-mutet">${f.label}</span>
+              <span class="flex items-center gap-1">
+                <span class="font-semibold tnum">${f.display}</span>
+                <span style="width:7px;height:7px;border-radius:50%;display:inline-block;background:${tagColor[f.tag]}"></span>
+              </span>
+            </div>`).join('')}
+        </div>
+      </div>`;
+    };
 
     scoreEl.innerHTML=`
       <div class="flex items-center justify-between mb-3 pb-3 border-b border-line/50">
         <div>
-          <p class="text-2xl font-bold" style="color:${overallColor}">${bullCount}/${factors.length}</p>
+          <p class="text-2xl font-bold" style="color:${overallColor}">${bullCount}/${allFactors.length}</p>
           <p class="text-[10px] text-mutet">signals aligned bullish</p>
         </div>
         <div class="text-right">
           <p class="text-sm font-semibold" style="color:${overallColor}">${overallLabel}</p>
-          <p class="text-[10px] text-mutet">${bearCount}/${factors.length} aligned bearish</p>
+          <p class="text-[10px] text-mutet">${bearCount}/${allFactors.length} aligned bearish</p>
         </div>
       </div>
-      <div class="space-y-1.5">
-        ${factors.map(f=>`
-          <div class="flex items-center justify-between text-xs">
-            <span class="text-mutet">${f.label}</span>
-            <span class="flex items-center gap-1.5">
-              <span class="font-semibold tnum">${f.display}</span>
-              <span style="width:8px;height:8px;border-radius:50%;display:inline-block;background:${tagColor[f.tag]}"></span>
-            </span>
-          </div>`).join('')}
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        ${renderColumn('Short-term (days)',shortTerm)}
+        ${renderColumn('Medium-term (weeks)',midTerm)}
+        ${renderColumn('Long-term (months+)',longTerm)}
       </div>`;
   }).catch(err=>{
     liveEl.innerHTML='<p class="text-down col-span-2">Error: '+(err&&err.message?err.message:String(err))+'</p>';
@@ -4154,6 +4195,41 @@ function coinPhaseAnalysis(coin,cp,dd){
     return{phase:t30>=0?'Deep correction, possibly basing':'Deep correction, still declining',phaseColor:'#FF2D55'};
   }
   return{phase:'Extreme drawdown — rare historically',phaseColor:'#FF2D55'};
+}
+
+// ═══ On-chain vs price divergence — CoinMetrics Community API (free, no key,
+// Creative Commons non-commercial license: community-api.coinmetrics.io) ═══
+// Confirmed endpoint via CoinMetrics' own docs: /v4/timeseries/asset-metrics,
+// metric "AdrActCnt" (active addresses) is explicitly a free community metric
+// — unlike MVRV/realized-cap, which are Pro-tier only, so not used here.
+// The actual signal: if price is falling but network activity is flat/rising,
+// that's the "sentiment bad, structure healthy" pattern real analysts cite —
+// a genuinely different read than price and activity falling together.
+async function fetchOnChainDivergence(){
+  const end=new Date(),start=new Date(Date.now()-35*86400000);
+  const url=`https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=AdrActCnt&frequency=1d&start_time=${start.toISOString().slice(0,10)}&end_time=${end.toISOString().slice(0,10)}&page_size=40`;
+  const res=await fetch(url);
+  if(!res.ok)throw new Error('CoinMetrics '+res.status);
+  const json=await res.json();
+  const rows=(json.data||[]).map(d=>parseFloat(d.AdrActCnt)).filter(v=>!isNaN(v));
+  if(rows.length<10)throw new Error('Not enough CoinMetrics history returned');
+  const onchainFit=linearRegressionFit(rows); // slope sign = trend direction over the window
+  if(!onchainFit)throw new Error('Could not fit on-chain trend');
+  // Price trend over a comparable window, using PRICE_HISTORY already embedded
+  const h=PRICE_HISTORY.BTC;let priceSlope=0;
+  if(h){
+    const dates=Object.keys(h).sort().slice(-rows.length);
+    const priceVals=dates.map(d=>h[d]);
+    const priceFit=linearRegressionFit(priceVals);
+    priceSlope=priceFit?priceFit.slope:0;
+  }
+  const onchainUp=onchainFit.slope>0,priceUp=priceSlope>0;
+  let label,tag;
+  if(!priceUp&&onchainUp){label='Bullish divergence (activity up, price down)';tag='bullish';}
+  else if(priceUp&&!onchainUp){label='Bearish divergence (price up, activity down)';tag='bearish';}
+  else if(priceUp&&onchainUp){label='Aligned (both rising)';tag='neutral';}
+  else{label='Aligned (both falling)';tag='neutral';}
+  return{label,tag,onchainSlope:onchainFit.slope,priceSlope};
 }
 
 let fgValue=null;
