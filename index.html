@@ -3867,6 +3867,20 @@ function scenZoomStateChanged({chart}){
    Probability already does).
 ═══════════════════════════════════════════════════════════════════ */
 const HALVING_DATE=new Date('2024-04-20T00:00:00Z'); // most recent BTC halving, block reward 6.25->3.125
+// 2026 FOMC meeting dates (decision/statement day — the 2nd day of each 2-day
+// meeting, released 2pm ET) — sourced from the Federal Reserve's own public
+// calendar. Needs a manual refresh once a year; genuinely static, no API
+// exists (or is needed) for this. Used as a CONFIDENCE MODIFIER, not a
+// bullish/bearish vote: a nearby FOMC decision means near-term reads are more
+// likely to be positioning noise, not organic trend — it doesn't say which
+// direction, just "trust this less than usual right now."
+const FOMC_DATES_2026=['2026-01-28','2026-03-18','2026-04-29','2026-06-17','2026-07-29','2026-09-16','2026-10-28','2026-12-09'];
+function daysUntilNextFOMC(){
+  const now=Date.now();
+  const upcoming=FOMC_DATES_2026.map(d=>new Date(d+'T19:00:00Z').getTime()).filter(t=>t>=now); // 2pm ET ~= 19:00 UTC (varies with DST, close enough for a day-count)
+  if(!upcoming.length)return null; // ran out of 2026 dates — needs next year's calendar added
+  return Math.ceil((Math.min(...upcoming)-now)/86400000);
+}
 const CYCLE_ATH={date:new Date('2025-10-06T00:00:00Z'),price:126198}; // this cycle's BTC ATH, both externally sourced facts
 const DIMINISHING_FACTOR=0.65; // judgment call — see caption in the UI, not a calibrated figure
 const CYCLE_LEN_DAYS=1460; // ~4 years, for the circular dial
@@ -4054,6 +4068,18 @@ function renderCyclesTab(){
     const overallColor=netScore>=2?'#00FF9C':netScore<=-2?'#FF2D55':'#F5B843';
     window.__lastRegimeScorecard={shortTerm,midTerm,longTerm,bullCount,bearCount,total:allFactors.length,overallLabel}; // exposed for Trader Analysis
 
+    // ---- Event calendar as a CONFIDENCE MODIFIER, not a bullish/bearish vote —
+    // a nearby FOMC decision means near-term reads are more likely positioning
+    // noise, regardless of which direction they currently point. ----
+    const fomcDays=daysUntilNextFOMC();
+    const fomcNear=fomcDays!=null&&fomcDays<=5;
+    window.__lastRegimeScorecard.eventCalendar={daysUntilFOMC:fomcDays,confidenceReduced:fomcNear};
+    const fomcBanner=fomcDays==null?'':`
+      <div class="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg" style="background:${fomcNear?'rgba(245,184,67,0.12)':'transparent'};border:1px solid ${fomcNear?'rgba(245,184,67,0.3)':'transparent'}">
+        <span style="font-size:14px">\u{1F4C5}</span>
+        <p class="text-[11px]" style="color:${fomcNear?'#FFC400':'#7A8499'}">FOMC decision in ${fomcDays} day${fomcDays===1?'':'s'}${fomcNear?' — near-term reads below are less reliable than usual, not more bullish or bearish' : ''}</p>
+      </div>`;
+
     const renderColumn=(title,list)=>{
       const b=list.filter(f=>f.tag==='bullish').length,r=list.filter(f=>f.tag==='bearish').length;
       return `<div class="bg-panel2 rounded-xl p-3">
@@ -4075,6 +4101,7 @@ function renderCyclesTab(){
     };
 
     scoreEl.innerHTML=`
+      ${fomcBanner}
       <div class="flex items-center justify-between mb-3 pb-3 border-b border-line/50">
         <div>
           <p class="text-2xl font-bold" style="color:${overallColor}">${bullCount}/${allFactors.length}</p>
