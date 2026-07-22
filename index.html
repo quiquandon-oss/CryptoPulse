@@ -2585,6 +2585,7 @@ const COMPOSITE_SOURCES_DEFAULTS=[
   {id:'cryptonews',label:'Crypto News (CoinTelegraph)',weight:15,confidence:0.7},
   {id:'macrogeo',label:'Macro Economy (Investing.com)',weight:8,confidence:0.7},
   {id:'geopolitics',label:'Geopolitics (BBC World)',weight:10,confidence:0.6},
+  {id:'regulatory',label:'Crypto Regulation (CoinDesk + The Block)',weight:12,confidence:0.6},
   {id:'sosovalue',label:'Macro News (SoSoValue)',weight:15,confidence:0.7},
   {id:'onchain',label:'On-Chain Activity (BTC)',weight:8,confidence:0.5},
   {id:'oil',label:'Brent Oil (Hyperliquid xyz:BRENTOIL)',weight:6,confidence:0.6},
@@ -2653,6 +2654,7 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
     ['cryptonews',()=>srcNewsRss('crypto')],
     ['macrogeo',()=>srcNewsRss('macro')],
     ['geopolitics',()=>srcNewsRss('geopolitics')],
+    ['regulatory',()=>srcNewsRss('regulatory')],
     ['sosovalue',srcSosoValueNews],
     ['hypefunding',srcHypeFundingForComposite],
   ];
