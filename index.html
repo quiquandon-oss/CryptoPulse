@@ -3079,7 +3079,8 @@ async function initSentimentTab(){
       // cross-tab pattern already used for gold regime. Worker prompt treats
       // their absence as "not available", not as a bearish/bullish signal.
       regimeScorecard:window.__lastRegimeScorecard||null,
-      onChainDivergence:window.__lastOnChainDivergence||null
+      onChainDivergence:window.__lastOnChainDivergence||null,
+      sectorRotation:window.__lastSectorRotation||null
     };
     const result=await fetchTraderAnalysis(payload);
     renderTraderAnalysis(result);
@@ -3996,7 +3997,8 @@ function renderCyclesTab(){
   Promise.all([
     fetch(`${PULSE_WORKER_URL}/history`,{cache:'no-store'}).then(r=>r.json()).catch(()=>({history:[]})),
     fetchOnChainDivergence().catch(err=>({error:err.message})),
-  ]).then(([{history},onchain])=>{
+    fetchSectorRotation().catch(err=>({error:err.message})),
+  ]).then(([{history},onchain,rotation])=>{
     if(!history||!history.length){
       liveEl.innerHTML='<p class="text-mutet col-span-2">No Sentiment data yet — visit the Sentiment tab first.</p>';
       if(scoreEl)scoreEl.innerHTML='<p class="text-mutet">No Sentiment data yet — visit the Sentiment tab first.</p>';
@@ -4043,6 +4045,12 @@ function renderCyclesTab(){
       window.__lastOnChainDivergence=onchain; // exposed for Trader Analysis
     }else{
       midTerm.push({label:'On-chain vs price (30d)',display:'—',tag:'neutral'});
+    }
+    if(rotation&&!rotation.error){
+      midTerm.push({label:'BTC vs Nasdaq (30d)',display:rotation.label,tag:rotation.tag});
+      window.__lastSectorRotation=rotation; // exposed for Trader Analysis
+    }else{
+      midTerm.push({label:'BTC vs Nasdaq (30d)',display:'—',tag:'neutral'});
     }
 
     // ---- LONG-TERM (months+): structural/cycle-position reads ----
@@ -4257,6 +4265,43 @@ async function fetchOnChainDivergence(){
   else if(priceUp&&onchainUp){label='Aligned (both rising)';tag='neutral';}
   else{label='Aligned (both falling)';tag='neutral';}
   return{label,tag,onchainSlope:onchainFit.slope,priceSlope};
+}
+
+// ═══ Sector rotation: BTC vs Nasdaq relative strength ═══
+// No new data source — reuses the existing /macro-proxy (now with a variable
+// limit) for a real 30-observation Nasdaq trend, and PRICE_HISTORY.BTC
+// already embedded. The two series have wildly different scales ($60K+ BTC
+// vs ~20K+ Nasdaq index), so raw slopes aren't comparable — this normalizes
+// each to a "% change per day relative to its own mean" before comparing,
+// which IS comparable regardless of scale.
+function normalizedSlope(values){
+  const clean=values.filter(v=>v!=null&&!isNaN(v));
+  const fit=linearRegressionFit(clean);
+  if(!fit||!clean.length)return null;
+  const mean=clean.reduce((a,b)=>a+b,0)/clean.length;
+  return mean?fit.slope/mean:null;
+}
+async function fetchSectorRotation(){
+  const url=`${PULSE_WORKER_URL}/macro-proxy?series=NASDAQCOM&key=${encodeURIComponent(FRED_KEY)}&limit=35&_=${Date.now()}`;
+  const res=await fetch(url,{cache:'no-store'});
+  if(!res.ok)throw new Error('Worker macro-proxy '+res.status);
+  const json=await res.json();
+  if(json.error)throw new Error(json.error);
+  const nasdaqVals=(json.observations||[]).map(o=>parseFloat(o.value)).filter(v=>!isNaN(v)).reverse(); // oldest->newest
+  if(nasdaqVals.length<10)throw new Error('Not enough Nasdaq history returned');
+  const nasdaqSlope=normalizedSlope(nasdaqVals);
+  const h=PRICE_HISTORY.BTC;
+  if(!h)throw new Error('No BTC price history available');
+  const dates=Object.keys(h).sort().slice(-nasdaqVals.length);
+  const btcSlope=normalizedSlope(dates.map(d=>h[d]));
+  if(nasdaqSlope==null||btcSlope==null)throw new Error('Could not fit trend for one or both series');
+  const gap=btcSlope-nasdaqSlope; // BTC's own daily % trend minus Nasdaq's
+  let label,tag;
+  const THRESH=0.002; // ~0.2%/day meaningful-gap threshold, given typical daily noise
+  if(gap<=-THRESH){label='BTC underperforming Nasdaq (possible rotation away)';tag='bearish';}
+  else if(gap>=THRESH){label='BTC outperforming Nasdaq';tag='bullish';}
+  else{label='Tracking together, no clear rotation';tag='neutral';}
+  return{label,tag,btcSlope,nasdaqSlope,gap};
 }
 
 let fgValue=null;
