@@ -441,7 +441,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <div class="js-bBar2 h-full rounded-full transition-all duration-700" style="width:0%"></div>
         </div>
         <div id="bottomDetails2"></div>
-        <p class="text-[10px] text-mutet mt-3 pt-2 border-t border-line/50">Score 0-30 🔴 Bear · 30-50 🟠 Accumulation · 50-70 🟢 Strong · 70+ 💎 Very Strong · Strong requires BTC 30d trend > −10% · Live: F&G API + live prices · Not financial advice. Sentiment Engine excluded here — see Dashboard for the sentiment-inclusive score.</p>
+        <p class="text-[10px] text-mutet mt-3 pt-2 border-t border-line/50">Score 0-30 🛑 No Bottom Signal · 30-50 🟡 Early Bottom Setup · 50-70 🟢 High Bottom Probability · 70+ 💎 Extreme Capitulation · High/Extreme requires BTC 30d trend > −10% · Live: F&G API + live prices · Not financial advice. Sentiment Engine excluded here — see Dashboard for the sentiment-inclusive score.</p>
       </div>
 
       <div class="rounded-2xl border border-line bg-panel p-4 text-xs space-y-1.5 text-mutet">
@@ -4214,7 +4214,7 @@ const COIN_PARAMS={
   LINK:{mu:0.40,sigma:1.10,ath:52.99,athDate:'2021-05-10'},
   HYPE:{mu:0.55,sigma:1.30,ath:76.89,athDate:'2026-06-16'},
 };
-const BEAR_START=new Date('2025-01-20');
+const BEAR_START=new Date('2025-10-06'); // real cycle ATH date, was wrongly set to Jan 20 2025 — an ~8-month error
 // Per-coin cycle phase — combines three signals rather than just drawdown depth
 // alone, since depth alone can't tell "still falling" from "basing near a
 // bottom", and can't tell "just corrected off a fresh high" from "stuck below
@@ -4485,12 +4485,31 @@ function calcBottomScore(includeSentiment){
   const rsiPts=rsi<30?20:rsi<40?10:rsi<50?3:0;total+=rsiPts;
   sigs.push({name:'RSI · BTC 14d',val:rsi.toFixed(1),pts:rsiPts,max:20,icon:rsi<30?'🔥':rsi<40?'⚡':'📊'});
   const btcP=pxUsd('BTC'); // USD, matches the USD ATH below
-  const dd=(btcP-109000)/109000*100;
+  const dd=(btcP-126198)/126198*100; // real cycle ATH ($126,198, Oct 6 2025) — was wrongly using a stale $109,000
   const ddPts=dd<-65?20:dd<-50?15:dd<-40?8:0;total+=ddPts;
-  sigs.push({name:'BTC vs Jan-25 ATH',val:dd.toFixed(0)+'%',pts:ddPts,max:20,icon:dd<-65?'🩸':dd<-50?'🔴':'🟠'});
+  sigs.push({name:'BTC vs Oct-25 ATH',val:dd.toFixed(0)+'%',pts:ddPts,max:20,icon:dd<-65?'🩸':dd<-50?'🔴':'🟠'});
   const months=(new Date()-BEAR_START)/(30.44*864e5);
-  const durPts=months>18?20:months>12?15:months>6?8:3;total+=durPts;
-  sigs.push({name:'Bear Duration',val:months.toFixed(0)+'M since ATH',pts:durPts,max:20,icon:months>18?'⌛':months>12?'🕐':'🕓'});
+  // Weight halved (was 20, full marks for elapsed time alone regardless of any
+  // real capitulation event) — the other half moved to a new component below
+  // that actually checks for a sharp decline, not just a calendar count.
+  const durPts=months>18?10:months>12?7:months>6?4:2;total+=durPts;
+  sigs.push({name:'Bear Duration',val:months.toFixed(0)+'M since ATH',pts:durPts,max:10,icon:months>18?'⌛':months>12?'🕐':'🕓'});
+  // Capitulation Catalyst: the largest single-day % decline in the trailing 90
+  // days — a real capitulation-candle proxy, not just time passing quietly.
+  // Requires actual evidence of a sharp move to earn points, addressing the
+  // "over-reliance on time elapsed" critique directly.
+  let catalystPts=0,maxDailyDrop=0;
+  const hh0=PRICE_HISTORY['BTC'];
+  if(hh0){
+    const ds=Object.keys(hh0).sort().slice(-90);
+    for(let i=1;i<ds.length;i++){
+      const prev=hh0[ds[i-1]],cur=hh0[ds[i]];
+      if(prev>0){const chg=(cur-prev)/prev*100;if(chg<maxDailyDrop)maxDailyDrop=chg;}
+    }
+  }
+  catalystPts=maxDailyDrop<-15?10:maxDailyDrop<-10?6:maxDailyDrop<-7?3:0;
+  total+=catalystPts;
+  sigs.push({name:'Capitulation Catalyst',val:maxDailyDrop.toFixed(1)+'% (90d worst day)',pts:catalystPts,max:10,icon:maxDailyDrop<-15?'💥':maxDailyDrop<-10?'⚡':'➖'});
   const t30=trend30('BTC');
   let tPts=t30<-20?15:t30<-10?8:t30<-5?3:0;
   const hh=PRICE_HISTORY['BTC'];
@@ -4545,9 +4564,9 @@ function renderBottomSignal(){
   // exact same score, both cabled the same way. Sentiment paused per request;
   // calcBottomScore(true) path still exists in code if ever re-enabled.
   const bs=calcBottomScore(false);const score=bs.score,sigs=bs.sigs;
-  let label=score>=70?'💎 Very Strong Signal':score>=50?'🟢 Strong Signal':score>=30?'🟠 Accumulation Zone':'🔴 Bear Ongoing';
+  let label=score>=70?'💎 Extreme Capitulation':score>=50?'🟢 High Bottom Probability':score>=30?'🟡 Early Bottom Setup':'🛑 No Bottom Signal Detected';
   let barCol=score>=70?'#3BF38B':score>=50?'#3BF38B':score>=30?'#F5B843':'#FF5C72';
-  if(bs.falling&&score>=50){label='🟠 Accumulation Zone · price still falling';barCol='#F5B843';}
+  if(bs.falling&&score>=50){label='🟡 Early Bottom Setup · price still falling';barCol='#F5B843';}
   $$('.js-bScore,.js-bScore2').forEach(function(el){el.textContent=score+'/100';});
   $$('.js-bLabel,.js-bLabel2').forEach(function(el){el.textContent=label;});
   $$('.js-bBar,.js-bBar2').forEach(function(el){el.style.width=score+'%';el.style.background=barCol;});
