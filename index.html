@@ -761,7 +761,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <h3 class="text-sm font-semibold">Hyperliquid — Funding &amp; Open Interest</h3>
           <span class="text-[10px] text-mutet">Hyperliquid (direct, no key)</span>
         </div>
-        <p class="text-[10px] text-mutet mb-3">HYPE's funding feeds the composite score (see Settings to adjust its weight). SOL and LINK are shown for reference only — not yet in the composite. Funding is charged hourly on Hyperliquid; shown here annualized (APR) for comparison with CEX 8h-funding conventions.</p>
+        <p class="text-[10px] text-mutet mb-3">BTC/ETH funding feeds the composite's "funding" source, HYPE feeds "hypefunding" (see Settings to adjust weights). SOL and LINK are shown for reference only — not yet in the composite. Funding is charged hourly on Hyperliquid; shown here annualized (APR) for comparison with CEX 8h-funding conventions.</p>
         <div class="space-y-3" id="hlAssetCards"></div>
         <p class="text-[10px] text-mutet mt-2" id="hypeFundingStatus">Loading…</p>
       </div>
@@ -2478,13 +2478,22 @@ function scoreHeadlineBatch(items){
 
 // ---- Individual source fetchers — each returns {score:0-100} or throws ----
 // (fng reuses the app's own existing fgValue/getFG() — no duplicate call)
+// Was Binance's futures API (fapi.binance.com) — required BOTH BTC and ETH
+// calls to succeed with no individual fallback, and Binance's derivatives API
+// is known to geo-block certain regions, which plausibly explains the
+// persistent "not listed" gaps seen in the Regime Scorecard. Switched to
+// Hyperliquid — already proven reliable all session for HYPE/SOL/LINK/oil/
+// gold/EUR, and it's the same one API call (fetchHyperliquidAssets, now
+// including BTC/ETH) rather than a new dependency.
 async function srcFundingRate(){
-  const[btc,eth]=await Promise.all([
-    fetch('https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT').then(r=>{if(!r.ok)throw new Error('Binance funding BTC '+r.status);return r.json();}),
-    fetch('https://fapi.binance.com/fapi/v1/premiumIndex?symbol=ETHUSDT').then(r=>{if(!r.ok)throw new Error('Binance funding ETH '+r.status);return r.json();})
-  ]);
-  const avgRate=(parseFloat(btc.lastFundingRate)+parseFloat(eth.lastFundingRate))/2;
-  return{score:to0_100(satur(avgRate*100,0.05))};
+  const assets=await fetchHyperliquidAssets();
+  const btc=assets['BTC'],eth=assets['ETH'];
+  if(!btc||!eth)throw new Error('BTC/ETH not found in Hyperliquid universe');
+  // Hyperliquid funding is hourly; ×8 for an 8h-equivalent rate so the score's
+  // meaning (and its scale/threshold below) stays consistent with the old
+  // Binance-based (8h) convention rather than changing what "funding=50" means.
+  const avgRate8h=(parseFloat(btc.funding)*8+parseFloat(eth.funding)*8)/2;
+  return{score:to0_100(satur(avgRate8h*100,0.05))};
 }
 async function srcLongShort(){
   const res=await fetch('https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=BTCUSDT&period=1h&limit=1');
@@ -2579,7 +2588,7 @@ const COMPOSITE_SOURCES_DEFAULTS=[
   // ALL 86 readings since it launched — a real bug (Hyperliquid xyz:DXY isn't
   // varying), separate from this reweighting, still needs its own fix.
   {id:'fng',label:'Fear & Greed Index',weight:28,confidence:1.0},
-  {id:'funding',label:'Funding Rate (BTC/ETH perp)',weight:15,confidence:1.0},
+  {id:'funding',label:'Funding Rate (BTC/ETH, Hyperliquid)',weight:15,confidence:1.0},
   {id:'longshort',label:'Long/Short Ratio (accounts)',weight:18,confidence:1.0},
   {id:'global',label:'Market Cap 24h (global)',weight:12,confidence:1.0},
   {id:'cryptonews',label:'Crypto News (CoinTelegraph)',weight:15,confidence:0.7},
@@ -4836,7 +4845,7 @@ async function backfillGoldUsdHistory(){
 //     new source ("hypefunding") in the BTC-wide sentiment composite.
 // A short in-memory cache avoids double-fetching when both paths run in the
 // same cycle (composite computation + tab display both call this).
-const HL_ASSETS=['HYPE','SOL','LINK'];
+const HL_ASSETS=['BTC','ETH','HYPE','SOL','LINK'];
 const HL_CACHE_MS=20000;
 let hlAssetsCache=null,hlAssetsCacheAt=0;
 async function fetchHyperliquidAssets(){
@@ -4878,7 +4887,7 @@ function loadHypeFunding(){
       const aprColor=aprPct>0?'#3BF38B':aprPct<0?'#F5606C':'#94A3B8';
       const oiUsd=parseFloat(c.openInterest)*parseFloat(c.markPx);
       return `<div class="border-t border-line/50 pt-3 first:border-t-0 first:pt-0">
-        <p class="text-xs font-semibold mb-2">${sym}${sym==='HYPE'?' <span class="text-[9px] font-normal text-neon">→ composite</span>':''}</p>
+        <p class="text-xs font-semibold mb-2">${sym}${['BTC','ETH','HYPE'].includes(sym)?' <span class="text-[9px] font-normal text-neon">→ composite</span>':''}</p>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div class="text-center"><p class="text-[10px] text-mutet mb-1">Funding (APR)</p><p class="tnum font-bold text-sm" style="color:${aprColor}">${(aprPct>=0?'+':'')+aprPct.toFixed(2)}%</p></div>
           <div class="text-center"><p class="text-[10px] text-mutet mb-1">Open Interest</p><p class="tnum font-bold text-sm">$${(oiUsd/1e6).toFixed(1)}M</p></div>
