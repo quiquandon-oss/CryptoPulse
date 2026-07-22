@@ -4092,13 +4092,13 @@ function renderCyclesTab(){
     if(longTermEma&&!longTermEma.error){
       const alignment=classifyTechnicalAlignment(longTermEma.ema50,latest.technicalScore);
       if(alignment){
-        longTerm.push({label:'50mo EMA alignment',display:alignment.label,tag:alignment.tag,available:true});
+        longTerm.push({label:'50wk EMA alignment',display:alignment.label,tag:alignment.tag,available:true});
         window.__lastTechnicalAlignment=alignment; // exposed for Trader Analysis
       }else{
-        longTerm.push({label:'50mo EMA alignment',display:'—',tag:'neutral',available:false,reason:'No live BTC price available to compare against the EMA'});
+        longTerm.push({label:'50wk EMA alignment',display:'—',tag:'neutral',available:false,reason:'No live BTC price available to compare against the EMA'});
       }
     }else{
-      longTerm.push({label:'50mo EMA alignment',display:'—',tag:'neutral',available:false,reason:(longTermEma&&longTermEma.error)||'CoinGecko long-history fetch failed'});
+      longTerm.push({label:'50wk EMA alignment',display:'—',tag:'neutral',available:false,reason:(longTermEma&&longTermEma.error)||'CoinGecko long-history fetch failed'});
     }
 
     const tagColor={bullish:'#00FF9C',bearish:'#FF2D55',neutral:'#F5B843'};
@@ -4346,17 +4346,21 @@ async function fetchSectorRotation(){
   return{label,tag,btcSlope,nasdaqSlope,gap};
 }
 
-// ═══ Technical timeframe alignment: 50-month EMA vs the existing short-term
-// (50/100/200-day) technical read ═══ No new data source — CoinGecko's free
-// days=max already returns BTC's full history (back to 2013), just not
-// something CryptoPulse fetched before. Resampled to monthly closes since a
-// 50-month EMA needs monthly, not daily, granularity. This is the exact level
-// real analysts were citing as the key resistance line during this session's
-// research (~$65,600 as of mid-2026) — a genuinely different timeframe than
-// the app's existing 50/100/200-DAY technicals, which answer a different
-// question (near-term structure) than this one (multi-year structure).
+// ═══ Technical timeframe alignment: 50-week EMA vs the existing short-term
+// (50/100/200-day) technical read ═══
+// Originally a 50-MONTH EMA (needed ~4 years via days=max). That now fails —
+// CoinGecko's free tier caps historical queries at 365 days (confirmed: any
+// request beyond that returns "Your request exceeds the allowed time range...
+// upgrade to a paid plan"), which is exactly the 401 this was throwing.
+// Checked CoinMetrics (already used for on-chain divergence) as an alternative
+// price source — its free-tier ReferenceRateUSD is capped at just the last 7
+// data points, even more restrictive, so not a substitute either.
+// Fix: use a 50-WEEK EMA instead — needs ~350 days, fits inside the 365-day
+// free cap almost exactly. Still a genuine, commonly-used longer-horizon
+// level, still meaningfully different from the 50/100/200-DAY technicals —
+// just not the specific 4-year one anymore, since that's no longer free.
 let longTermEmaCache=null,longTermEmaCacheAt=0;
-const LONG_TERM_EMA_CACHE_MS=6*3600000; // 6h — a 50-month EMA doesn't meaningfully move within hours
+const LONG_TERM_EMA_CACHE_MS=6*3600000; // 6h — a 50-week EMA doesn't meaningfully move within hours
 function computeEma(values,period){
   if(values.length<period)return null;
   const k=2/(period+1);
@@ -4366,21 +4370,28 @@ function computeEma(values,period){
 }
 async function fetchLongTermEma(){
   if(longTermEmaCache&&Date.now()-longTermEmaCacheAt<LONG_TERM_EMA_CACHE_MS)return longTermEmaCache;
-  const res=await fetch(`${CG}/coins/bitcoin/market_chart?vs_currency=usd&days=max&interval=daily`);
-  if(!res.ok)throw new Error('CoinGecko market_chart(max) '+res.status);
+  const res=await fetch(`${CG}/coins/bitcoin/market_chart?vs_currency=usd&days=365&interval=daily`);
+  if(!res.ok)throw new Error('CoinGecko market_chart(365) '+res.status);
   const json=await res.json();
   const prices=json.prices||[];
-  if(prices.length<500)throw new Error('Not enough long-term history returned');
-  const monthly={};
+  if(prices.length<300)throw new Error('Not enough history returned for a 50-week EMA');
+  // ISO-week resampling: last price seen in each (year, week) bucket wins ->
+  // effectively that week's close.
+  const weekly={};
   prices.forEach(([ts,px])=>{
     const d=new Date(ts);
-    const key=d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0');
-    monthly[key]=px; // last price seen per month wins -> effectively that month's close
+    const tmp=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate()));
+    const dayNum=(tmp.getUTCDay()+6)%7; // Mon=0..Sun=6
+    tmp.setUTCDate(tmp.getUTCDate()-dayNum+3); // Thursday of this ISO week, for a stable week-number calc
+    const firstThursday=new Date(Date.UTC(tmp.getUTCFullYear(),0,4));
+    const weekNum=1+Math.round(((tmp-firstThursday)/86400000-3)/7);
+    const key=tmp.getUTCFullYear()+'-W'+String(weekNum).padStart(2,'0');
+    weekly[key]=px;
   });
-  const monthlyCloses=Object.keys(monthly).sort().map(k=>monthly[k]);
-  if(monthlyCloses.length<50)throw new Error('Not enough monthly history for a 50-period EMA ('+monthlyCloses.length+' months so far)');
-  const ema50=computeEma(monthlyCloses,50);
-  if(ema50==null)throw new Error('Could not compute 50-month EMA');
+  const weeklyCloses=Object.keys(weekly).sort().map(k=>weekly[k]);
+  if(weeklyCloses.length<50)throw new Error('Not enough weekly history for a 50-period EMA ('+weeklyCloses.length+' weeks so far)');
+  const ema50=computeEma(weeklyCloses,50);
+  if(ema50==null)throw new Error('Could not compute 50-week EMA');
   longTermEmaCache={ema50};longTermEmaCacheAt=Date.now();
   return longTermEmaCache;
 }
@@ -4394,11 +4405,11 @@ function classifyTechnicalAlignment(ema50,shortTermScore){
   const shortBullish=shortTermScore!=null&&shortTermScore>=55;
   const shortBearish=shortTermScore!=null&&shortTermScore<=45;
   let label,tag;
-  if(shortBullish&&priceAboveEma){label='Aligned bullish (short-term + above 50mo EMA)';tag='bullish';}
-  else if(shortBearish&&!priceAboveEma){label='Aligned bearish (short-term + below 50mo EMA)';tag='bearish';}
+  if(shortBullish&&priceAboveEma){label='Aligned bullish (short-term + above 50wk EMA)';tag='bullish';}
+  else if(shortBearish&&!priceAboveEma){label='Aligned bearish (short-term + below 50wk EMA)';tag='bearish';}
   else if(shortBullish&&!priceAboveEma){label='Short-term up, but below long-term structure';tag='neutral';}
   else if(shortBearish&&priceAboveEma){label='Short-term weak, but above long-term structure';tag='neutral';}
-  else{label=priceAboveEma?'Above 50mo EMA, short-term neutral':'Below 50mo EMA, short-term neutral';tag='neutral';}
+  else{label=priceAboveEma?'Above 50wk EMA, short-term neutral':'Below 50wk EMA, short-term neutral';tag='neutral';}
   return{label,tag,ema50,priceAboveEma,price};
 }
 
