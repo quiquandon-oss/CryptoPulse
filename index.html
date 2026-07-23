@@ -90,17 +90,25 @@ Chart.defaults.set('plugins.datalabels',{display:false});
 // same pattern as datalabels above, so it has zero effect on any other
 // chart in the app (fan chart, scenario chart, dashboard perf, etc).
 const crosshairPlugin={id:'crosshair',afterDraw(chart){
-  if(!chart.options.plugins?.crosshair?.enabled)return;
+  const cfg=chart.options.plugins?.crosshair;
+  if(!cfg?.enabled)return;
   const active=chart.getActiveElements();
   if(!active||!active.length)return;
   const{ctx,chartArea:{top,bottom}}=chart;
-  const priceEl=active.find(a=>a.datasetIndex===0)||active[0];
+  // Target dataset: an explicit datasetIndex if the chart specifies one
+  // (fan charts pass 1, since their dataset 0 is a transparent fill band —
+  // using it here would silently render an invisible dot), otherwise the
+  // first active element whose own borderColor isn't transparent/missing.
+  let priceEl=cfg.datasetIndex!=null?active.find(a=>a.datasetIndex===cfg.datasetIndex):null;
+  if(!priceEl)priceEl=active.find(a=>{const c=chart.data.datasets[a.datasetIndex]?.borderColor;return c&&c!=='transparent';})||active[0];
   const x=priceEl.element.x;
   ctx.save();
   ctx.beginPath();ctx.moveTo(x,top);ctx.lineTo(x,bottom);
   ctx.lineWidth=1;ctx.strokeStyle='rgba(255,255,255,0.25)';ctx.setLineDash([4,4]);ctx.stroke();
   ctx.beginPath();ctx.arc(priceEl.element.x,priceEl.element.y,4,0,Math.PI*2);
-  ctx.fillStyle=chart.data.datasets[0].borderColor;ctx.fill();
+  const dotColor=chart.data.datasets[priceEl.datasetIndex]?.borderColor;
+  ctx.fillStyle=(dotColor&&dotColor!=='transparent')?dotColor:'#E5E7EB';
+  ctx.fill();
   ctx.lineWidth=2;ctx.strokeStyle='#0B0E14';ctx.stroke();
   ctx.restore();
 }};
@@ -4529,7 +4537,7 @@ function buildFanChartConfig(state,opts){
     animation:{duration:400,easing:'easeOutQuart'},
     plugins:{
       legend:{display:true,position:'bottom',labels:{color:'#7A8499',boxWidth:10,boxHeight:10,font:{size:fs.legend},padding:12}},
-      crosshair:{enabled:true},
+      crosshair:{enabled:true,datasetIndex:1},
       tooltip:{filter:item=>item.dataset.label!=='Break-even',callbacks:{label:c=>c.dataset.label+': '+money(c.raw.y)}},
       zoom:zoomOn?{
         pan:{enabled:true,mode:opts.zoomMode||'x',onPanComplete:opts.onPanComplete},
