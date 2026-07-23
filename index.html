@@ -2733,12 +2733,31 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
   if(composite==null)return{ok:false,activeCount:0};
   const sourcesSnapshot={};
   active.forEach(s=>{sourcesSnapshot[s.id]=s.value.score;});
+  // ---- Throttle: don't write a new D1 point more often than every 15min.
+  // Boot prefetch, a manual tab visit, and the manual refresh button can all
+  // trigger this within minutes of each other — without this check, each one
+  // unconditionally wrote its own row, inflating history with near-duplicate
+  // points that feed the correlation calibration and probability model.
+  // Fails OPEN (posts anyway) if the check itself can't complete, so a
+  // transient network hiccup here can't silently create a data gap. ----
+  const COMPOSITE_POST_MIN_INTERVAL_MS=15*60000;
+  let shouldPost=true;
   try{
-    await fetch(`${PULSE_WORKER_URL}/history`,{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({score:composite,technicalScore:typeof technicalScore==='number'?technicalScore:null,btcPrice:pxUsd('BTC')||null,sources:sourcesSnapshot,goldRegime:window.__lastGoldRegime||null})
-    });
-  }catch(e){console.warn('Failed to POST composite score to /history:',e.message);}
+    const{history:existingHistory}=await fetch(`${PULSE_WORKER_URL}/history`,{cache:'no-store'}).then(r=>r.json());
+    const lastTs=existingHistory&&existingHistory.length?existingHistory[existingHistory.length-1].ts:0;
+    if(lastTs&&Date.now()-lastTs<COMPOSITE_POST_MIN_INTERVAL_MS){
+      shouldPost=false;
+      console.log('Composite computed but not written to D1 — last point is only',Math.round((Date.now()-lastTs)/60000),'min old');
+    }
+  }catch(e){/* throttle check failed — fail open, POST proceeds below as before */}
+  if(shouldPost){
+    try{
+      await fetch(`${PULSE_WORKER_URL}/history`,{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({score:composite,technicalScore:typeof technicalScore==='number'?technicalScore:null,btcPrice:pxUsd('BTC')||null,sources:sourcesSnapshot,goldRegime:window.__lastGoldRegime||null})
+      });
+    }catch(e){console.warn('Failed to POST composite score to /history:',e.message);}
+  }
   return{ok:true,activeCount:active.length,composite};
 }
 
@@ -3000,7 +3019,7 @@ function renderThreeWayScores(sentimentScore,technicalScore){
   renderTriScore('Combined',combined);
 }
 
-async function initSentimentTab(){
+async function _initSentimentTabImpl(){
   $('#pulseMeta').textContent='Computing independent composite score…';
   let pulseHistoryForModels=[]; // captured here, reused below — no duplicate /history fetch
   let latestSourcesForTrader={},compositeForTrader=null,technicalScore=null;
@@ -3157,6 +3176,19 @@ async function initSentimentTab(){
   }catch(err){
     console.error('Error rendering FRED debug panel:',err);
   }
+}
+// ---- Re-entrancy guard: boot prefetch, a manual tab visit, and the manual
+// "Refresh" button can all trigger this within seconds of each other. Without
+// this, overlapping calls each independently fire the ETF/technicals fetches,
+// POST their own composite point to D1, and call the /trader-analysis LLM
+// endpoint a second time — wasted quota and duplicate history rows for one
+// visit. Callers awaiting the return value all resolve together when the
+// single in-flight run finishes.
+let _sentimentTabInFlight=null;
+function initSentimentTab(){
+  if(_sentimentTabInFlight)return _sentimentTabInFlight;
+  _sentimentTabInFlight=_initSentimentTabImpl().finally(()=>{_sentimentTabInFlight=null;});
+  return _sentimentTabInFlight;
 }
 function renderFredDebugPanel(){
   const host=$('#fredDebugPanel');if(!host)return;
@@ -4053,6 +4085,8 @@ function renderCyclesTab(){
   // not just the single latest reading). ----
   const liveEl=$('#cycLiveConditions');
   const scoreEl=$('#cycRegimeScorecard');
+  if(cyclesLiveConditionsInFlight)return; // an overlapping call (e.g. boot prefetch + immediate manual tab visit) already has this in flight
+  cyclesLiveConditionsInFlight=true;
   Promise.all([
     fetch(`${PULSE_WORKER_URL}/history`,{cache:'no-store'}).then(r=>r.json()).catch(()=>({history:[]})),
     fetchOnChainDivergence().catch(err=>({error:err.message})),
@@ -4217,7 +4251,7 @@ function renderCyclesTab(){
   }).catch(err=>{
     liveEl.innerHTML='<p class="text-down col-span-2">Error: '+(err&&err.message?err.message:String(err))+'</p>';
     if(scoreEl)scoreEl.innerHTML='<p class="text-down">Error: '+(err&&err.message?err.message:String(err))+'</p>';
-  });
+  }).finally(()=>{cyclesLiveConditionsInFlight=false;});
 
   // ---- Per-coin distance from ATH — horizontal ruler bars ----
   const athEl=$('#cycPerCoinAth');
@@ -4264,7 +4298,7 @@ function renderCyclesTab(){
   else cycFanChartInst=new Chart(fanCv,fanCfg);
   renderFanAssumptions('#cycFanAssumptions',cycFanLastState);
 }
-let cycFanLastState=null,cycFanChartFullInst=null;
+let cycFanLastState=null,cycFanChartFullInst=null,cyclesLiveConditionsInFlight=false;
 // ---- Shared config builder — used for both the inline chart and the
 // fullscreen overlay chart, so the two never drift out of sync. ----
 function buildFanChartConfig(state,isFullscreen){
