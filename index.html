@@ -857,7 +857,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <h3 class="text-sm font-semibold">Hyperliquid — Funding &amp; Open Interest</h3>
           <span class="text-[10px] text-mutet">Hyperliquid (direct, no key)</span>
         </div>
-        <p class="text-[10px] text-mutet mb-3">BTC/ETH funding feeds the composite's "funding" source, HYPE feeds "hypefunding" (see Settings to adjust weights). SOL and LINK are shown for reference only — not yet in the composite. Funding is charged hourly on Hyperliquid; shown here annualized (APR) for comparison with CEX 8h-funding conventions.</p>
+        <p class="text-[10px] text-mutet mb-3">BTC/ETH funding feeds the composite's "funding" source, HYPE feeds "hypefunding" (see Settings to adjust weights). SOL and LINK are shown for reference only — not yet in the composite. Funding is charged hourly on Hyperliquid; shown here annualized (APR) for comparison with CEX 8h-funding conventions. "Premium" below each APR subtracts Hyperliquid's fixed 11.6%/yr interest-rate floor (present on every perp regardless of positioning) — it's the part that actually reflects bullish/bearish crowding, and the color above is driven by its sign, not the raw APR's.</p>
         <div class="space-y-3" id="hlAssetCards"></div>
         <p class="text-[10px] text-mutet mt-2" id="hypeFundingStatus">Loading…</p>
       </div>
@@ -5317,14 +5317,22 @@ function loadHypeFunding(){
       const c=assets[sym];
       if(!c)return `<div class="text-xs text-mutet">${sym}: not found on Hyperliquid</div>`;
       const aprPct=parseFloat(c.funding)*24*365*100;
-      const aprColor=aprPct>0?'#3BF38B':aprPct<0?'#F5606C':'#94A3B8';
+      // Premium = raw funding minus Hyperliquid's fixed interest-rate floor
+      // (documented 0.01%/8h) — the part that actually reflects bullish/
+      // bearish crowding, same correction just applied to the composite score.
+      const premiumAprPct=(parseFloat(c.funding)-HL_FUNDING_FLOOR_HOURLY)*24*365*100;
+      const aprColor=premiumAprPct>0?'#3BF38B':premiumAprPct<0?'#F5606C':'#94A3B8';
       const oiUsd=parseFloat(c.openInterest)*parseFloat(c.markPx);
       const hist=fundingHistoryStats(sym,15);
       const histLine=hist?`<p class="text-[9px] text-mutet mt-1.5">Logged range (last ${Math.min(15,Math.ceil((Date.now()-hist.points[0].ts)/86400000)||1)}d, ${hist.count} sample${hist.count===1?'':'s'}): ${hist.min.toFixed(2)}% to ${hist.max.toFixed(2)}%</p>`:`<p class="text-[9px] text-mutet mt-1.5">No logged history yet — starts accumulating from now, check back in a few days</p>`;
       return `<div class="border-t border-line/50 pt-3 first:border-t-0 first:pt-0">
         <p class="text-xs font-semibold mb-2">${sym}${['BTC','ETH','HYPE'].includes(sym)?' <span class="text-[9px] font-normal text-neon">→ composite</span>':''}</p>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div class="text-center"><p class="text-[10px] text-mutet mb-1">Funding (APR)</p><p class="tnum font-bold text-sm" style="color:${aprColor}">${(aprPct>=0?'+':'')+aprPct.toFixed(2)}%</p></div>
+          <div class="text-center">
+            <p class="text-[10px] text-mutet mb-1">Funding (APR)</p>
+            <p class="tnum font-bold text-sm" style="color:${aprColor}">${(aprPct>=0?'+':'')+aprPct.toFixed(2)}%</p>
+            <p class="text-[9px] text-mutet mt-0.5">premium ${(premiumAprPct>=0?'+':'')+premiumAprPct.toFixed(2)}%</p>
+          </div>
           <div class="text-center"><p class="text-[10px] text-mutet mb-1">Open Interest</p><p class="tnum font-bold text-sm">$${(oiUsd/1e6).toFixed(1)}M</p></div>
           <div class="text-center"><p class="text-[10px] text-mutet mb-1">Mark Price</p><p class="tnum font-bold text-sm">$${parseFloat(c.markPx).toLocaleString('en-US',{maximumFractionDigits:2})}</p></div>
           <div class="text-center"><p class="text-[10px] text-mutet mb-1">24h Volume</p><p class="tnum font-bold text-sm">$${(parseFloat(c.dayNtlVlm)/1e6).toFixed(1)}M</p></div>
