@@ -5240,12 +5240,54 @@ async function fetchHyperliquidAssets(){
   if(!res.ok)throw new Error('Hyperliquid info '+res.status);
   const[meta,ctxs]=await res.json();
   const out={};
+  const idxBySym={};
   HL_ASSETS.forEach(sym=>{
     const idx=(meta.universe||[]).findIndex(u=>u.name===sym);
-    if(idx>=0)out[sym]=ctxs[idx];
+    if(idx>=0){out[sym]=ctxs[idx];idxBySym[sym]=idx;}
   });
+  // Diagnostic: if two symbols ever resolve to the same universe index, they'd
+  // show byte-for-byte identical figures (not just similar) — that's a lookup
+  // bug, not market coincidence. Nothing currently indicates this IS happening,
+  // but it's cheap to check and would otherwise be invisible until someone
+  // notices two rows matching exactly, which is easy to miss.
+  const seen={};
+  Object.entries(idxBySym).forEach(([sym,idx])=>{
+    if(seen[idx])console.warn('Hyperliquid asset index collision:',seen[idx],'and',sym,'both resolved to universe index',idx,'— they will show identical figures.');
+    seen[idx]=sym;
+  });
+  logFundingHistory(out);
   hlAssetsCache=out;hlAssetsCacheAt=Date.now();
   return out;
+}
+// ---- Local funding-rate history: there is currently NO way to answer "how
+// has LINK's funding varied over the last 15 days" because nothing persists
+// this — each fetch was always point-in-time only. Starts recording from now;
+// like the scenario baseline, this is honest about not being backfilled.
+// Capped to ~60 days of hourly-ish samples to keep localStorage bounded. ----
+function logFundingHistory(assetsBySym){
+  try{
+    const log=JSON.parse(localStorage.getItem('cp2_funding_history')||'[]');
+    const now=Date.now();
+    HL_ASSETS.forEach(sym=>{
+      const c=assetsBySym[sym];if(!c)return;
+      log.push({ts:now,sym,aprPct:parseFloat(c.funding)*24*365*100});
+    });
+    const cutoff=now-60*86400000;
+    const trimmed=log.filter(e=>e.ts>=cutoff);
+    localStorage.setItem('cp2_funding_history',JSON.stringify(trimmed));
+  }catch(e){/* localStorage full or unavailable — non-critical, skip silently */}
+}
+// Returns {min,max,count,points} for a symbol within the last N days, from
+// the locally-logged history above. Returns null if nothing logged yet.
+function fundingHistoryStats(sym,days){
+  try{
+    const log=JSON.parse(localStorage.getItem('cp2_funding_history')||'[]');
+    const cutoff=Date.now()-days*86400000;
+    const points=log.filter(e=>e.sym===sym&&e.ts>=cutoff);
+    if(!points.length)return null;
+    const vals=points.map(p=>p.aprPct);
+    return{min:Math.min(...vals),max:Math.max(...vals),count:points.length,points};
+  }catch(e){return null;}
 }
 // Feeds the composite score — HYPE funding only. Same satur/to0_100 pattern as
 // srcFundingRate (BTC/ETH), scaled for HYPE's typically wider funding swings:
@@ -5269,6 +5311,8 @@ function loadHypeFunding(){
       const aprPct=parseFloat(c.funding)*24*365*100;
       const aprColor=aprPct>0?'#3BF38B':aprPct<0?'#F5606C':'#94A3B8';
       const oiUsd=parseFloat(c.openInterest)*parseFloat(c.markPx);
+      const hist=fundingHistoryStats(sym,15);
+      const histLine=hist?`<p class="text-[9px] text-mutet mt-1.5">Logged range (last ${Math.min(15,Math.ceil((Date.now()-hist.points[0].ts)/86400000)||1)}d, ${hist.count} sample${hist.count===1?'':'s'}): ${hist.min.toFixed(2)}% to ${hist.max.toFixed(2)}%</p>`:`<p class="text-[9px] text-mutet mt-1.5">No logged history yet — starts accumulating from now, check back in a few days</p>`;
       return `<div class="border-t border-line/50 pt-3 first:border-t-0 first:pt-0">
         <p class="text-xs font-semibold mb-2">${sym}${['BTC','ETH','HYPE'].includes(sym)?' <span class="text-[9px] font-normal text-neon">→ composite</span>':''}</p>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -5277,6 +5321,7 @@ function loadHypeFunding(){
           <div class="text-center"><p class="text-[10px] text-mutet mb-1">Mark Price</p><p class="tnum font-bold text-sm">$${parseFloat(c.markPx).toLocaleString('en-US',{maximumFractionDigits:2})}</p></div>
           <div class="text-center"><p class="text-[10px] text-mutet mb-1">24h Volume</p><p class="tnum font-bold text-sm">$${(parseFloat(c.dayNtlVlm)/1e6).toFixed(1)}M</p></div>
         </div>
+        ${histLine}
       </div>`;
     }).join('');
     statusEl.textContent='Live from Hyperliquid · updated '+new Date().toLocaleTimeString('en-US');
