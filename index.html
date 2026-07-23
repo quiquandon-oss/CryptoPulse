@@ -1205,7 +1205,25 @@ function lineChart(cv,old,series,color,axes){const ctx=cv.getContext('2d');const
   const cfg={type:'line',data:{labels:series.map(p=>p.x),datasets:[{data:series.map(p=>p.y),borderColor:color,backgroundColor:g,
     borderWidth:2,fill:true,tension:.32,pointRadius:0,pointHoverRadius:4,pointHoverBackgroundColor:color}]},
     options:{responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},
-      plugins:{legend:{display:false},tooltip:{displayColors:false,backgroundColor:'#151A23',borderColor:'#1F2632',borderWidth:1,padding:9,
+      animation:{duration:400,easing:'easeOutQuart'},
+      onHover:(evt,elements)=>{
+        const priceEl=elements.find(e=>e.datasetIndex===0);
+        if(priceEl){
+          const idx=priceEl.index,val=series[idx]?.y;
+          if(val==null)return;
+          const rangeStart=series[0]?.y;
+          const chgAbs=rangeStart!=null?val-rangeStart:0;
+          const chgPct=rangeStart?(chgAbs/rangeStart*100):0;
+          $('#totalMain').textContent=money(val);
+          $('#totalAlt').textContent=fmtDate(series[idx].x);
+          const pill=$('#totalPill');
+          pill.className=`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-bold tnum ${chgAbs>=0?'bg-up/15 text-up':'bg-down/15 text-down'}`;
+          pill.textContent=`${chgAbs>=0?'▲':'▼'} ${money(Math.abs(chgAbs))} (${pctS(Math.abs(chgPct))}) since range start`;
+        }else{
+          renderHeader(); // revert to live total/24h-pnl the moment the touch/hover leaves
+        }
+      },
+      plugins:{legend:{display:false},crosshair:{enabled:true},tooltip:{displayColors:false,backgroundColor:'#151A23',borderColor:'#1F2632',borderWidth:1,padding:9,
         callbacks:{title:i=>fmtDate(i[0].label),label:c=>' '+money(c.raw)}}},
       scales:{x:{display:axes,grid:{display:false},ticks:{color:'#7A8499',maxTicksLimit:13,maxRotation:45,minRotation:0,font:{size:9},callback:function(v){return fmtDateShort(this.getLabelForValue(v));}}},
         y:{display:axes,grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#7A8499',font:{size:10},callback:v=>symC()+Math.round(v).toLocaleString()}}}}};
@@ -2152,6 +2170,7 @@ function buildCombinedChartConfig(history,technicalsData,isFullscreen){
           ci.update();
         }},
         tooltip:{callbacks:{label:c=>c.dataset.label==='BTC Price'?('BTC: $'+(c.parsed.y!=null?Math.round(c.parsed.y).toLocaleString('en-US'):'—')):(c.dataset.label+': '+(c.parsed.y!=null?c.parsed.y.toFixed(1):'—'))}},
+        crosshair:{enabled:true},
         zoom:{
           pan:{enabled:true,mode:'x'},
           zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x'}
@@ -4212,7 +4231,9 @@ function renderCyclesTab(){
   });
   const overlayCv=$('#cycOverlayChart');
   const overlayCfg={type:'line',data:{datasets:overlayDatasets},options:{responsive:true,maintainAspectRatio:false,
+    animation:{duration:400,easing:'easeOutQuart'},
     plugins:{legend:{display:true,position:'top',labels:{color:'#8891A8',font:{size:9},boxWidth:10,padding:6}},
+      crosshair:{enabled:true},
       tooltip:{callbacks:{label:c=>c.dataset.label+': index '+c.parsed.y.toFixed(0)+' at day '+c.parsed.x}}},
     scales:{
       x:{type:'linear',title:{display:true,text:'days since halving',color:'#7A8499',font:{size:9}},grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#7A8499',font:{size:9}}},
@@ -4228,6 +4249,7 @@ function renderCyclesTab(){
   const dimCfg={type:'bar',data:{labels:['2012','2016','2020','2024'],datasets:[{
     data:roiPct,backgroundColor:['#7A8499','#8891A8','#A78BFA','#3BF38B'],borderRadius:4}]},
     options:{responsive:true,maintainAspectRatio:false,
+      animation:{duration:400,easing:'easeOutQuart'},
       plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'+'+c.raw.toFixed(0)+'% halving-to-peak'}}},
       scales:{x:{grid:{display:false},ticks:{color:'#7A8499',font:{size:10}}},
         y:{type:'logarithmic',grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#7A8499',font:{size:9},callback:v=>[10,100,1000,10000].includes(v)?'+'+v+'%':''}}}
@@ -4504,8 +4526,10 @@ function buildFanChartConfig(state,opts){
   }
   const zoomOn=opts.zoomEnabled||opts.isFullscreen;
   return{type:'line',data:{datasets},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:16,right:12}},
+    animation:{duration:400,easing:'easeOutQuart'},
     plugins:{
       legend:{display:true,position:'bottom',labels:{color:'#7A8499',boxWidth:10,boxHeight:10,font:{size:fs.legend},padding:12}},
+      crosshair:{enabled:true},
       tooltip:{filter:item=>item.dataset.label!=='Break-even',callbacks:{label:c=>c.dataset.label+': '+money(c.raw.y)}},
       zoom:zoomOn?{
         pan:{enabled:true,mode:opts.zoomMode||'x',onPanComplete:opts.onPanComplete},
