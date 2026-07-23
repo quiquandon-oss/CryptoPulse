@@ -83,6 +83,28 @@
 
 Chart.register(ChartDataLabels);
 Chart.defaults.set('plugins.datalabels',{display:false});
+// ---- Crosshair plugin for the coin detail modal chart: draws a vertical
+// dashed line + a dot (in the price line's own existing color — not
+// changing that color) at whatever point the user is touching/dragging.
+// Registered globally but opt-in per chart via plugins.crosshair.enabled,
+// same pattern as datalabels above, so it has zero effect on any other
+// chart in the app (fan chart, scenario chart, dashboard perf, etc).
+const crosshairPlugin={id:'crosshair',afterDraw(chart){
+  if(!chart.options.plugins?.crosshair?.enabled)return;
+  const active=chart.getActiveElements();
+  if(!active||!active.length)return;
+  const{ctx,chartArea:{top,bottom}}=chart;
+  const priceEl=active.find(a=>a.datasetIndex===0)||active[0];
+  const x=priceEl.element.x;
+  ctx.save();
+  ctx.beginPath();ctx.moveTo(x,top);ctx.lineTo(x,bottom);
+  ctx.lineWidth=1;ctx.strokeStyle='rgba(255,255,255,0.25)';ctx.setLineDash([4,4]);ctx.stroke();
+  ctx.beginPath();ctx.arc(priceEl.element.x,priceEl.element.y,4,0,Math.PI*2);
+  ctx.fillStyle=chart.data.datasets[0].borderColor;ctx.fill();
+  ctx.lineWidth=2;ctx.strokeStyle='#0B0E14';ctx.stroke();
+  ctx.restore();
+}};
+Chart.register(crosshairPlugin);
 </script>
 
 </head>
@@ -1359,23 +1381,42 @@ async function saveDca(){const a=$('#d_asset').value,q=parseFloat($('#d_qty').va
 let modalChartInstance;
 function openChartModal(coin){
   const m=META[coin]||{name:coin,c:'#888'};
-  const s=statOf(coin);
   document.getElementById('chartModal').style.display='flex';
   $('#modalBadge').style.background=m.c+'22';$('#modalBadge').style.color=m.c;
   $('#modalBadge').textContent=coin.slice(0,3);
   $('#modalCoinName').textContent=m.name;$('#modalCoinSym').textContent=coin;
-  $('#modalPrice').textContent=money(s.p,pdec(s.p));
-  $('#modalPriceSub').textContent=state.ccy==='USD'?moneyIn(s.p/(state.fx||FX0),'EUR'):moneyIn(s.p*(state.fx||FX0),'USD');
-  $('#modalChg24').className=`text-sm font-semibold ${s.chg>=0?'text-up':'text-down'}`;
-  $('#modalChg24').textContent=(s.chg>=0?'▲':'▼')+' '+pctS(Math.abs(s.chg));
+  state.detailCoin=coin;state.detailRange='30d';
+  renderModalHeaderLive();
+  const s=statOf(coin);
   $('#modalStats').textContent=`${qf(s.q)} ${coin} · avg ${money(s.av,pdec(s.av))}`;
   $('#modalHoldings').textContent=qf(s.q);$('#modalValue').textContent=money(s.val);
   $('#modalAvg').textContent=money(s.av,pdec(s.av));
   $('#modalPnL').className=`font-semibold tnum ${s.pnl>=0?'text-up':'text-down'}`;
   $('#modalPnL').textContent=(s.pnl>=0?'+':'')+money(s.pnl);
-  state.detailCoin=coin;state.detailRange='30d';
   setRangeActive('30d');
   renderDetailChart();
+}
+// ---- Live header (default state): today's actual price + real 24h change,
+// styled as a pill to match the same up/down badge style already used on
+// the My Crypto cards elsewhere in the app. ----
+function renderModalHeaderLive(){
+  const coin=state.detailCoin;if(!coin)return;
+  const s=statOf(coin);
+  $('#modalPrice').textContent=money(s.p,pdec(s.p));
+  $('#modalPriceSub').textContent=state.ccy==='USD'?moneyIn(s.p/(state.fx||FX0),'EUR'):moneyIn(s.p*(state.fx||FX0),'USD');
+  $('#modalChg24').className=`text-xs font-semibold px-2 py-0.5 rounded inline-block ${s.chg>=0?'bg-up/15 text-up':'bg-down/15 text-down'}`;
+  $('#modalChg24').textContent=(s.chg>=0?'▲':'▼')+' '+pctS(Math.abs(s.chg));
+}
+// ---- Scrub header (while dragging/touching the chart): shows the price and
+// date at the touched point, and % change from the start of the currently
+// selected range to that point — not always 24h, since the point being
+// touched might be 20 days into a 30d view. Reverts to renderModalHeaderLive()
+// the moment the touch/hover leaves the chart. ----
+function updateModalHeaderScrub(price,label,changePct){
+  $('#modalPrice').textContent=money(price,pdec(price));
+  $('#modalPriceSub').textContent=label;
+  $('#modalChg24').className=`text-xs font-semibold px-2 py-0.5 rounded inline-block ${changePct>=0?'bg-up/15 text-up':'bg-down/15 text-down'}`;
+  $('#modalChg24').textContent=(changePct>=0?'▲':'▼')+' '+pctS(Math.abs(changePct))+' since range start';
 }
 function closeChartModal(){document.getElementById('chartModal').style.display='none';if(modalChartInstance){modalChartInstance.destroy();modalChartInstance=null;}}
 const INTRADAY={}; // 5-min cache of CoinGecko intraday series
@@ -1413,7 +1454,19 @@ async function renderDetailChart(){
         ...(boughtToday?[{data:labels.map((_,i)=>i===labels.length-1?data[data.length-1]:null),borderColor:'transparent',backgroundColor:'#3BF38B',showLine:false,pointRadius:labels.map((_,i)=>i===labels.length-1?7:0),label:'DCA today'}]:[])
       ];
       const cfg={type:'line',data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},
-        plugins:{legend:{display:false},tooltip:{displayColors:false,backgroundColor:'#151A23',borderColor:'#1F2632',borderWidth:1,padding:10,
+        animation:{duration:400,easing:'easeOutQuart'},
+        onHover:(evt,elements)=>{
+          const priceEl=elements.find(e=>e.datasetIndex===0);
+          if(priceEl){
+            const idx=priceEl.index,price=data[idx];
+            const rangeStart=data[0];
+            const chgPct=rangeStart?((price-rangeStart)/rangeStart*100):0;
+            updateModalHeaderScrub(price,'Today '+labels[idx],chgPct);
+          }else{
+            renderModalHeaderLive();
+          }
+        },
+        plugins:{legend:{display:false},crosshair:{enabled:true},tooltip:{displayColors:false,backgroundColor:'#151A23',borderColor:'#1F2632',borderWidth:1,padding:10,
           filter:it=>it.datasetIndex===0,
           callbacks:{title:i=>'Today '+i[0].label,label:c=>' '+money(c.raw,pdec(c.raw))}}},
         scales:{x:{display:true,grid:{display:false},ticks:{color:'#7A8499',maxTicksLimit:10,font:{size:10},maxRotation:30,minRotation:0}},
@@ -1452,7 +1505,21 @@ async function renderDetailChart(){
     ...(avgVal>0?[{data:labels.map(()=>avgVal),borderColor:'#FF5C72',borderWidth:1.5,borderDash:[6,4],fill:false,tension:0,pointRadius:0,pointHoverRadius:0,label:'Avg'}]:[]),
     {data:dcaData,borderColor:'transparent',backgroundColor:'#3BF38B',showLine:false,pointRadius:dcaR,pointHoverRadius:labels.map(dd=>dcaByDate[dd]?10:0),label:'DCA'}
   ];
-  const cfg={type:'line',data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},plugins:{legend:{display:false},tooltip:{displayColors:true,backgroundColor:'#151A23',borderColor:'#1F2632',borderWidth:1,padding:10,filter:function(item){return!(item.datasetIndex===1||(item.datasetIndex===2&&item.parsed.y==null));},callbacks:{title:function(i){return fmtDate(i[0].label);},label:function(c){if(c.datasetIndex===2){const info=dcaByDate[c.label];if(info){const ap=info.cost/info.qty;return ' DCA: '+money(info.cost,2)+' ('+money(ap,pdec(ap))+'/coin)';}}return ' '+money(c.raw,pdec(c.raw));}}}},scales:{x:{display:true,grid:{display:false},ticks:{color:'#7A8499',maxTicksLimit:10,font:{size:10},maxRotation:30,callback:function(v){const lbl=this.getLabelForValue(v);const idx=labels.indexOf(lbl);if(idx===0||idx===labels.length-1||(idx%Math.ceil(labels.length/9))===0)return fmtDateShort(lbl);return '';}}},y:{afterFit:function(c){c.width=0;},display:true,position:'right',grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#7A8499',font:{size:10},maxTicksLimit:5,mirror:true,padding:2,callback:function(v){return symC()+Number(v).toLocaleString('en-US',{maximumFractionDigits:pdec(v)});}}}}}};
+  const cfg={type:'line',data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},
+    animation:{duration:400,easing:'easeOutQuart'},
+    onHover:(evt,elements)=>{
+      const priceEl=elements.find(e=>e.datasetIndex===0);
+      if(priceEl){
+        const idx=priceEl.index,price=pts[idx]?.y;
+        const rangeStart=pts[0]?.y;
+        if(price==null)return;
+        const chgPct=rangeStart?((price-rangeStart)/rangeStart*100):0;
+        updateModalHeaderScrub(price,fmtDate(labels[idx]),chgPct);
+      }else{
+        renderModalHeaderLive();
+      }
+    },
+    plugins:{legend:{display:false},crosshair:{enabled:true},tooltip:{displayColors:true,backgroundColor:'#151A23',borderColor:'#1F2632',borderWidth:1,padding:10,filter:function(item){return!(item.datasetIndex===1||(item.datasetIndex===2&&item.parsed.y==null));},callbacks:{title:function(i){return fmtDate(i[0].label);},label:function(c){if(c.datasetIndex===2){const info=dcaByDate[c.label];if(info){const ap=info.cost/info.qty;return ' DCA: '+money(info.cost,2)+' ('+money(ap,pdec(ap))+'/coin)';}}return ' '+money(c.raw,pdec(c.raw));}}}},scales:{x:{display:true,grid:{display:false},ticks:{color:'#7A8499',maxTicksLimit:10,font:{size:10},maxRotation:30,callback:function(v){const lbl=this.getLabelForValue(v);const idx=labels.indexOf(lbl);if(idx===0||idx===labels.length-1||(idx%Math.ceil(labels.length/9))===0)return fmtDateShort(lbl);return '';}}},y:{afterFit:function(c){c.width=0;},display:true,position:'right',grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#7A8499',font:{size:10},maxTicksLimit:5,mirror:true,padding:2,callback:function(v){return symC()+Number(v).toLocaleString('en-US',{maximumFractionDigits:pdec(v)});}}}}}};
   if(modalChartInstance){modalChartInstance.destroy();modalChartInstance=null;}
   modalChartInstance=new Chart(cv,cfg);
 }
