@@ -402,31 +402,30 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         </div>
         <div class="h-[260px] sm:h-[300px]"><canvas id="scenChart"></canvas></div>
       </div>
-      <div class="grid grid-cols-3 gap-2">
-        <div class="rounded-2xl border border-down/30 bg-panel p-3">
-          <p class="text-[11px] font-bold text-down mb-2.5">📉 BEAR</p>
-          <div class="space-y-2">
-            <div class="flex justify-between text-xs"><span class="text-mutet">6M</span><span id="sc_b6m" class="font-bold tnum text-down"></span></div>
-            <div class="flex justify-between text-xs"><span class="text-mutet">2Y</span><span id="sc_b2y" class="font-bold tnum text-down"></span></div>
-            <div class="flex justify-between text-xs"><span class="text-mutet">5Y</span><span id="sc_b5y" class="font-bold tnum text-down"></span></div>
+      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+        <div class="flex items-center justify-between mb-3 gap-3 flex-wrap">
+          <h2 class="font-semibold text-sm">Scenario at a specific date</h2>
+          <input type="date" id="scenDatePicker" class="bg-panel2 border border-line rounded-lg px-2 py-1.5 text-xs text-white">
+        </div>
+        <p class="text-[10px] text-mutet mb-3" id="scenDateHorizon">—</p>
+        <div class="grid grid-cols-3 gap-2">
+          <div class="rounded-2xl border border-down/30 bg-panel2 p-3">
+            <p class="text-[11px] font-bold text-down mb-2">📉 BEAR</p>
+            <p class="font-bold tnum text-down text-sm" id="sc_bear_at_date">—</p>
+            <p class="text-[10px] text-mutet mt-1" id="sc_bear_at_date_pct">—</p>
+          </div>
+          <div class="rounded-2xl border border-line bg-panel2 p-3">
+            <p class="text-[11px] font-bold text-mutet mb-2">➡️ BASE</p>
+            <p class="font-bold tnum text-sm" id="sc_base_at_date">—</p>
+            <p class="text-[10px] text-mutet mt-1" id="sc_base_at_date_pct">—</p>
+          </div>
+          <div class="rounded-2xl border border-neon/30 bg-panel2 p-3">
+            <p class="text-[11px] font-bold text-up mb-2">📈 BULL</p>
+            <p class="font-bold tnum text-up text-sm" id="sc_bull_at_date">—</p>
+            <p class="text-[10px] text-mutet mt-1" id="sc_bull_at_date_pct">—</p>
           </div>
         </div>
-        <div class="rounded-2xl border border-line bg-panel p-3">
-          <p class="text-[11px] font-bold text-mutet mb-2.5">➡️ BASE</p>
-          <div class="space-y-2">
-            <div class="flex justify-between text-xs"><span class="text-mutet">6M</span><span id="sc_n6m" class="font-bold tnum"></span></div>
-            <div class="flex justify-between text-xs"><span class="text-mutet">2Y</span><span id="sc_n2y" class="font-bold tnum"></span></div>
-            <div class="flex justify-between text-xs"><span class="text-mutet">5Y</span><span id="sc_n5y" class="font-bold tnum"></span></div>
-          </div>
-        </div>
-        <div class="rounded-2xl border border-neon/30 bg-panel p-3">
-          <p class="text-[11px] font-bold text-up mb-2.5">📈 BULL</p>
-          <div class="space-y-2">
-            <div class="flex justify-between text-xs"><span class="text-mutet">6M</span><span id="sc_u6m" class="font-bold tnum text-up"></span></div>
-            <div class="flex justify-between text-xs"><span class="text-mutet">2Y</span><span id="sc_u2y" class="font-bold tnum text-up"></span></div>
-            <div class="flex justify-between text-xs"><span class="text-mutet">5Y</span><span id="sc_u5y" class="font-bold tnum text-up"></span></div>
-          </div>
-        </div>
+        <p class="text-[10px] text-mutet mt-3">Between your 6M/2Y/5Y checkpoints, values assume a constant growth rate within each segment. Beyond 5Y, the last segment's rate is extended forward — a judgment call, not a calibrated forecast.</p>
       </div>
       <!-- Alert banner (shown when score >= 45) -->
       <div id="bottomBanner" class="hidden rounded-xl border px-3 py-2 text-xs font-semibold"></div>
@@ -3397,6 +3396,7 @@ function wire(){
   $$('#nav .navitem').forEach(b=>b.onclick=()=>setView(b.dataset.view));
   $$('#ccyToggle button').forEach(b=>b.onclick=()=>setCcy(b.dataset.ccy));
   $('#refreshBtn').onclick=refresh;$('#goDca').onclick=()=>setView('dca');$('#addCoin2').onclick=()=>{setView('dca');};
+  {const scenDateInp=$('#scenDatePicker');if(scenDateInp)scenDateInp.onchange=renderScenarioDateReadout;}
   $('#sentimentRefreshBtn').onclick=async()=>{
     const btn=$('#sentimentRefreshBtn'),icon=$('#sentimentRefreshIcon');
     btn.disabled=true;btn.classList.add('opacity-60','cursor-not-allowed');
@@ -3850,22 +3850,25 @@ const SCEN={
   bull:[1,1.50,3.00,8.00]
 };
 let scenChartInst;
-// small chart-local plugin: draws a persistent "+X% / -X%" label at the last visible point
-// of each scenario line, relative to break-even — replaces having to tap for that number
-const scenEndLabelsPlugin={id:'scenEndLabels',afterDatasetsDraw(chart){
-  const cost=(chart.options.plugins.scenEndLabels||{}).cost||0;if(!cost)return;
-  const {ctx,chartArea:ca}=chart;
-  ctx.save();ctx.beginPath();ctx.rect(ca.left,ca.top,ca.width+40,ca.height);ctx.clip();
-  chart.data.datasets.forEach(function(ds,i){
-    if(i===3)return; // skip the break-even line itself
-    const meta=chart.getDatasetMeta(i);if(meta.hidden)return;
-    const pts=meta.data,last=pts[pts.length-1];if(!last)return;
-    const val=ds.data[ds.data.length-1],vs=(val-cost)/cost*100;
-    ctx.font='bold 10px system-ui,sans-serif';ctx.fillStyle=ds.borderColor;ctx.textBaseline='middle';
-    ctx.fillText((vs>=0?'+':'')+vs.toFixed(0)+'%',last.x+6,last.y);
-  });
-  ctx.restore();
-}};
+// ---- Continuous interpolation of a scenario's checkpoint multipliers so any
+// arbitrary future date can be evaluated, not just the fixed 6M/2Y/5Y anchors.
+// Log-linear within a segment = constant CAGR across it (matches how the
+// checkpoints themselves were authored as cumulative growth factors).
+// Beyond the last checkpoint (5Y), extends that last segment's CAGR forward
+// — a judgment call, not a calibrated forecast; disclosed in the UI caption.
+function interpScenario(arr,Ts,T){
+  if(T<=Ts[0])return arr[0];
+  for(let i=0;i<Ts.length-1;i++){
+    if(T<=Ts[i+1]){
+      const t0=Ts[i],t1=Ts[i+1],v0=arr[i],v1=arr[i+1];
+      const frac=(T-t0)/(t1-t0);
+      return v0*Math.pow(v1/v0,frac);
+    }
+  }
+  const n=Ts.length,t0=Ts[n-2],t1=Ts[n-1],v0=arr[n-2],v1=arr[n-1];
+  const cagr=Math.pow(v1/v0,1/(t1-t0));
+  return v1*Math.pow(cagr,T-t1);
+}
 function renderScenario(){
   const t=totals();
   const cur=t.val,cost=t.cost;
@@ -3878,69 +3881,50 @@ function renderScenario(){
     $('#scBeqNeed').textContent='✓ Above break-even';
     $('#scBeqNeed').className='text-[10px] mt-0.5 text-up';
   }
-  const labels=['Now','6 months','2 years','5 years'];
-  const bear=SCEN.bear.map(m=>cur*m);
+  // ---- Fan chart (Base ±1σ), same builder/methodology as the Cycles tab,
+  // plus a break-even reference line — replaces the old discrete 3-line
+  // Bear/Base/Bull chart with a probabilistic band around your own Base case. ----
+  const portSigma=computePortSigma();
+  const Ts=[0,0.5,2,5];
   const base=SCEN.base.map(m=>cur*m);
-  const bull=SCEN.bull.map(m=>cur*m);
-  const beq=[cost,cost,cost,cost];
-  [['b',bear],['n',base],['u',bull]].forEach(function(pair){
-    const pfx=pair[0],arr=pair[1];
-    ['6m','2y','5y'].forEach(function(h,i){$('#sc_'+pfx+h).textContent=money(arr[i+1]);});
-  });
+  const upper=Ts.map((T,i)=>T===0?cur:base[i]*Math.exp(portSigma*Math.sqrt(T)));
+  const lower=Ts.map((T,i)=>T===0?cur:base[i]*Math.exp(-portSigma*Math.sqrt(T)));
+  const scenFanState={Ts,base,upper,lower,portSigma};
   const cv=$('#scenChart');
-  const cfg={type:'line',data:{labels:labels,datasets:[
-    {label:'Bear',data:bear,borderColor:'#FF5C72',borderWidth:2,tension:0.35,fill:false,
-      pointRadius:[0,5,5,5],pointBackgroundColor:'#FF5C72',pointHoverRadius:7},
-    {label:'Base',data:base,borderColor:'#94A3B8',borderWidth:1.5,borderDash:[5,3],tension:0.35,
-      fill:{target:0,above:'rgba(150,150,150,0.06)'},
-      pointRadius:[0,4,4,4],pointBackgroundColor:'#94A3B8',pointHoverRadius:6},
-    {label:'Bull',data:bull,borderColor:'#3BF38B',borderWidth:2,tension:0.35,
-      fill:{target:1,above:'rgba(59,243,139,0.08)'},
-      pointRadius:[0,5,5,5],pointBackgroundColor:'#3BF38B',pointHoverRadius:7},
-    {label:'Break-even',data:beq,borderColor:'#F5B843',borderWidth:1.5,borderDash:[4,4],
-      tension:0,fill:false,pointRadius:0,pointHoverRadius:0}
-  ]},options:{
-    responsive:true,maintainAspectRatio:false,
-    interaction:{intersect:false,mode:'index'},
-    layout:{padding:{right:34}}, // room for the end-of-line % labels
-    plugins:{
-      legend:{display:false},
-      scenEndLabels:{cost:cost},
-      tooltip:{displayColors:true,backgroundColor:'#151A23',borderColor:'#1F2632',borderWidth:1,padding:8,
-        bodySpacing:3,titleFont:{size:11},bodyFont:{size:11},
-        filter:function(item){return item.datasetIndex!==3;}, // break-even is a flat line, not worth a tooltip row
-        callbacks:{
-          title:function(i){return i[0].label;},
-          label:function(c){
-            const names=[' Bear ',' Base ',' Bull '];
-            return names[c.datasetIndex]+money(c.raw); // compact: no "(±X% vs cost)" — that's now the persistent end-label
-          }
-        }
-      },
-      zoom:{
-        pan:{enabled:true,mode:'xy',onPanComplete:scenZoomStateChanged},
-        zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'xy',onZoomComplete:scenZoomStateChanged}
-      }
-    },
-    scales:{
-      x:{display:true,grid:{display:false},ticks:{color:'#7A8499',font:{size:11}}},
-      y:{
-        afterFit:function(c){c.width=0;},
-        display:true,position:'right',
-        grid:{color:'rgba(255,255,255,.04)'},
-        ticks:{color:'#7A8499',font:{size:10},maxTicksLimit:5,mirror:true,padding:2,
-          callback:function(v){
-            if(v>=1000)return symC()+Number(v/1000).toFixed(1)+'K';
-            return symC()+Number(v).toFixed(0);
-          }
-        }
-      }
-    }
-  },plugins:[scenEndLabelsPlugin]};
+  const cfg=buildFanChartConfig(scenFanState,{breakEven:cost,zoomEnabled:true,zoomMode:'xy',onPanComplete:scenZoomStateChanged,onZoomComplete:scenZoomStateChanged});
   if(scenChartInst){scenChartInst.data=cfg.data;scenChartInst.options=cfg.options;scenChartInst.update();}
   else scenChartInst=new Chart(cv,cfg);
+  renderScenarioDateReadout();
   renderProba();
   renderBottomSignal();
+}
+// ---- Pick-a-date readout: evaluates Bear/Base/Bull at any user-chosen
+// future date via interpScenario(), replacing the old fixed 6M/2Y/5Y cards. ----
+function renderScenarioDateReadout(){
+  const inp=$('#scenDatePicker');if(!inp)return;
+  if(!inp.value){
+    const d=new Date();d.setFullYear(d.getFullYear()+1);
+    inp.value=d.toISOString().slice(0,10);
+  }
+  const t=totals();const cur=t.val,cost=t.cost;
+  const target=new Date(inp.value+'T00:00:00');
+  const T=Math.max(0,(target-new Date())/(365.25*86400000));
+  const Ts=[0,0.5,2,5];
+  const bearVal=cur*interpScenario(SCEN.bear,Ts,T);
+  const baseVal=cur*interpScenario(SCEN.base,Ts,T);
+  const bullVal=cur*interpScenario(SCEN.bull,Ts,T);
+  $('#sc_bear_at_date').textContent=money(bearVal);
+  $('#sc_base_at_date').textContent=money(baseVal);
+  $('#sc_bull_at_date').textContent=money(bullVal);
+  const pctOf=v=>{if(!cost)return'';const p=(v-cost)/cost*100;return(p>=0?'+':'')+p.toFixed(0)+'% vs break-even';};
+  $('#sc_bear_at_date_pct').textContent=pctOf(bearVal);
+  $('#sc_base_at_date_pct').textContent=pctOf(baseVal);
+  $('#sc_bull_at_date_pct').textContent=pctOf(bullVal);
+  const horizonEl=$('#scenDateHorizon');
+  if(horizonEl){
+    const days=Math.round(T*365.25);
+    horizonEl.textContent=T<=0?'Today':(days+'d from now (~'+T.toFixed(1)+'y)'+(T>5?' — beyond your 5Y checkpoint, extrapolated from its trend':''));
+  }
 }
 function scenZoomStateChanged({chart}){
   const btn=$('#scenZoomReset');if(!btn)return;
@@ -4281,10 +4265,7 @@ function renderCyclesTab(){
   // ---- Fan chart: Base ± 1 annualized sigma, portfolio-value-weighted across
   // held coins (ignores cross-coin correlation — a real simplification, but an
   // honest one to disclose rather than pretend a precise portfolio sigma). ----
-  const heldCoins=syms().filter(a=>qtyOf(a)>1e-12);
-  let sigmaSum=0,valSum=0;
-  heldCoins.forEach(a=>{const v=statOf(a).val;const{sigma}=sigmaFor(a);sigmaSum+=sigma*v;valSum+=v;});
-  const portSigma=valSum>0?sigmaSum/valSum:0.7;
+  const portSigma=computePortSigma();
   const Ts=[0,0.5,2,5];
   const base=SCEN.base.map(m=>cur*m);
   const upper=Ts.map((T,i)=>T===0?cur:base[i]*Math.exp(portSigma*Math.sqrt(T)));
@@ -4293,15 +4274,27 @@ function renderCyclesTab(){
   // canvas (Chart.js needs one canvas per instance) without recomputing.
   cycFanLastState={Ts,base,upper,lower,portSigma};
   const fanCv=$('#cycFanChart');
-  const fanCfg=buildFanChartConfig(cycFanLastState,false);
+  const fanCfg=buildFanChartConfig(cycFanLastState,{isFullscreen:false});
   if(cycFanChartInst){cycFanChartInst.data=fanCfg.data;cycFanChartInst.options=fanCfg.options;cycFanChartInst.update();}
   else cycFanChartInst=new Chart(fanCv,fanCfg);
   renderFanAssumptions('#cycFanAssumptions',cycFanLastState);
 }
 let cycFanLastState=null,cycFanChartFullInst=null,cyclesLiveConditionsInFlight=false;
-// ---- Shared config builder — used for both the inline chart and the
-// fullscreen overlay chart, so the two never drift out of sync. ----
-function buildFanChartConfig(state,isFullscreen){
+// ---- Portfolio-value-weighted volatility across held coins. Shared by the
+// Cycles fan chart and the Scenario tab's fan chart, so the two never quote
+// different sigma for the same portfolio. ----
+function computePortSigma(){
+  const heldCoins=syms().filter(a=>qtyOf(a)>1e-12);
+  let sigmaSum=0,valSum=0;
+  heldCoins.forEach(a=>{const v=statOf(a).val;const{sigma}=sigmaFor(a);sigmaSum+=sigma*v;valSum+=v;});
+  return valSum>0?sigmaSum/valSum:0.7;
+}
+// ---- Shared config builder — used for the Cycles inline chart, its
+// fullscreen overlay, AND the Scenario tab's fan chart, so all three never
+// drift out of sync. opts: {isFullscreen, breakEven, zoomEnabled, zoomMode,
+// onPanComplete, onZoomComplete} — all optional.
+function buildFanChartConfig(state,opts){
+  opts=opts||{};
   const{Ts,base,upper,lower}=state;
   const TICK_LABELS={0:'Now',0.5:'6M',2:'2Y',5:'5Y'};
   const fmtShort=v=>symC()+(Math.abs(v)>=1000?(v/1000).toFixed(1)+'K':v.toFixed(0));
@@ -4311,19 +4304,30 @@ function buildFanChartConfig(state,isFullscreen){
   const upperPts=Ts.map((T,i)=>({x:T,y:upper[i]}));
   const basePts=Ts.map((T,i)=>({x:T,y:base[i]}));
   const lowerPts=Ts.map((T,i)=>({x:T,y:lower[i]}));
-  const fs=isFullscreen?{label:11,tick:12,legend:12}:{label:9,tick:10,legend:10};
-  return{type:'line',data:{datasets:[
+  const fs=opts.isFullscreen?{label:11,tick:12,legend:12}:{label:9,tick:10,legend:10};
+  const datasets=[
     {label:'+1σ',data:upperPts,borderColor:'transparent',backgroundColor:'rgba(59,243,139,0.12)',fill:'+1',pointRadius:0,tension:0.3,
       datalabels:{display:(ctx)=>ctx.dataIndex>0,align:'top',offset:6,color:'#3BF38B',font:{size:fs.label,weight:'600'},formatter:v=>fmtShort(v.y)}},
-    {label:'Base',data:basePts,borderColor:'#94A3B8',borderWidth:2,borderDash:[5,3],fill:false,pointRadius:isFullscreen?4:3,tension:0.3,
+    {label:'Base',data:basePts,borderColor:'#94A3B8',borderWidth:2,borderDash:[5,3],fill:false,pointRadius:opts.isFullscreen?4:3,tension:0.3,
       datalabels:{display:true,align:(ctx)=>ctx.dataIndex===0?'right':'bottom',offset:6,color:'#E5E7EB',font:{size:fs.label,weight:'700'},formatter:v=>fmtShort(v.y)}},
     {label:'-1σ',data:lowerPts,borderColor:'transparent',backgroundColor:'rgba(255,92,114,0.12)',fill:'-1',pointRadius:0,tension:0.3,
       datalabels:{display:(ctx)=>ctx.dataIndex>0,align:'bottom',offset:6,color:'#FF5C72',font:{size:fs.label,weight:'600'},formatter:v=>fmtShort(v.y)}},
-  ]},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:16,right:12}},
+  ];
+  // Optional flat break-even reference line — the Scenario tab needs this
+  // (that's the whole point of that tab); Cycles doesn't pass one.
+  if(opts.breakEven!=null){
+    datasets.push({label:'Break-even',data:[{x:0,y:opts.breakEven},{x:5,y:opts.breakEven}],
+      borderColor:'#F5B843',borderWidth:1.5,borderDash:[4,4],pointRadius:0,fill:false,tension:0});
+  }
+  const zoomOn=opts.zoomEnabled||opts.isFullscreen;
+  return{type:'line',data:{datasets},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:16,right:12}},
     plugins:{
       legend:{display:true,position:'bottom',labels:{color:'#7A8499',boxWidth:10,boxHeight:10,font:{size:fs.legend},padding:12}},
-      tooltip:{callbacks:{label:c=>c.dataset.label+': '+money(c.raw.y)}},
-      zoom:isFullscreen?{pan:{enabled:true,mode:'x'},zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x'}}:undefined,
+      tooltip:{filter:item=>item.dataset.label!=='Break-even',callbacks:{label:c=>c.dataset.label+': '+money(c.raw.y)}},
+      zoom:zoomOn?{
+        pan:{enabled:true,mode:opts.zoomMode||'x',onPanComplete:opts.onPanComplete},
+        zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:opts.zoomMode||'x',onZoomComplete:opts.onZoomComplete}
+      }:undefined,
     },
     scales:{
       x:{type:'linear',min:0,max:5,grid:{display:false},
@@ -4348,7 +4352,7 @@ function openCycFanFullscreen(){
   const modal=$('#cycFanChartFullscreen');if(!modal)return;
   modal.classList.remove('hidden');
   const cv=$('#cycFanChartFull');
-  const cfg=buildFanChartConfig(cycFanLastState,true);
+  const cfg=buildFanChartConfig(cycFanLastState,{isFullscreen:true});
   if(cycFanChartFullInst)cycFanChartFullInst.destroy();
   cycFanChartFullInst=new Chart(cv,cfg);
   renderFanAssumptions('#cycFanAssumptionsFull',cycFanLastState);
