@@ -390,10 +390,15 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-start justify-between mb-4">
           <div><h2 class="font-semibold">Portfolio Scenarios</h2><p class="text-xs text-mutet mt-0.5">2019–2024 market cycles · not financial advice</p></div>
-          <div class="text-right shrink-0 ml-3">
-            <p class="text-[10px] uppercase tracking-wide text-mutet">Break-even</p>
-            <p class="grot font-bold tnum" id="scBeqVal">—</p>
-            <p class="text-[10px] mt-0.5" id="scBeqNeed">—</p>
+          <div class="flex items-start gap-2">
+            <div class="text-right shrink-0 ml-3">
+              <p class="text-[10px] uppercase tracking-wide text-mutet">Break-even</p>
+              <p class="grot font-bold tnum" id="scBeqVal">—</p>
+              <p class="text-[10px] mt-0.5" id="scBeqNeed">—</p>
+            </div>
+            <button id="scenExpandBtn" class="px-2 py-1 rounded-md text-mutet hover:text-white" title="Fullscreen" onclick="openScenFanFullscreen()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
+            </button>
           </div>
         </div>
         <div class="flex items-center justify-between mb-1.5">
@@ -401,6 +406,19 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <button id="scenZoomReset" class="hidden text-[10px] font-semibold text-mutet bg-panel2 hover:bg-line border border-line rounded-lg px-2 py-1 transition">↺ Reset zoom</button>
         </div>
         <div class="h-[260px] sm:h-[300px]"><canvas id="scenChart"></canvas></div>
+      </div>
+
+      <!-- Fullscreen scenario fan chart overlay: own Chart.js instance, same
+           pattern as the Cycles fan chart and the Sentiment history chart. -->
+      <div id="scenChartFullscreen" class="hidden fixed inset-0 z-50 bg-panel p-4 flex flex-col">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-semibold">Portfolio Scenarios</h3>
+          <div class="flex items-center gap-2">
+            <button class="px-2.5 py-1.5 rounded-md text-xs text-mutet hover:text-white border border-line" onclick="resetScenFanFullscreenZoom()">Reset zoom</button>
+            <button class="px-2.5 py-1.5 rounded-md text-xs bg-panel2 hover:text-white border border-line" onclick="closeScenFanFullscreen()">✕ Close</button>
+          </div>
+        </div>
+        <div class="flex-1"><canvas id="scenChartFull"></canvas></div>
       </div>
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-center justify-between mb-3 gap-3 flex-wrap">
@@ -3890,6 +3908,7 @@ function renderScenario(){
   const upper=Ts.map((T,i)=>T===0?cur:base[i]*Math.exp(portSigma*Math.sqrt(T)));
   const lower=Ts.map((T,i)=>T===0?cur:base[i]*Math.exp(-portSigma*Math.sqrt(T)));
   const scenFanState={Ts,base,upper,lower,portSigma};
+  scenFanLastState=scenFanState;scenFanLastBreakEven=cost;
   const cv=$('#scenChart');
   const cfg=buildFanChartConfig(scenFanState,{breakEven:cost,zoomEnabled:true,zoomMode:'xy',onPanComplete:scenZoomStateChanged,onZoomComplete:scenZoomStateChanged});
   if(scenChartInst){scenChartInst.data=cfg.data;scenChartInst.options=cfg.options;scenChartInst.update();}
@@ -4362,6 +4381,22 @@ function closeCycFanFullscreen(){
   modal.classList.add('hidden');
   if(cycFanChartFullInst){cycFanChartFullInst.destroy();cycFanChartFullInst=null;}
 }
+let scenFanLastState=null,scenFanLastBreakEven=0,scenChartFullInst=null;
+function openScenFanFullscreen(){
+  if(!scenFanLastState)return; // nothing rendered yet
+  const modal=$('#scenChartFullscreen');if(!modal)return;
+  modal.classList.remove('hidden');
+  const cv=$('#scenChartFull');
+  const cfg=buildFanChartConfig(scenFanLastState,{isFullscreen:true,breakEven:scenFanLastBreakEven,zoomEnabled:true,zoomMode:'xy'});
+  if(scenChartFullInst)scenChartFullInst.destroy();
+  scenChartFullInst=new Chart(cv,cfg);
+}
+function closeScenFanFullscreen(){
+  const modal=$('#scenChartFullscreen');if(!modal)return;
+  modal.classList.add('hidden');
+  if(scenChartFullInst){scenChartFullInst.destroy();scenChartFullInst=null;}
+}
+function resetScenFanFullscreenZoom(){resetHistoryChartZoom(scenChartFullInst);}
 let cycFanChartInst,cycOverlayChartInst,cycDiminishingChartInst;
 
 
