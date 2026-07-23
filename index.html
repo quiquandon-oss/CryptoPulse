@@ -451,7 +451,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            toward one edge instead of Base. -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <h2 class="font-semibold text-sm mb-1">Scenario tracking vs. reality</h2>
-        <p class="text-xs text-mutet mb-3">Baseline captured automatically once, then compared against every visit — not a live re-forecast, an honesty check on the assumptions above.</p>
+        <p class="text-xs text-mutet mb-3">Baseline is your actual portfolio value on your first recorded transaction — not a re-forecast, an honesty check on the assumptions above using real history.</p>
         <div id="scenTrackingPanel" class="text-xs text-mutet">—</div>
       </div>
 
@@ -3901,54 +3901,52 @@ function interpScenario(arr,Ts,T){
   return v1*Math.pow(cagr,T-t1);
 }
 // ---- Scenario tracking vs. reality: scores Bear/Base/Bull against what
-// actually happened, starting from a baseline captured on/after this anchor
-// date. Not backfilled — no real portfolio-value history exists before this
-// was built, so it starts honestly from here rather than fabricating a past
-// baseline. ----
-const SCENARIO_BASELINE_ANCHOR='2026-09-01';
-function loadScenarioBaseline(){
-  try{return JSON.parse(localStorage.getItem('cp2_scenario_baseline')||'null');}catch(e){return null;}
+// actually happened, using the app's OWN first recorded transaction date as
+// the baseline. Real backfill, not a wait-for-a-future-date placeholder —
+// PRICE_HISTORY already goes back that far, so qtyOf(a,d)/histPx(a,d) give an
+// honest historical portfolio value with no localStorage snapshot needed.
+const APP_TRACKING_START='2026-04-11'; // matches the sidebar's "Tracking since" date — first tx in SEED_TXS
+// Portfolio value in USD at a given past date (or live, if d omitted) —
+// USD only, deliberately: there's no historical EUR/USD series embedded, so
+// converting a historical USD value into EUR would need today's rate applied
+// to the past, which is an approximation this panel avoids by just staying in USD.
+function portfolioValueUsdAt(d){
+  let val=0;
+  syms().forEach(a=>{
+    const q=qtyOf(a,d);
+    if(q>1e-12)val+=q*(d?histPx(a,d):pxUsd(a));
+  });
+  return val;
 }
-function saveScenarioBaseline(b){
-  try{localStorage.setItem('cp2_scenario_baseline',JSON.stringify(b));}catch(e){}
-}
-function renderScenarioTracking(cur,cost){
+function renderScenarioTracking(){
   const host=$('#scenTrackingPanel');if(!host)return;
-  const todayStr=new Date().toISOString().slice(0,10);
-  let baseline=loadScenarioBaseline();
-  if(!baseline&&todayStr>=SCENARIO_BASELINE_ANCHOR&&cur>0){
-    baseline={date:todayStr,price:cur,cost:cost};
-    saveScenarioBaseline(baseline);
-  }
-  if(!baseline){
-    host.innerHTML='Tracking starts automatically on <b>'+SCENARIO_BASELINE_ANCHOR+'</b> — the first visit on or after that date captures a baseline (your portfolio value that day), then every visit after compares Bear/Base/Bull\u2019s predictions from that point against what actually happened, and flags it if reality has drifted toward one edge instead of Base.';
+  const baselinePrice=portfolioValueUsdAt(APP_TRACKING_START);
+  if(!(baselinePrice>0)){
+    host.textContent='No transactions on or before '+APP_TRACKING_START+' — nothing to baseline against yet.';
     return;
   }
+  const curUsd=portfolioValueUsdAt();
   const Ts=[0,0.5,2,5];
-  const T=Math.max(0,(new Date()-new Date(baseline.date+'T00:00:00'))/(365.25*86400000));
-  if(T<=0){
-    host.textContent='Baseline just captured today ('+baseline.date+' @ '+money(baseline.price)+') — come back in a few weeks to see how it\u2019s tracking.';
-    return;
-  }
-  const bearPred=baseline.price*interpScenario(SCEN.bear,Ts,T);
-  const basePred=baseline.price*interpScenario(SCEN.base,Ts,T);
-  const bullPred=baseline.price*interpScenario(SCEN.bull,Ts,T);
-  const actualRet=(cur-baseline.price)/baseline.price*100;
-  const dists={Bear:Math.abs(cur-bearPred),Base:Math.abs(cur-basePred),Bull:Math.abs(cur-bullPred)};
+  const T=Math.max(0,(new Date()-new Date(APP_TRACKING_START+'T00:00:00'))/(365.25*86400000));
+  const bearPred=baselinePrice*interpScenario(SCEN.bear,Ts,T);
+  const basePred=baselinePrice*interpScenario(SCEN.base,Ts,T);
+  const bullPred=baselinePrice*interpScenario(SCEN.bull,Ts,T);
+  const actualRet=(curUsd-baselinePrice)/baselinePrice*100;
+  const dists={Bear:Math.abs(curUsd-bearPred),Base:Math.abs(curUsd-basePred),Bull:Math.abs(curUsd-bullPred)};
   const closest=Object.keys(dists).reduce((a,b)=>dists[a]<=dists[b]?a:b);
   const closestColor=closest==='Bear'?'#FF5C72':closest==='Bull'?'#3BF38B':'#94A3B8';
-  const errVsBase=basePred!==0?(cur-basePred)/basePred*100:0;
+  const errVsBase=basePred!==0?(curUsd-basePred)/basePred*100:0;
   const daysSince=Math.round(T*365.25);
   host.innerHTML=
     '<div class="grid grid-cols-3 gap-2 mb-3 text-center">'+
-      '<div><p class="text-[10px] text-mutet">Bear predicted</p><p class="font-bold tnum text-down text-xs">'+money(bearPred)+'</p></div>'+
-      '<div><p class="text-[10px] text-mutet">Base predicted</p><p class="font-bold tnum text-xs">'+money(basePred)+'</p></div>'+
-      '<div><p class="text-[10px] text-mutet">Bull predicted</p><p class="font-bold tnum text-up text-xs">'+money(bullPred)+'</p></div>'+
+      '<div><p class="text-[10px] text-mutet">Bear predicted</p><p class="font-bold tnum text-down text-xs">'+moneyIn(bearPred,'USD',0)+'</p></div>'+
+      '<div><p class="text-[10px] text-mutet">Base predicted</p><p class="font-bold tnum text-xs">'+moneyIn(basePred,'USD',0)+'</p></div>'+
+      '<div><p class="text-[10px] text-mutet">Bull predicted</p><p class="font-bold tnum text-up text-xs">'+moneyIn(bullPred,'USD',0)+'</p></div>'+
     '</div>'+
-    '<p>Actual: <span class="font-bold tnum text-white">'+money(cur)+'</span> ('+(actualRet>=0?'+':'')+actualRet.toFixed(0)+'% since baseline) — tracking closest to <span class="font-bold" style="color:'+closestColor+'">'+closest.toUpperCase()+'</span>'+
+    '<p>Actual: <span class="font-bold tnum text-white">'+moneyIn(curUsd,'USD',0)+'</span> ('+(actualRet>=0?'+':'')+actualRet.toFixed(0)+'% since baseline) — tracking closest to <span class="font-bold" style="color:'+closestColor+'">'+closest.toUpperCase()+'</span>'+
     (Math.abs(errVsBase)>=15?' <span style="color:#F5B843">— '+Math.abs(errVsBase).toFixed(0)+'% off Base, worth revisiting the assumptions</span>':'')+
     '</p>'+
-    '<p class="text-[10px] text-mutet mt-2">Baseline: '+baseline.date+' @ '+money(baseline.price)+' ('+daysSince+'d ago). Stored in this browser only — resets if storage is cleared.</p>';
+    '<p class="text-[10px] text-mutet mt-2">Baseline: '+APP_TRACKING_START+' (your first recorded transaction) @ '+moneyIn(baselinePrice,'USD',0)+' ('+daysSince+'d ago). Figures shown in USD to avoid approximating a historical EUR/USD rate.</p>';
 }
 function renderScenario(){
   const t=totals();
@@ -3977,7 +3975,7 @@ function renderScenario(){
   if(scenChartInst){scenChartInst.data=cfg.data;scenChartInst.options=cfg.options;scenChartInst.update();}
   else scenChartInst=new Chart(cv,cfg);
   renderScenarioDateReadout();
-  renderScenarioTracking(cur,cost);
+  renderScenarioTracking();
   renderProba();
   renderBottomSignal();
 }
