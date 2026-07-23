@@ -445,6 +445,16 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         </div>
         <p class="text-[10px] text-mutet mt-3">Between your 6M/2Y/5Y checkpoints, values assume a constant growth rate within each segment. Beyond 5Y, the last segment's rate is extended forward — a judgment call, not a calibrated forecast.</p>
       </div>
+
+      <!-- Scenario tracking: scores Bear/Base/Bull against what actually
+           happened, once a baseline exists — flags it if reality has drifted
+           toward one edge instead of Base. -->
+      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+        <h2 class="font-semibold text-sm mb-1">Scenario tracking vs. reality</h2>
+        <p class="text-xs text-mutet mb-3">Baseline captured automatically once, then compared against every visit — not a live re-forecast, an honesty check on the assumptions above.</p>
+        <div id="scenTrackingPanel" class="text-xs text-mutet">—</div>
+      </div>
+
       <!-- Alert banner (shown when score >= 45) -->
       <div id="bottomBanner" class="hidden rounded-xl border px-3 py-2 text-xs font-semibold"></div>
 
@@ -528,6 +538,9 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           </div>
         </div>
         <p class="text-[10px] text-mutet" id="cycPhaseDetail">—</p>
+        <div class="bg-panel2 rounded-xl p-3 mt-3">
+          <p class="text-[10px] text-mutet leading-snug" id="cycPatternFit">—</p>
+        </div>
         <div class="bg-panel2 rounded-xl p-3 mt-3">
           <p class="text-[10px] text-mutet leading-snug">⚠ Honest caveat: this cycle already broke the classic pattern — BTC consolidated for 5 months right after the April 2024 halving instead of rallying immediately, unlike 2012/2016/2020. Whether the 4-year cycle model still holds given ETFs and institutional treasuries is a genuine, unresolved debate — treat the phase label above as a historical prior, not a forecast.</p>
         </div>
@@ -3887,6 +3900,56 @@ function interpScenario(arr,Ts,T){
   const cagr=Math.pow(v1/v0,1/(t1-t0));
   return v1*Math.pow(cagr,T-t1);
 }
+// ---- Scenario tracking vs. reality: scores Bear/Base/Bull against what
+// actually happened, starting from a baseline captured on/after this anchor
+// date. Not backfilled — no real portfolio-value history exists before this
+// was built, so it starts honestly from here rather than fabricating a past
+// baseline. ----
+const SCENARIO_BASELINE_ANCHOR='2026-09-01';
+function loadScenarioBaseline(){
+  try{return JSON.parse(localStorage.getItem('cp2_scenario_baseline')||'null');}catch(e){return null;}
+}
+function saveScenarioBaseline(b){
+  try{localStorage.setItem('cp2_scenario_baseline',JSON.stringify(b));}catch(e){}
+}
+function renderScenarioTracking(cur,cost){
+  const host=$('#scenTrackingPanel');if(!host)return;
+  const todayStr=new Date().toISOString().slice(0,10);
+  let baseline=loadScenarioBaseline();
+  if(!baseline&&todayStr>=SCENARIO_BASELINE_ANCHOR&&cur>0){
+    baseline={date:todayStr,price:cur,cost:cost};
+    saveScenarioBaseline(baseline);
+  }
+  if(!baseline){
+    host.innerHTML='Tracking starts automatically on <b>'+SCENARIO_BASELINE_ANCHOR+'</b> — the first visit on or after that date captures a baseline (your portfolio value that day), then every visit after compares Bear/Base/Bull\u2019s predictions from that point against what actually happened, and flags it if reality has drifted toward one edge instead of Base.';
+    return;
+  }
+  const Ts=[0,0.5,2,5];
+  const T=Math.max(0,(new Date()-new Date(baseline.date+'T00:00:00'))/(365.25*86400000));
+  if(T<=0){
+    host.textContent='Baseline just captured today ('+baseline.date+' @ '+money(baseline.price)+') — come back in a few weeks to see how it\u2019s tracking.';
+    return;
+  }
+  const bearPred=baseline.price*interpScenario(SCEN.bear,Ts,T);
+  const basePred=baseline.price*interpScenario(SCEN.base,Ts,T);
+  const bullPred=baseline.price*interpScenario(SCEN.bull,Ts,T);
+  const actualRet=(cur-baseline.price)/baseline.price*100;
+  const dists={Bear:Math.abs(cur-bearPred),Base:Math.abs(cur-basePred),Bull:Math.abs(cur-bullPred)};
+  const closest=Object.keys(dists).reduce((a,b)=>dists[a]<=dists[b]?a:b);
+  const closestColor=closest==='Bear'?'#FF5C72':closest==='Bull'?'#3BF38B':'#94A3B8';
+  const errVsBase=basePred!==0?(cur-basePred)/basePred*100:0;
+  const daysSince=Math.round(T*365.25);
+  host.innerHTML=
+    '<div class="grid grid-cols-3 gap-2 mb-3 text-center">'+
+      '<div><p class="text-[10px] text-mutet">Bear predicted</p><p class="font-bold tnum text-down text-xs">'+money(bearPred)+'</p></div>'+
+      '<div><p class="text-[10px] text-mutet">Base predicted</p><p class="font-bold tnum text-xs">'+money(basePred)+'</p></div>'+
+      '<div><p class="text-[10px] text-mutet">Bull predicted</p><p class="font-bold tnum text-up text-xs">'+money(bullPred)+'</p></div>'+
+    '</div>'+
+    '<p>Actual: <span class="font-bold tnum text-white">'+money(cur)+'</span> ('+(actualRet>=0?'+':'')+actualRet.toFixed(0)+'% since baseline) — tracking closest to <span class="font-bold" style="color:'+closestColor+'">'+closest.toUpperCase()+'</span>'+
+    (Math.abs(errVsBase)>=15?' <span style="color:#F5B843">— '+Math.abs(errVsBase).toFixed(0)+'% off Base, worth revisiting the assumptions</span>':'')+
+    '</p>'+
+    '<p class="text-[10px] text-mutet mt-2">Baseline: '+baseline.date+' @ '+money(baseline.price)+' ('+daysSince+'d ago). Stored in this browser only — resets if storage is cleared.</p>';
+}
 function renderScenario(){
   const t=totals();
   const cur=t.val,cost=t.cost;
@@ -3914,6 +3977,7 @@ function renderScenario(){
   if(scenChartInst){scenChartInst.data=cfg.data;scenChartInst.options=cfg.options;scenChartInst.update();}
   else scenChartInst=new Chart(cv,cfg);
   renderScenarioDateReadout();
+  renderScenarioTracking(cur,cost);
   renderProba();
   renderBottomSignal();
 }
@@ -4022,8 +4086,9 @@ function renderCyclesTab(){
   // ---- ATH drawdown gauge ----
   const btcNow=pxUsd('BTC');
   const gaugeH=96;
+  let dd=null;
   if(btcNow>0){
-    const dd=(btcNow-CYCLE_ATH.price)/CYCLE_ATH.price*100;
+    dd=(btcNow-CYCLE_ATH.price)/CYCLE_ATH.price*100;
     $('#cycAthDrawdown').textContent=(dd>=0?'+':'')+dd.toFixed(1)+'%';
     $('#cycAthDrawdown').className='text-xs font-bold tnum mt-1 '+(dd<0?'text-down':'text-up');
     const ddClamped=Math.max(-100,Math.min(0,dd));
@@ -4034,6 +4099,40 @@ function renderCyclesTab(){
   // shaded band = where the 3 previous cycle bottoms landed, -77% to -86% off their ATHs
   $('#cycGaugeHistBand').style.top=(0.77*gaugeH).toFixed(0)+'px';
   $('#cycGaugeHistBand').style.height=(0.09*gaugeH).toFixed(0)+'px';
+
+  // ---- Pattern fit: how does THIS cycle's drawdown, at this many days past
+  // its own peak, compare to the 2012/2016/2020 cycles at the SAME days-past-
+  // their-own-peak mark? Answers "are we tracking history, running shallower,
+  // or running deeper" — not just "where are we in time" (the phase label
+  // above already covers that). Log-linear interpolation between each cycle's
+  // own peak and bottom checkpoints; capped at that cycle's bottom drawdown
+  // once we're past its historical bottom timing (no post-bottom recovery
+  // checkpoints are stored, so extrapolating further decline past that point
+  // would be wrong). ----
+  const fitEl=$('#cycPatternFit');
+  if(fitEl&&dd!=null){
+    const daysSincePeak=Math.floor((now-CYCLE_ATH.date)/86400000);
+    if(daysSincePeak<=0){
+      fitEl.textContent='Pattern-fit check activates once we\u2019re past this cycle\u2019s own peak.';
+    }else{
+      const histDrawdowns=HALVING_HISTORY.map(c=>{
+        const peakIdx=100*c.peakPrice/c.startPrice,bottomIdx=100*c.bottomPrice/c.startPrice;
+        const bottomOffset=c.bottomDay-c.peakDay;
+        if(daysSincePeak>=bottomOffset)return{label:c.label,dd:(bottomIdx/peakIdx-1)*100,pastBottom:true};
+        const frac=daysSincePeak/bottomOffset;
+        const idx=peakIdx*Math.pow(bottomIdx/peakIdx,frac);
+        return{label:c.label,dd:(idx/peakIdx-1)*100,pastBottom:false};
+      });
+      const avgHist=histDrawdowns.reduce((s,h)=>s+h.dd,0)/histDrawdowns.length;
+      const gap=dd-avgHist; // positive = shallower (less negative) than history
+      const monthsIn=(daysSincePeak/30.44).toFixed(1);
+      const perCycle=histDrawdowns.map(h=>h.label+': '+h.dd.toFixed(0)+'%'+(h.pastBottom?' (already past its bottom by this point)':'')).join(' · ');
+      fitEl.innerHTML='<b>Pattern fit:</b> this cycle is '+Math.abs(gap).toFixed(0)+' points '+(gap>0?'shallower':'deeper')+
+        ' than the 2012/2016/2020 average ('+dd.toFixed(0)+'% vs '+avgHist.toFixed(0)+'% average) at the same '+monthsIn+' months past peak. '+
+        (gap>0?'Historically, corrections at this stage still had further to fall before bottoming — or ETF/institutional demand this cycle may be structurally cushioning the drop. Genuinely unresolved which.':'This cycle has already fallen further than history at this stage.')+
+        '<br><span class="opacity-70">'+perCycle+'</span>';
+    }
+  }
 
   // ---- Historical cycle overlay chart (log scale, days-since-halving x-axis) ----
   const curNowIdx=btcNow>0?100*btcNow/CURRENT_CYCLE_START_PRICE:null;
