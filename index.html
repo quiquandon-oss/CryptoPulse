@@ -2645,6 +2645,14 @@ function scoreHeadlineBatch(items){
 // Hyperliquid — already proven reliable all session for HYPE/SOL/LINK/oil/
 // gold/EUR, and it's the same one API call (fetchHyperliquidAssets, now
 // including BTC/ETH) rather than a new dependency.
+// Hyperliquid's funding formula bakes in a FIXED interest-rate component of
+// 0.01% per 8h (0.00125%/hour), documented at hyperliquid.gitbook.io/trading/
+// funding — present on every perp regardless of actual positioning. Left in,
+// a perfectly neutral market (zero real premium) scores ~60/100 here instead
+// of 50, because the raw rate is never really centered on zero. Subtracting
+// it isolates the premium component — the part that actually reflects
+// bullish/bearish crowding — before scoring.
+const HL_FUNDING_FLOOR_HOURLY=0.0000125;
 async function srcFundingRate(){
   const assets=await fetchHyperliquidAssets();
   const btc=assets['BTC'],eth=assets['ETH'];
@@ -2652,7 +2660,7 @@ async function srcFundingRate(){
   // Hyperliquid funding is hourly; ×8 for an 8h-equivalent rate so the score's
   // meaning (and its scale/threshold below) stays consistent with the old
   // Binance-based (8h) convention rather than changing what "funding=50" means.
-  const avgRate8h=(parseFloat(btc.funding)*8+parseFloat(eth.funding)*8)/2;
+  const avgRate8h=((parseFloat(btc.funding)-HL_FUNDING_FLOOR_HOURLY)*8+(parseFloat(eth.funding)-HL_FUNDING_FLOOR_HOURLY)*8)/2;
   return{score:to0_100(satur(avgRate8h*100,0.05))};
 }
 async function srcLongShort(){
@@ -5298,7 +5306,7 @@ async function srcHypeFundingForComposite(){
   const assets=await fetchHyperliquidAssets();
   const c=assets.HYPE;
   if(!c)throw new Error('HYPE not found in Hyperliquid universe');
-  const aprPct=parseFloat(c.funding)*24*365*100;
+  const aprPct=(parseFloat(c.funding)-HL_FUNDING_FLOOR_HOURLY)*24*365*100;
   return{score:to0_100(satur(aprPct,50))};
 }
 function loadHypeFunding(){
