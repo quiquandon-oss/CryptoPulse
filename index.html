@@ -5056,9 +5056,15 @@ async function init(){LS.load();buildMobileNav();wire();paintNav();wireSwipeNav(
   await getPrices();render();  // live prices on top
   await backfillPriceHistoryGaps();render(); // fill any missed days with real history, not flat-fill
   getFG();
-  // Warm the sentiment/technical pipeline in the background regardless of
-  // starting tab — previously this only ran once you tapped into Sentiment,
-  // leaving the Radar badge blank and the tab itself stale on first load.
+  // Warm both background pipelines on boot, regardless of starting tab:
+  // - renderCyclesTab() computes the regime scorecard / on-chain divergence /
+  //   sector rotation / 50wk EMA alignment signals that Trader Analysis reads
+  //   from window.__last* — started first so it has a head start before
+  //   initSentimentTab() reaches its own Trader Analysis payload build.
+  // - initSentimentTab() covers sentiment composite + technicals + trader analysis.
+  // Previously both only ran once you manually visited their tabs, leaving the
+  // Radar badge blank and both tabs stale on first load.
+  renderCyclesTab();
   initSentimentTab().catch(err=>console.error('Background sentiment prefetch failed:',err));
   loadHypeFunding();
   setInterval(()=>{getFx();getFG();getPrices().then(render);if(state.view==='sentiment')loadHypeFunding();},60000);}
