@@ -504,6 +504,17 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
     <!-- =============== CYCLES (new, separate from Scenarios above — nothing
          in the original tab was touched) =============== -->
     <section id="v-cycles" class="hidden space-y-4">
+      <!-- ═══ Regime Scorecard — the "pattern across everything" view: instead
+           of trusting any single signal (ETF flows, funding, sentiment, gold
+           regime, per-coin phase) alone, count how many currently point the
+           same direction. One wobble in one factor means nothing; several
+           aligned at once is the actual signal. ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+        <h2 class="font-semibold mb-1">Regime Scorecard</h2>
+        <p class="text-xs text-mutet mb-3">Grouped by how far out each signal actually speaks to — short-term positioning, medium-term trend confirmation, long-term structure — instead of blending everything into one number. A factor with no data this cycle shows why (grayed out) and is excluded from the ratio, not counted as a silent neutral vote.</p>
+        <div id="cycRegimeScorecard">Loading…</div>
+      </div>
+
       <!-- ═══ Hero row: phase icon (color-tinted), circular cycle dial, ATH
            drawdown gauge — replaces the old plain stat-card grid. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5" id="cycHeroCard">
@@ -560,17 +571,6 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <div class="h-[160px]"><canvas id="cycDiminishingChart"></canvas></div>
         <div class="space-y-2 mt-3" id="cycDiminishingTable"></div>
         <p class="text-[10px] text-mutet mt-2">Portfolio-adjusted Bull case discount factor is a judgment call (0.65x on the gain portion only), not a calibrated model.</p>
-      </div>
-
-      <!-- ═══ Regime Scorecard — the "pattern across everything" view: instead
-           of trusting any single signal (ETF flows, funding, sentiment, gold
-           regime, per-coin phase) alone, count how many currently point the
-           same direction. One wobble in one factor means nothing; several
-           aligned at once is the actual signal. ═══ -->
-      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
-        <h2 class="font-semibold mb-1">Regime Scorecard</h2>
-        <p class="text-xs text-mutet mb-3">Grouped by how far out each signal actually speaks to — short-term positioning, medium-term trend confirmation, long-term structure — instead of blending everything into one number. A factor with no data this cycle shows why (grayed out) and is excluded from the ratio, not counted as a silent neutral vote.</p>
-        <div id="cycRegimeScorecard">Loading…</div>
       </div>
 
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
