@@ -4589,7 +4589,15 @@ function whaleTileIsUnknown(label){
 function renderWhaleTile(){
   const el=$('#whaleTileBody');if(!el)return;
   fetch(`${PULSE_WORKER_URL}/whale-proxy`,{cache:'no-store'}).then(r=>r.json()).then(json=>{
-    const items=(json.items||[]).filter(it=>WHALE_TILE_SYMBOLS.includes(it.symbol));
+    const rawItems=json.items||[];
+    if(!rawItems.length){
+      const dbg=json.debug;
+      el.innerHTML='<p class="text-xs text-mutet">No transfers parsed at all this cycle'+
+        (dbg?' (page length '+dbg.htmlLength+', contains "transferred": '+dbg.containsTransferredWord+' — likely a fetch/parsing issue, not genuinely empty)':'')+
+        '.</p>';
+      return;
+    }
+    const items=rawItems.filter(it=>WHALE_TILE_SYMBOLS.includes(it.symbol));
     if(!items.length){el.innerHTML='<p class="text-xs text-mutet">No BTC/ETH/SOL/LINK transfers in the current window.</p>';return;}
     const classified=items.map(it=>{
       const fromEx=whaleTileIsExchange(it.from),toEx=whaleTileIsExchange(it.to);
