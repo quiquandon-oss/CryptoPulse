@@ -309,7 +309,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <h2 class="font-semibold">My Crypto</h2>
         <button id="goDca" class="text-sm font-semibold bg-neon/15 hover:bg-neon/25 text-neon border border-neon/30 rounded-lg px-3 py-1.5 transition">+ DCA</button>
       </div>
-      <p class="text-[10px] text-mutet mb-3">🤖 Signal = rule-based score from RSI, your cost basis, 30d trend &amp; Fear/Greed — not financial advice.</p>
+      <p class="text-[10px] text-mutet mb-3">🤖 Signal = rule-based score from RSI, your cost basis, 30d trend &amp; Combined sentiment — short-term only, not financial advice. Cycle phase (shown separately below) is a distinct long-term read — deliberately not blended into the same number.</p>
       <div id="holdingCards" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4"></div>
     </section>
 
@@ -420,6 +420,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
 
     <!-- =============== SCENARIO =============== -->
     <section id="v-scenario" class="hidden space-y-4">
+      <div id="scenReviewBanner"></div>
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-start justify-between mb-4">
           <div><h2 class="font-semibold">Portfolio Scenarios</h2><p class="text-xs text-mutet mt-0.5">2019–2024 market cycles · not financial advice</p></div>
@@ -435,6 +436,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           </div>
         </div>
         <p id="scenMacroContext" class="text-[10px] text-mutet mb-2"></p>
+        <p id="scenSigmaNote" class="text-[10px] text-mutet mb-2"></p>
         <div class="flex items-center justify-between mb-1.5">
           <p class="text-[10px] text-mutet">🤏 pinch / scroll / drag to zoom · compare vs break-even</p>
           <button id="scenZoomReset" class="hidden text-[10px] font-semibold text-mutet bg-panel2 hover:bg-line border border-line rounded-lg px-2 py-1 transition">↺ Reset zoom</button>
@@ -478,6 +480,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           </div>
         </div>
         <p class="text-[10px] text-mutet mt-3">Between your 6M/2Y/5Y checkpoints, values assume a constant growth rate within each segment. Beyond 5Y, the last segment's rate is extended forward — a judgment call, not a calibrated forecast.</p>
+        <p class="text-[10px] mt-1" id="scenTacticalTilt"></p>
       </div>
 
       <!-- Scenario tracking: scores Bear/Base/Bull against what actually
@@ -1346,6 +1349,8 @@ function renderCards(){const host=$('#holdingCards');host.innerHTML='';
   ordered.forEach(a=>{const s=statOf(a),m=META[a]||{name:a,c:'#888'},up=s.chg>=0,pup=s.pnl>=0,d=pdec(s.p);
     const v=coinVerdict(a);
     const rsi=calcRSI(a,14),rsiCol=rsi<30?'#3BF38B':rsi>70?'#FF5C72':'#F5B843'; // <30 oversold (green), >70 overbought (red), else neutral (orange)
+    const cp=COIN_PARAMS[a];
+    const phaseInfo=cp&&cp.ath&&s.p?coinPhaseAnalysis(a,cp,(s.p-cp.ath)/cp.ath*100):null;
     const el=document.createElement('div');
     el.className='rounded-2xl border p-4 border-line bg-panel';
     el.innerHTML=`<div class="flex items-center gap-2.5 mb-3">
@@ -1376,6 +1381,10 @@ function renderCards(){const host=$('#holdingCards');host.innerHTML='';
         </div>
         <p class="text-[10px] text-mutet leading-snug">${v.reasons.join(' · ')}</p>
       </div>
+      ${phaseInfo?`<div class="mt-2 pt-2 border-t border-line flex items-center justify-between">
+        <span class="text-[10px] text-mutet uppercase tracking-wide">Cycle (long-term)</span>
+        <span class="text-[10px] font-semibold" style="color:${phaseInfo.phaseColor}">${phaseInfo.phase}</span>
+      </div>`:''}
       <button data-view-chart="${a}" class="viewChartBtn mt-3 w-full text-xs font-semibold bg-panel2 hover:bg-line border border-line rounded-lg py-1.5 transition">View chart</button>`;
     host.appendChild(el);});
   ordered.forEach(a=>{const cv=$('#sp_'+a);if(cv)miniSpark(cv,a);});
@@ -4326,6 +4335,47 @@ function renderScenarioMacroContext(){
   if(gold&&gold.available!==false)parts.push('Gold: '+(gold.display||'—'));
   el.textContent=parts.length?('Macro context (from the Cycles tab\u2019s Regime Scorecard, for awareness — not used in the Bear/Base/Bull math above): '+parts.join(' · ')):'';
 }
+// ---- Periodic Bear/Base/Bull review nudge: a LIGHTWEIGHT, infrequent
+// workflow prompt, not continuous reactivity — the human stays the final
+// judgment-maker, on a ~90-day cadence, with real evidence attached rather
+// than a bare "time to review" reminder. First-ever visit baselines against
+// APP_TRACKING_START rather than "now", so an established portfolio doesn't
+// immediately nag on the very first render. ----
+const SCEN_REVIEW_INTERVAL_DAYS=90;
+function loadScenLastReview(){
+  try{const v=localStorage.getItem('cp2_scen_last_review');return v?parseInt(v,10):null;}catch(e){return null;}
+}
+function markScenReviewed(){
+  try{localStorage.setItem('cp2_scen_last_review',String(Date.now()));}catch(e){}
+  renderScenarioReviewBanner();
+}
+function renderScenarioReviewBanner(){
+  const el=$('#scenReviewBanner');if(!el)return;
+  let lastReview=loadScenLastReview();
+  if(!lastReview){
+    lastReview=new Date(APP_TRACKING_START+'T00:00:00').getTime();
+    try{localStorage.setItem('cp2_scen_last_review',String(lastReview));}catch(e){}
+  }
+  const daysSince=Math.floor((Date.now()-lastReview)/86400000);
+  if(daysSince<SCEN_REVIEW_INTERVAL_DAYS){el.innerHTML='';return;}
+  el.innerHTML='<div class="rounded-xl border border-line bg-panel2 px-3 py-2 flex items-center justify-between gap-3">'+
+    '<p class="text-[10px] text-mutet">It\u2019s been '+daysSince+'d since you last reviewed your Bear/Base/Bull assumptions. Loading recent regime history…</p>'+
+    '<button onclick="markScenReviewed()" class="text-[10px] font-semibold bg-panel border border-line rounded-lg px-2 py-1 shrink-0">Mark reviewed</button>'+
+  '</div>';
+  fetch(`${PULSE_WORKER_URL}/history`,{cache:'no-store'}).then(r=>r.json()).then(({history})=>{
+    const p=el.querySelector('p');if(!p)return;
+    if(!history||!history.length){p.textContent='It\u2019s been '+daysSince+'d since you last reviewed your Bear/Base/Bull assumptions. (No history available to summarize.) Still reflect your view?';return;}
+    const windowStart=Date.now()-daysSince*86400000;
+    const rows=history.filter(h=>h.ts>=windowStart&&typeof h.regimeMag==='number');
+    let summary=rows.length
+      ?(' Over that period, Regime Scorecard conviction averaged '+(rows.reduce((s,r)=>s+r.regimeMag,0)/rows.length>=0?'+':'')+(rows.reduce((s,r)=>s+r.regimeMag,0)/rows.length).toFixed(2)+' ('+rows.length+' reading'+(rows.length===1?'':'s')+').')
+      :' No regime-conviction history recorded for that window yet.';
+    p.textContent='It\u2019s been '+daysSince+'d since you last reviewed your Bear/Base/Bull assumptions.'+summary+' Still reflect your view?';
+  }).catch(()=>{
+    const p=el.querySelector('p');
+    if(p)p.textContent='It\u2019s been '+daysSince+'d since you last reviewed your Bear/Base/Bull assumptions. (Could not load recent regime history.)';
+  });
+}
 function renderScenario(){
   const t=totals();
   const cur=t.val,cost=t.cost;
@@ -4340,8 +4390,14 @@ function renderScenario(){
   }
   // ---- Fan chart (Base ±1σ), same builder/methodology as the Cycles tab,
   // plus a break-even reference line — replaces the old discrete 3-line
-  // Bear/Base/Bull chart with a probabilistic band around your own Base case. ----
-  const portSigma=computePortSigma();
+  // Bear/Base/Bull chart with a probabilistic band around your own Base case.
+  // Band WIDTH (not the Base case itself) is adjusted by how much the Regime
+  // Scorecard's short/medium/long buckets currently agree — see
+  // regimeSigmaMultiplier() for why this is safe to do and moving the center
+  // wouldn't be. ----
+  const basePortSigma=computePortSigma();
+  const{mult:sigmaMult,reason:sigmaReason}=regimeSigmaMultiplier();
+  const portSigma=basePortSigma*sigmaMult;
   const Ts=[0,0.5,2,5];
   const base=SCEN.base.map(m=>cur*m);
   const upper=Ts.map((T,i)=>T===0?cur:base[i]*Math.exp(portSigma*Math.sqrt(T)));
@@ -4352,9 +4408,11 @@ function renderScenario(){
   const cfg=buildFanChartConfig(scenFanState,{breakEven:cost,zoomEnabled:true,zoomMode:'xy',onPanComplete:scenZoomStateChanged,onZoomComplete:scenZoomStateChanged});
   if(scenChartInst){scenChartInst.data=cfg.data;scenChartInst.options=cfg.options;scenChartInst.update();}
   else scenChartInst=new Chart(cv,cfg);
+  const sigmaNoteEl=$('#scenSigmaNote');if(sigmaNoteEl)sigmaNoteEl.textContent=sigmaReason;
   renderScenarioDateReadout();
   renderScenarioTracking();
   renderScenarioMacroContext();
+  renderScenarioReviewBanner();
   renderProba();
   renderBottomSignal();
 }
@@ -4371,8 +4429,28 @@ function renderScenarioDateReadout(){
   const T=Math.max(0,(target-new Date())/(365.25*86400000));
   const Ts=[0,0.5,2,5];
   const bearVal=cur*interpScenario(SCEN.bear,Ts,T);
-  const baseVal=cur*interpScenario(SCEN.base,Ts,T);
+  let baseVal=cur*interpScenario(SCEN.base,Ts,T);
   const bullVal=cur*interpScenario(SCEN.bull,Ts,T);
+  // ---- Tactical tilt: a CLEARLY SEPARATE, time-boxed adjustment to the Base
+  // display only — never touches SCEN, never touches the chart, and fully
+  // decays to zero by day 90. This is the "mixed judgment call" done safely:
+  // the structural 6M/2Y/5Y assumption stays exactly what you set; only the
+  // near-term display gets a visible, self-expiring nudge from current
+  // regime conviction, with the math shown so it's never mistaken for a
+  // change to the underlying scenario itself. ----
+  const tiltEl=$('#scenTacticalTilt');
+  const sc=window.__lastRegimeScorecard;
+  const tiltHorizonYears=90/365.25;
+  if(tiltEl&&sc&&sc.overallMag!=null&&T<tiltHorizonYears&&T>=0){
+    const decay=1-(T/tiltHorizonYears);
+    const maxTiltPct=8; // cap: up to +-8% at T=0 with full regime conviction
+    const tiltPct=sc.overallMag*maxTiltPct*decay;
+    baseVal=baseVal*(1+tiltPct/100);
+    const daysLeft=Math.round((tiltHorizonYears-T)*365.25);
+    tiltEl.innerHTML='<span style="color:'+(tiltPct>=0?'#3BF38B':'#FF5C72')+'">Tactical tilt: '+(tiltPct>=0?'+':'')+tiltPct.toFixed(1)+'%</span> applied to Base above, from current Regime Scorecard conviction — fades to 0 over the next '+daysLeft+'d. Does not change your Bear/Base/Bull assumptions themselves.';
+  }else if(tiltEl){
+    tiltEl.textContent=T>=tiltHorizonYears?'Tactical tilt window (90d) has passed for this date — showing your unadjusted structural assumption.':'';
+  }
   $('#sc_bear_at_date').textContent=money(bearVal);
   $('#sc_base_at_date').textContent=money(baseVal);
   $('#sc_bull_at_date').textContent=money(bullVal);
@@ -4909,6 +4987,29 @@ function computePortSigma(){
   heldCoins.forEach(a=>{const v=statOf(a).val;const{sigma}=sigmaFor(a);sigmaSum+=sigma*v;valSum+=v;});
   return valSum>0?sigmaSum/valSum:0.7;
 }
+// ---- Regime-agreement sigma multiplier: the Scenario tab's Bear/Base/Bull
+// are deliberately static structural priors — reactively moving the Base
+// case center based on a daily regime reading would be a real modeling
+// error (conflating a days-to-weeks signal with a 6M/2Y/5Y assumption).
+// What CAN legitimately move: how confident the band around Base should
+// look. When the Regime Scorecard's short/medium/long buckets agree (small
+// spread between shortMag/midMag/longMag), that's higher conviction ->
+// tighten the band. When they disagree (like short-term neutral, long-term
+// mixed — a common real state), that's genuine uncertainty -> widen it.
+// Returns a multiplier in [0.85, 1.30]; 1.0 (no data yet) leaves portSigma
+// exactly as before. ----
+function regimeSigmaMultiplier(){
+  const sc=window.__lastRegimeScorecard;
+  if(!sc)return{mult:1,reason:'No Regime Scorecard data yet this session — band uses pure portfolio volatility.'};
+  const mags=[sc.shortMag,sc.midMag,sc.longMag].filter(m=>typeof m==='number');
+  if(mags.length<2)return{mult:1,reason:'Not enough Regime Scorecard buckets available — band uses pure portfolio volatility.'};
+  const spread=Math.max(...mags)-Math.min(...mags); // 0 = full agreement, up to 2 = max disagreement
+  const mult=0.85+Math.min(spread,2)/2*0.45;
+  const reason=spread<0.4
+    ?'Short/medium/long-term buckets broadly agree — band tightened '+((1-mult)*100).toFixed(0)+'% vs. pure volatility.'
+    :'Short/medium/long-term buckets disagree (spread '+spread.toFixed(2)+') — band widened '+((mult-1)*100).toFixed(0)+'% vs. pure volatility.';
+  return{mult,reason};
+}
 // ---- Shared config builder — used for the Cycles inline chart, its
 // fullscreen overlay, AND the Scenario tab's fan chart, so all three never
 // drift out of sync. opts: {isFullscreen, breakEven, zoomEnabled, zoomMode,
@@ -5269,10 +5370,18 @@ function coinVerdict(a){
   score+=Math.max(-10,Math.min(10,-t30*0.15)); // contrarian confirming nudge, same framing as the Market Bottom Signal
   if(t30<=-15)reasons.push('30d trend '+t30.toFixed(0)+'%');
   else if(t30>=15)reasons.push('30d trend +'+t30.toFixed(0)+'%');
-  if(fgValue!=null){ // market-wide sentiment, applies to every coin the same way
-    score+=(50-fgValue)*0.3;
-    if(fgValue<=25)reasons.push('Fear & Greed '+fgValue+' (extreme fear)');
-    else if(fgValue>=75)reasons.push('Fear & Greed '+fgValue+' (extreme greed)');
+  // Combined sentiment (Sentiment+Technical composite) replaces raw Fear&Greed
+  // here — Combined already includes fng as one of ~15 ingredients, so using
+  // both would weight the same underlying crowd-sentiment signal twice under
+  // two different names. Falls back to fgValue if Combined isn't populated
+  // yet this session (e.g. Sentiment source fetch still in flight/failed).
+  const combinedScore=window.__lastLiveConditions?.combined;
+  const moodScore=combinedScore!=null?combinedScore:fgValue;
+  const moodLabel=combinedScore!=null?'Combined sentiment':'Fear & Greed';
+  if(moodScore!=null){
+    score+=(50-moodScore)*0.3;
+    if(moodScore<=25)reasons.push(moodLabel+' '+moodScore+' (bearish)');
+    else if(moodScore>=75)reasons.push(moodLabel+' '+moodScore+' (bullish)');
   }
   score=Math.max(0,Math.min(100,Math.round(score)));
   let label,color;
