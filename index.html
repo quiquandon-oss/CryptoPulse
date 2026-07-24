@@ -650,7 +650,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v6h-6"/></svg>
           </button>
         </div>
-        <p class="text-xs text-mutet mb-3">Recent BTC/ETH/SOL/LINK transfers involving a named exchange, via Whale Alert's public Telegram feed. Standalone info only — not yet feeding Sentiment, the Regime Scorecard, or Trader Analysis.</p>
+        <p class="text-xs text-mutet mb-3">Recent BTC/ETH/SOL/LINK transfers involving a named exchange, via Whale Alert's public Telegram feed, with a plain-language AI summary. Standalone info only — not yet feeding Sentiment, the Regime Scorecard, or Trader Analysis.</p>
         <div id="whaleTileBody">Loading…</div>
       </div>
     </section>
@@ -4610,7 +4610,9 @@ function renderWhaleTile(){
       return{...it,direction};
     }).filter(it=>it.direction); // only the interpretable ones — exchange<->exchange and unknown<->unknown excluded
     if(!classified.length){el.innerHTML='<p class="text-xs text-mutet">No labeled-exchange transfers in the current window (only exchange<->unknown-wallet moves are shown here).</p>';return;}
-    el.innerHTML=classified.slice(0,10).map(it=>{
+    el.innerHTML=
+      '<div id="whaleAnalysisBody" class="text-xs text-mutet mb-3 pb-3 border-b border-line/50">Loading plain-language summary…</div>'+
+      classified.slice(0,10).map(it=>{
       const isOutflow=it.direction==='outflow';
       const color=isOutflow?'#3BF38B':'#FF5C72';
       const arrow=isOutflow?'↗':'↘';
@@ -4623,6 +4625,20 @@ function renderWhaleTile(){
         <span class="text-xs font-semibold shrink-0 ml-2" style="color:${color}">${arrow} ${label}</span>
       </div>`;
     }).join('');
+    // ---- Plain-language AI narration — CryptoPulse already did the actual
+    // classification above; the Worker's LLM only explains it in everyday
+    // language for someone unfamiliar with exchange-flow reading, it never
+    // computes or invents which transfers were outflow/inflow. ----
+    fetch(`${PULSE_WORKER_URL}/whale-analysis`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transfers:classified})})
+      .then(r=>r.json())
+      .then(res=>{
+        const analysisEl=$('#whaleAnalysisBody');if(!analysisEl)return;
+        if(res.error){analysisEl.textContent='Could not load summary: '+res.error;return;}
+        analysisEl.textContent=res.analysis;
+      })
+      .catch(err=>{
+        const analysisEl=$('#whaleAnalysisBody');if(analysisEl)analysisEl.textContent='Could not load summary: '+(err&&err.message?err.message:String(err));
+      });
   }).catch(err=>{
     el.innerHTML='<p class="text-xs text-down">Could not load whale data: '+(err&&err.message?err.message:String(err))+'</p>';
   });
