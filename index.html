@@ -431,6 +431,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             </button>
           </div>
         </div>
+        <p id="scenMacroContext" class="text-[10px] text-mutet mb-2"></p>
         <div class="flex items-center justify-between mb-1.5">
           <p class="text-[10px] text-mutet">🤏 pinch / scroll / drag to zoom · compare vs break-even</p>
           <button id="scenZoomReset" class="hidden text-[10px] font-semibold text-mutet bg-panel2 hover:bg-line border border-line rounded-lg px-2 py-1 transition">↺ Reset zoom</button>
@@ -543,6 +544,10 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <h2 class="font-semibold mb-1">Regime Scorecard</h2>
         <p class="text-xs text-mutet mb-3">Grouped by how far out each signal actually speaks to — short-term positioning, medium-term trend confirmation, long-term structure — instead of blending everything into one number. A factor with no data this cycle shows why (grayed out) and is excluded from the ratio, not counted as a silent neutral vote.</p>
         <div id="cycRegimeScorecard">Loading…</div>
+      </div>
+
+      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+        <div id="cycRegimeBacktest">Loading…</div>
       </div>
 
       <!-- ═══ Hero row: phase icon (color-tinted), circular cycle dial, ATH
@@ -2886,7 +2891,7 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
     try{
       await fetch(`${PULSE_WORKER_URL}/history`,{
         method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({score:composite,technicalScore:typeof technicalScore==='number'?technicalScore:null,btcPrice:pxUsd('BTC')||null,sources:sourcesSnapshot,goldRegime:window.__lastGoldRegime||null})
+        body:JSON.stringify({score:composite,technicalScore:typeof technicalScore==='number'?technicalScore:null,btcPrice:pxUsd('BTC')||null,sources:sourcesSnapshot,goldRegime:window.__lastGoldRegime||null,regimeMag:window.__lastRegimeScorecard?.overallMag??null})
       });
     }catch(e){console.warn('Failed to POST composite score to /history:',e.message);}
   }
@@ -4050,6 +4055,29 @@ function renderScenarioTracking(){
     '</p>'+
     '<p class="text-[10px] text-mutet mt-2">Baseline: '+APP_TRACKING_START+' (your first recorded transaction) @ '+moneyIn(baselinePrice,'USD',0)+' ('+daysSince+'d ago). Figures shown in USD to avoid approximating a historical EUR/USD rate.</p>';
 }
+// ---- Macro context caption: surfaces the Regime Scorecard's Oil/Geopolitics/
+// Gold reads here for awareness — display only, deliberately NOT fed into the
+// Bear/Base/Bull multipliers above. Those are 6M/2Y/5Y structural cycle
+// assumptions; a geopolitical or trade-policy shock is a days-to-weeks
+// disruption. Conflating the two timeframes would be a real modeling error,
+// not an improvement — so this stays informational, not an input. ----
+function renderScenarioMacroContext(){
+  const el=$('#scenMacroContext');if(!el)return;
+  const sc=window.__lastRegimeScorecard;
+  if(!sc){el.textContent='';return;}
+  const find=label=>[...(sc.shortTerm||[]),...(sc.midTerm||[])].find(f=>f.label===label);
+  const oil=find('Oil (Brent, geopolitical proxy)');
+  const geo=find('Geopolitics news (BBC)');
+  const reg=find('Regulatory/trade-policy news');
+  const gold=find('Gold regime');
+  const describe=f=>!f||f.available===false?null:(f.tag==='bearish'?'⚠ bearish-lean':f.tag==='bullish'?'bullish-lean':'neutral');
+  const parts=[];
+  const oilD=describe(oil);if(oilD)parts.push('Oil '+oilD);
+  const geoD=describe(geo);if(geoD)parts.push('Geopolitics '+geoD);
+  const regD=describe(reg);if(regD)parts.push('Trade-policy news '+regD);
+  if(gold&&gold.available!==false)parts.push('Gold: '+(gold.display||'—'));
+  el.textContent=parts.length?('Macro context (from the Cycles tab\u2019s Regime Scorecard, for awareness — not used in the Bear/Base/Bull math above): '+parts.join(' · ')):'';
+}
 function renderScenario(){
   const t=totals();
   const cur=t.val,cost=t.cost;
@@ -4078,6 +4106,7 @@ function renderScenario(){
   else scenChartInst=new Chart(cv,cfg);
   renderScenarioDateReadout();
   renderScenarioTracking();
+  renderScenarioMacroContext();
   renderProba();
   renderBottomSignal();
 }
@@ -4155,6 +4184,50 @@ const HALVING_HISTORY=[
 ];
 const CURRENT_CYCLE_START_PRICE=63900;
 
+// ---- Regime Scorecard self-backtest: does "leaning bullish/bearish" actually
+// precede a matching BTC move? Uses the SAME D1 history already fetched for
+// everything else in renderCyclesTab — no extra network call. Piggybacks on
+// regimeMag, written alongside the composite score on the existing throttled
+// POST (computeAndSyncCompositeScore). NOTE: whether this field actually
+// persists depends on the PulseWorker's D1 schema accepting it — not
+// something verifiable from this repo — so this fails gracefully (shows "not
+// enough data" rather than erroring) if it's simply never present.
+function computeRegimeBacktest(history){
+  const HORIZONS=[{label:'1d',days:1},{label:'7d',days:7},{label:'30d',days:30}];
+  return HORIZONS.map(h=>{
+    let hits=0,total=0;
+    const targetMs=h.days*86400000,tolerance=targetMs*0.3; // within 30% of the horizon length counts as "close enough"
+    history.forEach(row=>{
+      if(row.regimeMag==null||Math.abs(row.regimeMag)<0.05||row.btcPrice==null)return; // skip rows with no real call
+      const targetTs=row.ts+targetMs;
+      let closest=null,closestDiff=Infinity;
+      history.forEach(r2=>{
+        if(r2.ts<=row.ts||r2.btcPrice==null)return;
+        const diff=Math.abs(r2.ts-targetTs);
+        if(diff<closestDiff){closestDiff=diff;closest=r2;}
+      });
+      if(!closest||closestDiff>tolerance)return;
+      const realizedUp=(closest.btcPrice-row.btcPrice)/row.btcPrice>0;
+      const predictedUp=row.regimeMag>0;
+      total++;
+      if(predictedUp===realizedUp)hits++;
+    });
+    return{label:h.label,hits,total,hitRate:total>0?hits/total:null};
+  });
+}
+function renderRegimeBacktest(history){
+  const el=$('#cycRegimeBacktest');if(!el)return;
+  const hasField=history.some(h=>h.regimeMag!=null);
+  if(!hasField){
+    el.innerHTML='<p class="text-[10px] text-mutet">No regime-magnitude history yet — this starts accumulating from now (and needs a few weeks before the longer horizons have anything to check).</p>';
+    return;
+  }
+  const results=computeRegimeBacktest(history);
+  el.innerHTML='<p class="text-[10px] uppercase tracking-wide text-mutet mb-2">Track record (self-check)</p>'+
+    '<div class="grid grid-cols-3 gap-2">'+
+    results.map(r=>`<div class="text-center"><p class="text-[9px] text-mutet">${r.label} forward</p><p class="font-bold text-sm">${r.total>0?(r.hitRate*100).toFixed(0)+'%':'—'}</p><p class="text-[9px] text-mutet">${r.total} call${r.total===1?'':'s'}</p></div>`).join('')+
+    '</div><p class="text-[9px] text-mutet mt-2">% of past scorecard readings (excluding near-zero/no-call ones) where the overall lean matched BTC\u2019s realized direction over that horizon. Early numbers with few calls aren\u2019t statistically reliable — treat as directional, not confident, until more history accumulates.</p>';
+}
 function renderCyclesTab(){
   const now=new Date();
   // ---- Halving position + phase estimate ----
@@ -4231,6 +4304,11 @@ function renderCyclesTab(){
         ' than the 2012/2016/2020 average ('+dd.toFixed(0)+'% vs '+avgHist.toFixed(0)+'% average) at the same '+monthsIn+' months past peak. '+
         (gap>0?'Historically, corrections at this stage still had further to fall before bottoming — or ETF/institutional demand this cycle may be structurally cushioning the drop. Genuinely unresolved which.':'This cycle has already fallen further than history at this stage.')+
         '<br><span class="opacity-70">'+perCycle+'</span>';
+      // Exposed for the Regime Scorecard's long-term bucket. Deliberately NOT
+      // tagged bullish when shallower — that reading is genuinely ambiguous
+      // (resilience vs. hasn't-bottomed-yet, per the caption above), so only
+      // "deeper than history" gets a directional (bearish) tag there.
+      window.__lastPatternFit={gap,dd,avgHist};
     }
   }
 
@@ -4306,6 +4384,7 @@ function renderCyclesTab(){
     const latest=history[history.length-1];
     let latestSources={};try{latestSources=latest.sources_json?JSON.parse(latest.sources_json):{};}catch(e){}
     const combined=(latest.score!=null&&latest.technicalScore!=null)?Math.round((latest.score+latest.technicalScore)/2):null;
+    renderRegimeBacktest(history);
     liveEl.innerHTML=`
       <div class="bg-panel2 rounded-lg px-3 py-2"><p class="text-mutet text-[10px]">Sentiment</p><p class="font-bold tnum">${latest.score??'—'}</p></div>
       <div class="bg-panel2 rounded-lg px-3 py-2"><p class="text-mutet text-[10px]">Technical</p><p class="font-bold tnum">${latest.technicalScore??'—'}</p></div>
@@ -4326,40 +4405,74 @@ function renderCyclesTab(){
     const etfDelta=(etfNow!=null&&etfPast!=null)?etfNow-etfPast:null;
 
     const tagOf=(v,bullAt,bearAt)=>v==null?'neutral':v>=bullAt?'bullish':v<=bearAt?'bearish':'neutral';
+    // Magnitude: -1..+1 conviction, alongside the existing bullish/bearish/
+    // neutral tag. A factor barely past its threshold and one deep in extreme
+    // territory used to count as the same single vote — this is what actually
+    // fixes that, without removing the vote-count display people are used to.
+    const magOf01=v=>v==null?0:Math.max(-1,Math.min(1,(v-50)/50));
+    const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
 
     // ---- SHORT-TERM (days): immediate sentiment/positioning reads ----
     const shortTerm=[
       combined!=null
-        ?{label:'Combined score',display:combined,tag:tagOf(combined,60,40),available:true}
-        :{label:'Combined score',display:'—',tag:'neutral',available:false,reason:'Sentiment or Technical score missing from the latest reading'},
+        ?{label:'Combined score',display:combined,tag:tagOf(combined,60,40),mag:magOf01(combined),available:true}
+        :{label:'Combined score',display:'—',tag:'neutral',mag:0,available:false,reason:'Sentiment or Technical score missing from the latest reading'},
       latestSources.funding!=null
-        ?{label:'BTC/ETH funding',display:latestSources.funding,tag:tagOf(latestSources.funding,55,45),available:true}
-        :{label:'BTC/ETH funding',display:'—',tag:'neutral',available:false,reason:'Not included in the latest Sentiment reading (source likely failed that cycle)'},
+        ?{label:'BTC/ETH funding',display:latestSources.funding,tag:tagOf(latestSources.funding,55,45),mag:magOf01(latestSources.funding),available:true}
+        :{label:'BTC/ETH funding',display:'—',tag:'neutral',mag:0,available:false,reason:'Not included in the latest Sentiment reading (source likely failed that cycle)'},
       latestSources.hypefunding!=null
-        ?{label:'HYPE funding',display:latestSources.hypefunding,tag:tagOf(latestSources.hypefunding,55,45),available:true}
-        :{label:'HYPE funding',display:'—',tag:'neutral',available:false,reason:'Not included in the latest Sentiment reading (source likely failed that cycle)'},
+        ?{label:'HYPE funding',display:latestSources.hypefunding,tag:tagOf(latestSources.hypefunding,55,45),mag:magOf01(latestSources.hypefunding),available:true}
+        :{label:'HYPE funding',display:'—',tag:'neutral',mag:0,available:false,reason:'Not included in the latest Sentiment reading (source likely failed that cycle)'},
+      // Oil/Geopolitics/Regulatory: NOT new data sources — these already exist
+      // in the Sentiment composite (Brent oil, BBC World geopolitics headlines,
+      // CoinDesk+The Block regulatory headlines) but were previously blended
+      // anonymously into the Combined score above, invisible on their own. A
+      // geopolitical or trade-policy shock (e.g. an oil spike from a Middle
+      // East conflict, or tariff-news sentiment) is now visible as its own
+      // line instead of hiding inside one blended number.
+      latestSources.oil!=null
+        ?{label:'Oil (Brent, geopolitical proxy)',display:latestSources.oil,tag:tagOf(latestSources.oil,55,45),mag:magOf01(latestSources.oil),available:true}
+        :{label:'Oil (Brent, geopolitical proxy)',display:'—',tag:'neutral',mag:0,available:false,reason:'Not included in the latest Sentiment reading (source likely failed that cycle)'},
+      latestSources.geopolitics!=null
+        ?{label:'Geopolitics news (BBC)',display:latestSources.geopolitics,tag:tagOf(latestSources.geopolitics,55,45),mag:magOf01(latestSources.geopolitics),available:true}
+        :{label:'Geopolitics news (BBC)',display:'—',tag:'neutral',mag:0,available:false,reason:'Not included in the latest Sentiment reading (source likely failed that cycle)'},
+      latestSources.regulatory!=null
+        ?{label:'Regulatory/trade-policy news',display:latestSources.regulatory,tag:tagOf(latestSources.regulatory,55,45),mag:magOf01(latestSources.regulatory),available:true}
+        :{label:'Regulatory/trade-policy news',display:'—',tag:'neutral',mag:0,available:false,reason:'Not included in the latest Sentiment reading (source likely failed that cycle)'},
     ];
 
     // ---- MEDIUM-TERM (weeks): trend-based reads, not single-day snapshots ----
     const midTerm=[
       etfDelta!=null
-        ?{label:'ETF flow trend (7d)',display:(etfDelta>=0?'+':'')+etfDelta.toFixed(0),tag:etfDelta>=10?'bullish':etfDelta<=-10?'bearish':'neutral',available:true}
-        :{label:'ETF flow trend (7d)',display:'—',tag:'neutral',available:false,reason:'etfflows missing from the latest reading, or no ~7-day-old reading found to compare against'},
-      latest.goldRegime
-        ?{label:'Gold regime',display:latest.goldRegime,tag:latest.goldRegime==='competing-haven'?'bearish':'neutral',available:true}
-        :{label:'Gold regime',display:'—',tag:'neutral',available:false,reason:'No gold regime classification in the latest reading'},
+        ?{label:'ETF flow trend (7d)',display:(etfDelta>=0?'+':'')+etfDelta.toFixed(0),tag:etfDelta>=10?'bullish':etfDelta<=-10?'bearish':'neutral',mag:clamp(etfDelta/30,-1,1),available:true}
+        :{label:'ETF flow trend (7d)',display:'—',tag:'neutral',mag:0,available:false,reason:'etfflows missing from the latest reading, or no ~7-day-old reading found to compare against'},
+      // FIX: this used to check the regime LABEL string (which can only ever
+      // be "competing-haven"=bearish or anything-else=neutral — structurally
+      // one-sided, could never register bullish regardless of real conditions).
+      // The composite's own gold score is already fully bidirectional
+      // (srcGoldFromHyperliquid inverts the reading under competing-haven,
+      // leaves it as-is under shared-narrative) — just use that number, same
+      // pattern as every other numeric factor here. Regime label kept as the
+      // display text since it's more readable than a bare score.
+      latestSources.gold!=null
+        ?{label:'Gold regime',display:latest.goldRegime||latestSources.gold,tag:tagOf(latestSources.gold,55,45),mag:magOf01(latestSources.gold),available:true}
+        :{label:'Gold regime',display:'—',tag:'neutral',mag:0,available:false,reason:'Not included in the latest Sentiment reading (source likely failed that cycle)'},
     ];
     if(onchain&&!onchain.error){
-      midTerm.push({label:'On-chain vs price (30d)',display:onchain.label,tag:onchain.tag,available:true});
+      // onchainSlope/priceSlope aren't on comparable scales to each other (no
+      // shared normalization, unlike rotation's gap below) — an honest ±1/0
+      // categorical magnitude for now rather than fabricating a continuous
+      // number from two incompatible units.
+      midTerm.push({label:'On-chain vs price (30d)',display:onchain.label,tag:onchain.tag,mag:onchain.tag==='bullish'?1:onchain.tag==='bearish'?-1:0,available:true});
       window.__lastOnChainDivergence=onchain; // exposed for Trader Analysis
     }else{
-      midTerm.push({label:'On-chain vs price (30d)',display:'—',tag:'neutral',available:false,reason:(onchain&&onchain.error)||'CoinMetrics fetch failed or returned too little history'});
+      midTerm.push({label:'On-chain vs price (30d)',display:'—',tag:'neutral',mag:0,available:false,reason:(onchain&&onchain.error)||'CoinMetrics fetch failed or returned too little history'});
     }
     if(rotation&&!rotation.error){
-      midTerm.push({label:'BTC vs Nasdaq (30d)',display:rotation.label,tag:rotation.tag,available:true});
+      midTerm.push({label:'BTC vs Nasdaq (30d)',display:rotation.label,tag:rotation.tag,mag:clamp(rotation.gap/0.01,-1,1),available:true});
       window.__lastSectorRotation=rotation; // exposed for Trader Analysis
     }else{
-      midTerm.push({label:'BTC vs Nasdaq (30d)',display:'—',tag:'neutral',available:false,reason:(rotation&&rotation.error)||'Nasdaq or BTC trend fetch failed'});
+      midTerm.push({label:'BTC vs Nasdaq (30d)',display:'—',tag:'neutral',mag:0,available:false,reason:(rotation&&rotation.error)||'Nasdaq or BTC trend fetch failed'});
     }
 
     // ---- LONG-TERM (months+): structural/cycle-position reads ----
@@ -4373,18 +4486,37 @@ function renderCyclesTab(){
     });
     const coinNet=coinBull-coinBear;
     const longTerm=coinTotal>0
-      ?[{label:'Per-coin phase mix',display:`${coinBull}\u2191 / ${coinBear}\u2193 of ${coinTotal}`,tag:coinNet>0?'bullish':coinNet<0?'bearish':'neutral',available:true}]
-      :[{label:'Per-coin phase mix',display:'—',tag:'neutral',available:false,reason:'No live prices available for any tracked coin'}];
+      ?[{label:'Per-coin phase mix',display:`${coinBull}\u2191 / ${coinBear}\u2193 of ${coinTotal}`,tag:coinNet>0?'bullish':coinNet<0?'bearish':'neutral',mag:clamp(coinNet/coinTotal,-1,1),available:true}]
+      :[{label:'Per-coin phase mix',display:'—',tag:'neutral',mag:0,available:false,reason:'No live prices available for any tracked coin'}];
     if(longTermEma&&!longTermEma.error){
       const alignment=classifyTechnicalAlignment(longTermEma.ema50,latest.technicalScore);
       if(alignment){
-        longTerm.push({label:'50wk EMA alignment',display:alignment.label,tag:alignment.tag,available:true});
+        longTerm.push({label:'50wk EMA alignment',display:alignment.label,tag:alignment.tag,mag:clamp((alignment.price-alignment.ema50)/alignment.ema50/0.15,-1,1),available:true});
         window.__lastTechnicalAlignment=alignment; // exposed for Trader Analysis
       }else{
-        longTerm.push({label:'50wk EMA alignment',display:'—',tag:'neutral',available:false,reason:'No live BTC price available to compare against the EMA'});
+        longTerm.push({label:'50wk EMA alignment',display:'—',tag:'neutral',mag:0,available:false,reason:'No live BTC price available to compare against the EMA'});
       }
     }else{
-      longTerm.push({label:'50wk EMA alignment',display:'—',tag:'neutral',available:false,reason:(longTermEma&&longTermEma.error)||'CoinGecko long-history fetch failed'});
+      longTerm.push({label:'50wk EMA alignment',display:'—',tag:'neutral',mag:0,available:false,reason:(longTermEma&&longTermEma.error)||'CoinGecko long-history fetch failed'});
+    }
+    // Pattern-fit (Cycles tab's drawdown-vs-history comparison) — only
+    // available once the Cycles tab's own render has computed it this
+    // session (boot prefetch now does this automatically, so in practice
+    // it's almost always there). Deliberately asymmetric: "deeper than
+    // history" is unambiguously bearish, but "shallower than history" is a
+    // genuinely contested read (resilience vs. hasn't-bottomed-yet) — so it
+    // gets tagged neutral, never bullish, matching the caption's own hedge.
+    if(window.__lastPatternFit){
+      const{gap}=window.__lastPatternFit;
+      longTerm.push({
+        label:'Cycle depth vs. history',
+        display:(gap>=0?'+':'')+gap.toFixed(0)+'pt',
+        tag:gap<-10?'bearish':'neutral',
+        mag:gap<0?clamp(gap/20,-1,0):0,
+        available:true
+      });
+    }else{
+      longTerm.push({label:'Cycle depth vs. history',display:'—',tag:'neutral',mag:0,available:false,reason:'Cycles tab pattern-fit not computed yet this session'});
     }
 
     const tagColor={bullish:'#00FF9C',bearish:'#FF2D55',neutral:'#F5B843'};
@@ -4398,7 +4530,14 @@ function renderCyclesTab(){
     const netScore=bullCount-bearCount;
     const overallLabel=netScore>=2?'Leaning bullish':netScore<=-2?'Leaning bearish':'Mixed / no clear alignment';
     const overallColor=netScore>=2?'#00FF9C':netScore<=-2?'#FF2D55':'#F5B843';
-    window.__lastRegimeScorecard={shortTerm,midTerm,longTerm,bullCount,bearCount,total:countedFactors.length,overallLabel}; // exposed for Trader Analysis
+    // Magnitude-weighted score: average conviction (-1..+1) across counted
+    // factors in each bucket, and overall — equal-weighted across the 3
+    // buckets (not just averaging all 9 factors flat), so long-term isn't
+    // diluted just because short-term happens to have more factors in it.
+    const bucketMag=list=>{const c=list.filter(f=>f.available!==false);return c.length?c.reduce((s,f)=>s+(f.mag||0),0)/c.length:0;};
+    const shortMag=bucketMag(shortTerm),midMag=bucketMag(midTerm),longMag=bucketMag(longTerm);
+    const overallMag=(shortMag+midMag+longMag)/3;
+    window.__lastRegimeScorecard={shortTerm,midTerm,longTerm,bullCount,bearCount,total:countedFactors.length,overallLabel,shortMag,midMag,longMag,overallMag}; // exposed for Trader Analysis + backtest
 
     // ---- Event calendar as a CONFIDENCE MODIFIER, not a bullish/bearish vote —
     // a nearby FOMC decision means near-term reads are more likely positioning
@@ -4412,14 +4551,22 @@ function renderCyclesTab(){
         <p class="text-[11px]" style="color:${fomcNear?'#FFC400':'#7A8499'}">FOMC decision in ${fomcDays} day${fomcDays===1?'':'s'}${fomcNear?' — near-term reads below are less reliable than usual, not more bullish or bearish' : ''}</p>
       </div>`;
 
-    const renderColumn=(title,list)=>{
+    const magBar=mag=>`
+      <div class="relative h-1.5 rounded-full mt-2" style="background:#232A44">
+        <div class="absolute top-0 bottom-0 w-px" style="left:50%;background:#3A4258"></div>
+        <div class="absolute top-0 bottom-0 rounded-full" style="background:${mag>=0?'#00FF9C':'#FF2D55'};left:${mag>=0?'50%':(50+mag*50)+'%'};width:${Math.abs(mag)*50}%"></div>
+      </div>`;
+
+    const renderColumn=(title,list,mag)=>{
       const counted=list.filter(f=>f.available!==false);
       const b=counted.filter(f=>f.tag==='bullish').length,r=counted.filter(f=>f.tag==='bearish').length;
       return `<div class="bg-panel2 rounded-xl p-3">
-        <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center justify-between mb-1">
           <p class="text-[10px] uppercase tracking-wide text-mutet">${title}</p>
           <p class="text-[10px] tnum" style="color:${b>r?'#00FF9C':r>b?'#FF2D55':'#F5B843'}">${b}\u2191${r}\u2193 of ${counted.length}</p>
         </div>
+        ${magBar(mag)}
+        <p class="text-[9px] text-mutet mt-1 mb-2">conviction ${mag>=0?'+':''}${mag.toFixed(2)}</p>
         <div class="space-y-1.5">
           ${list.map(f=>`
             <div class="text-[11px]">
@@ -4438,7 +4585,7 @@ function renderCyclesTab(){
 
     scoreEl.innerHTML=`
       ${fomcBanner}
-      <div class="flex items-center justify-between mb-3 pb-3 border-b border-line/50">
+      <div class="flex items-center justify-between mb-1 pb-3 border-b border-line/50">
         <div>
           <p class="text-2xl font-bold" style="color:${overallColor}">${bullCount}/${countedFactors.length}</p>
           <p class="text-[10px] text-mutet">signals aligned bullish</p>
@@ -4448,10 +4595,14 @@ function renderCyclesTab(){
           <p class="text-[10px] text-mutet">${bearCount}/${countedFactors.length} aligned bearish</p>
         </div>
       </div>
+      <div class="mb-3 pb-3 border-b border-line/50">
+        ${magBar(overallMag)}
+        <p class="text-[9px] text-mutet mt-1">overall conviction ${overallMag>=0?'+':''}${overallMag.toFixed(2)} — magnitude-weighted, not just a vote count above</p>
+      </div>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-        ${renderColumn('Short-term (days)',shortTerm)}
-        ${renderColumn('Medium-term (weeks)',midTerm)}
-        ${renderColumn('Long-term (months+)',longTerm)}
+        ${renderColumn('Short-term (days)',shortTerm,shortMag)}
+        ${renderColumn('Medium-term (weeks)',midTerm,midMag)}
+        ${renderColumn('Long-term (months+)',longTerm,longMag)}
       </div>`;
   }).catch(err=>{
     liveEl.innerHTML='<p class="text-down col-span-2">Error: '+(err&&err.message?err.message:String(err))+'</p>';
