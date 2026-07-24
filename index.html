@@ -2865,6 +2865,7 @@ const COMPOSITE_SOURCES_DEFAULTS=[
   {id:'etfflows',label:'BTC ETF Flows (SoSoValue)',weight:10,confidence:0.8},
   {id:'hypefunding',label:'HYPE Perp Funding (Hyperliquid)',weight:4,confidence:0.4},
   {id:'gold',label:'Gold (Hyperliquid xyz:GOLD)',weight:5,confidence:0.5},
+  {id:'whaleflow',label:'Whale Exchange Flow (Whale Alert via Telegram)',weight:5,confidence:0.4},
 ];
 function loadSentimentWeights(){
   let overrides={};
@@ -2926,6 +2927,7 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
     ['regulatory',()=>srcNewsRss('regulatory')],
     ['sosovalue',srcSosoValueNews],
     ['hypefunding',srcHypeFundingForComposite],
+    ['whaleflow',srcWhaleFlow],
   ];
   await Promise.all(jobs.map(async([id,fn])=>{
     try{
@@ -2957,6 +2959,22 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
       if(v&&Array.isArray(v.topHeadlines))allHeadlines.push(...v.topHeadlines);
       if(v&&Array.isArray(v.allTitles))allTitlePool.push(...v.allTitles);
     });
+    // Whale exchange-flow alerts — only the classified (labeled-exchange)
+    // ones, same accumulation/distribution logic as the composite score above.
+    // Scored by USD size (capped at +-5) rather than the small +-2-ish range
+    // RSS headlines get, since a $200M transfer is objectively more
+    // attention-worthy than a routine headline and should rank accordingly.
+    const whaleV=sourceValues.whaleflow;
+    if(whaleV&&Array.isArray(whaleV.labeled)){
+      whaleV.labeled.forEach(it=>{
+        const mag=Math.min(5,it.usd/20e6);
+        allHeadlines.push({
+          title:(it.qty?it.qty.toLocaleString():'')+' '+it.symbol+' ($'+(it.usd/1e6).toFixed(0)+'M) transferred from '+it.from+' to '+it.to,
+          score:it.direction==='outflow'?mag:-mag,
+          category:'whale'
+        });
+      });
+    }
     window.__lastAllHeadlinePool=allTitlePool; // for manual-news duplicate detection
     const manualFormatted=getActiveManualNewsEntries().map(e=>({title:e.text,score:resolveManualNewsScore(e),category:'manual'}));
     const autoSorted=allHeadlines.sort((a,b)=>Math.abs(b.score)-Math.abs(a.score));
@@ -4783,6 +4801,13 @@ function renderCyclesTab(){
       latestSources.gold!=null
         ?{label:'Gold regime',display:latest.goldRegime||latestSources.gold,tag:tagOf(latestSources.gold,55,45),mag:magOf01(latestSources.gold),available:true}
         :{label:'Gold regime',display:'—',tag:'neutral',mag:0,available:false,reason:'Not included in the latest Sentiment reading (source likely failed that cycle)'},
+      // Whale exchange flow: not new data — Whale Alert already mirrors this
+      // to a public Telegram channel for free. Only the labeled-exchange
+      // transfers are directional (accumulation/distribution); unknown<->
+      // unknown movements were excluded before this ever reached a score.
+      latestSources.whaleflow!=null
+        ?{label:'Whale exchange flow (BTC/ETH/SOL/LINK)',display:latestSources.whaleflow,tag:tagOf(latestSources.whaleflow,55,45),mag:magOf01(latestSources.whaleflow),available:true}
+        :{label:'Whale exchange flow (BTC/ETH/SOL/LINK)',display:'—',tag:'neutral',mag:0,available:false,reason:'Not included in the latest Sentiment reading (source likely failed that cycle, or no labeled-exchange transfers in the current window)'},
     ];
     if(onchain&&!onchain.error){
       // onchainSlope/priceSlope aren't on comparable scales to each other (no
@@ -5816,6 +5841,40 @@ async function srcHypeFundingForComposite(){
   if(!c)throw new Error('HYPE not found in Hyperliquid universe');
   const aprPct=(parseFloat(c.funding)-HL_FUNDING_FLOOR_HOURLY)*24*365*100;
   return{score:to0_100(satur(aprPct,50))};
+}
+// ═══ Whale exchange flow — Whale Alert mirrors its own $29.95-$699/mo feed to
+// a public Telegram channel for free (t.me/s/whale_alert_io), proxied via
+// PulseWorker's /whale-proxy. Only wallet<->exchange transfers are
+// interpretable: exchange -> unknown wallet reads as accumulation (withdrawal
+// to cold storage/custody), unknown -> exchange reads as potential
+// distribution (deposit ahead of a sale). unknown<->unknown and
+// exchange<->exchange/treasury movements carry no clear directional signal
+// from either side and are deliberately excluded, not counted as neutral. ═══
+const WHALE_TRACKED_SYMBOLS=['BTC','ETH','SOL','LINK']; // HYPE has no coverage on this feed
+const WHALE_KNOWN_EXCHANGES=['binance','coinbase','kraken','okx','okex','bybit','htx','upbit','bitfinex','bitget','gate.io','kucoin','crypto.com','gemini','bitstamp'];
+function whaleIsExchange(label){
+  const l=(label||'').toLowerCase().replace(/^#/,'');
+  return WHALE_KNOWN_EXCHANGES.some(ex=>l.includes(ex));
+}
+function whaleIsUnknownWallet(label){
+  const l=(label||'').toLowerCase().trim();
+  return /^unknown(\s+new)?\s+wallet$/.test(l)||/^unknown\s+whale/.test(l);
+}
+async function srcWhaleFlow(){
+  const res=await fetch(`${PULSE_WORKER_URL}/whale-proxy`,{cache:'no-store'});
+  if(!res.ok)throw new Error('Worker whale-proxy '+res.status);
+  const json=await res.json();
+  const items=(json.items||[]).filter(it=>WHALE_TRACKED_SYMBOLS.includes(it.symbol));
+  if(!items.length)throw new Error('No BTC/ETH/SOL/LINK transfers in the current Whale Alert window');
+  let netUsd=0;const labeled=[];
+  items.forEach(it=>{
+    const fromEx=whaleIsExchange(it.from),toEx=whaleIsExchange(it.to);
+    const fromUnk=whaleIsUnknownWallet(it.from),toUnk=whaleIsUnknownWallet(it.to);
+    if(fromEx&&toUnk){netUsd+=it.usd;labeled.push({...it,direction:'outflow'});}
+    else if(fromUnk&&toEx){netUsd-=it.usd;labeled.push({...it,direction:'inflow'});}
+    // exchange<->exchange, treasury moves, unknown<->unknown: no clear signal, excluded
+  });
+  return{score:to0_100(satur(netUsd/1e6,150)),labeled};
 }
 function loadHypeFunding(){
   const statusEl=$('#hypeFundingStatus'),host=$('#hlAssetCards');
