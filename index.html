@@ -4593,8 +4593,9 @@ function renderWhaleTile(){
     if(!rawItems.length){
       const dbg=json.debug;
       el.innerHTML='<p class="text-xs text-mutet">No transfers parsed at all this cycle'+
-        (dbg?' (page length '+dbg.htmlLength+', contains "transferred": '+dbg.containsTransferredWord+' — likely a fetch/parsing issue, not genuinely empty)':'')+
-        '.</p>';
+        (dbg?' (page length '+dbg.htmlLength+', contains "transferred": '+dbg.containsTransferredWord+', contains "$": '+dbg.containsDollarSign+' — likely a fetch/parsing issue, not genuinely empty)':'')+
+        '.</p>'+
+        (dbg&&dbg.sampleAroundTransferred?'<p class="text-[10px] text-mutet mt-2 font-mono whitespace-pre-wrap break-all bg-panel2 rounded-lg p-2">'+dbg.sampleAroundTransferred.replace(/</g,'&lt;')+'</p>':'');
       return;
     }
     const items=rawItems.filter(it=>WHALE_TILE_SYMBOLS.includes(it.symbol));
