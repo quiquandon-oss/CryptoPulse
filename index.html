@@ -1082,9 +1082,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             <option value="combo">Combo — price AND score, both true at once</option>
           </select>
           <div id="alertFormFields" class="space-y-2"></div>
-          <label class="text-xs text-mutet block mt-2">Cooldown between repeat sends (minutes)
-            <input id="alertCooldownInput" type="number" value="60" min="15" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm mt-1">
-          </label>
+          <p class="text-[10px] text-mutet mt-2">Sends once when triggered, one follow-up 4h later if still true, then disables itself automatically — re-enable it below for another cycle.</p>
           <button class="w-full mt-3 text-sm font-medium bg-neon/15 hover:bg-neon/25 text-neon border border-neon/30 rounded-lg px-3 py-2.5 transition" onclick="createAlertFromForm()">+ Add alert</button>
           <p class="text-[10px] text-mutet mt-1" id="alertCreateStatus"></p>
         </div>
@@ -3692,7 +3690,7 @@ function describeAlertConfig(type,p){
 }
 function createAlertFromForm(){
   const type=$('#alertTypeSelect').value;
-  const cooldownMinutes=+$('#alertCooldownInput').value||60;
+  const cooldownMinutes=60; // vestigial field server-side, no longer used for repeat gating — see the fire-once-then-followup-then-disable logic instead
   let params={};
   if(type==='price')params={coin:$('#af_coin').value,direction:$('#af_dir').value,value:+$('#af_value').value};
   else if(type==='radar_discount')params={coin:$('#af_coin').value,discountPct:+$('#af_pct').value};
@@ -3725,10 +3723,12 @@ async function loadAlertConfigs(){
     if(!configs||!configs.length){host.innerHTML='<p class="text-mutet">No alerts configured yet.</p>';return;}
     host.innerHTML=configs.map(c=>{
       let params={};try{params=JSON.parse(c.params_json);}catch(e){}
+      const fireCount=c.fire_count||0;
+      const statusText=fireCount>=2?'fired twice — disabled':fireCount===1?'fired once — follow-up pending in up to 4h':'not fired yet';
       return `<div class="flex items-center justify-between bg-panel2 rounded-lg px-3 py-2">
         <div>
           <p class="font-semibold">${describeAlertConfig(c.type,params)}</p>
-          <p class="text-mutet">cooldown ${c.cooldown_minutes}m${c.last_fired_ts?' · last fired '+new Date(c.last_fired_ts).toLocaleString('en-US'):' · never fired'}</p>
+          <p class="text-mutet">${statusText}${c.last_fired_ts?' · last fired '+new Date(c.last_fired_ts).toLocaleString('en-US'):''}</p>
         </div>
         <div class="flex items-center gap-3">
           <input type="checkbox" ${c.enabled?'checked':''} onchange="toggleAlertConfig(${c.id},this.checked)">
