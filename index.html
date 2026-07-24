@@ -637,6 +637,22 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <div class="h-[240px]"><canvas id="cycFanChart"></canvas></div>
         <p id="cycFanAssumptions" class="text-[10px] text-mutet mt-2 leading-snug"></p>
       </div>
+
+      <!-- ═══ Whale Movements — standalone tile, sourced from Whale Alert's
+           public Telegram channel (t.me/s/whale_alert_io — the same feed that
+           costs $29.95-$699/mo via their own API, mirrored there for free).
+           Deliberately NOT wired into Sentiment, the Regime Scorecard, or
+           Trader Analysis yet — informational only for now. ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold">Whale Movements</h2>
+          <button id="whaleRefreshBtn" class="px-2 py-1 rounded-md text-mutet hover:text-white" title="Refresh" onclick="renderWhaleTile()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v6h-6"/></svg>
+          </button>
+        </div>
+        <p class="text-xs text-mutet mb-3">Recent BTC/ETH/SOL/LINK transfers involving a named exchange, via Whale Alert's public Telegram feed. Standalone info only — not yet feeding Sentiment, the Regime Scorecard, or Trader Analysis.</p>
+        <div id="whaleTileBody">Loading…</div>
+      </div>
     </section>
 
     <!-- Fullscreen fan chart overlay: own Chart.js instance (Chart.js needs one
@@ -4554,7 +4570,55 @@ function renderRegimeBacktest(history){
     results.map(r=>`<div class="text-center"><p class="text-[9px] text-mutet">${r.label} forward</p><p class="font-bold text-sm">${r.total>0?(r.hitRate*100).toFixed(0)+'%':'—'}</p><p class="text-[9px] text-mutet">${r.total} call${r.total===1?'':'s'}</p></div>`).join('')+
     '</div><p class="text-[9px] text-mutet mt-2">% of past scorecard readings (excluding near-zero/no-call ones) where the overall lean matched BTC\u2019s realized direction over that horizon. Early numbers with few calls aren\u2019t statistically reliable — treat as directional, not confident, until more history accumulates.</p>';
 }
+// ═══ Whale Movements — standalone tile only. Reuses the already-deployed
+// PulseWorker /whale-proxy endpoint (Whale Alert's public Telegram mirror,
+// t.me/s/whale_alert_io — the same feed that costs $29.95-$699/mo via their
+// own API). Classification (exchange<->unknown wallet direction) is LOCAL to
+// this display only — deliberately not registered as a composite source, not
+// in the Regime Scorecard, not feeding Trader Analysis. Just information. ═══
+const WHALE_TILE_SYMBOLS=['BTC','ETH','SOL','LINK']; // HYPE has no coverage on this feed
+const WHALE_TILE_EXCHANGES=['binance','coinbase','kraken','okx','okex','bybit','htx','upbit','bitfinex','bitget','gate.io','kucoin','crypto.com','gemini','bitstamp'];
+function whaleTileIsExchange(label){
+  const l=(label||'').toLowerCase().replace(/^#/,'');
+  return WHALE_TILE_EXCHANGES.some(ex=>l.includes(ex));
+}
+function whaleTileIsUnknown(label){
+  const l=(label||'').toLowerCase().trim();
+  return /^unknown(\s+new)?\s+wallet$/.test(l)||/^unknown\s+whale/.test(l);
+}
+function renderWhaleTile(){
+  const el=$('#whaleTileBody');if(!el)return;
+  fetch(`${PULSE_WORKER_URL}/whale-proxy`,{cache:'no-store'}).then(r=>r.json()).then(json=>{
+    const items=(json.items||[]).filter(it=>WHALE_TILE_SYMBOLS.includes(it.symbol));
+    if(!items.length){el.innerHTML='<p class="text-xs text-mutet">No BTC/ETH/SOL/LINK transfers in the current window.</p>';return;}
+    const classified=items.map(it=>{
+      const fromEx=whaleTileIsExchange(it.from),toEx=whaleTileIsExchange(it.to);
+      const fromUnk=whaleTileIsUnknown(it.from),toUnk=whaleTileIsUnknown(it.to);
+      let direction=null;
+      if(fromEx&&toUnk)direction='outflow';
+      else if(fromUnk&&toEx)direction='inflow';
+      return{...it,direction};
+    }).filter(it=>it.direction); // only the interpretable ones — exchange<->exchange and unknown<->unknown excluded
+    if(!classified.length){el.innerHTML='<p class="text-xs text-mutet">No labeled-exchange transfers in the current window (only exchange<->unknown-wallet moves are shown here).</p>';return;}
+    el.innerHTML=classified.slice(0,10).map(it=>{
+      const isOutflow=it.direction==='outflow';
+      const color=isOutflow?'#3BF38B':'#FF5C72';
+      const arrow=isOutflow?'↗':'↘';
+      const label=isOutflow?'Exchange outflow':'Exchange inflow';
+      return`<div class="flex items-center justify-between border-t border-line/50 pt-2 mt-2 first:border-t-0 first:pt-0 first:mt-0">
+        <div class="min-w-0 flex-1">
+          <p class="text-xs font-semibold">${it.symbol} · $${(it.usd/1e6).toFixed(1)}M</p>
+          <p class="text-[10px] text-mutet truncate">${it.from} → ${it.to}</p>
+        </div>
+        <span class="text-xs font-semibold shrink-0 ml-2" style="color:${color}">${arrow} ${label}</span>
+      </div>`;
+    }).join('');
+  }).catch(err=>{
+    el.innerHTML='<p class="text-xs text-down">Could not load whale data: '+(err&&err.message?err.message:String(err))+'</p>';
+  });
+}
 function renderCyclesTab(){
+  renderWhaleTile();
   const now=new Date();
   // ---- Halving position + phase estimate ----
   const halDays=Math.floor((now-HALVING_DATE)/86400000);
