@@ -2626,11 +2626,25 @@ const SENT_LEXICON={
   sanction:-2,sanctions:-2,war:-2,conflict:-1,tension:-1,tensions:-1,attack:-2,
   inflation:-1,recession:-2,default:-2,bankruptcy:-2,bankrupt:-2,liquidation:-1,
   liquidations:-1,hike:-1,hikes:-1,'rate hike':-2,crackdown:-2,investigation:-1,fraud:-2,
-  outflow:-1,outflows:-1,downturn:-1,volatility:-1,uncertainty:-1,risk:-1,risks:-1
+  outflow:-1,outflows:-1,downturn:-1,volatility:-1,uncertainty:-1,risk:-1,risks:-1,
+  // Added after reviewing the actual last-12-months event history (tariffs and
+  // the Iran conflict cycle) — "tariff" itself was missing despite being one
+  // of the most persistent, market-moving words of the entire window, and the
+  // Iran story has its own vocabulary (ceasefire/escalation/blockade) that
+  // "war"/"conflict"/"tension" alone don't cover on their own.
+  tariff:-1,tariffs:-1,'trade war':-2,stagflation:-2,escalate:-1,escalation:-1,
+  blockade:-2,strikes:-1,hawkish:-1,
+  ceasefire:2,'de-escalate':1,'de-escalation':1,'peace treaty':2,dovish:1
 };
 function scoreHeadline(title){
   const t=title.toLowerCase();let score=0,hits=0;
-  Object.keys(SENT_LEXICON).forEach(w=>{if(t.includes(w)){score+=SENT_LEXICON[w];hits++;}});
+  Object.keys(SENT_LEXICON).forEach(w=>{
+    // Word-boundary match, not naive substring — a bare .includes() would
+    // false-positive "war" inside "Warsh" (the current Fed chair's name),
+    // which is exactly the kind of headline this scores constantly now.
+    const re=new RegExp('\\b'+w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b');
+    if(re.test(t)){score+=SENT_LEXICON[w];hits++;}
+  });
   return{score,hits};
 }
 function scoreHeadlineBatch(items){
@@ -2638,7 +2652,12 @@ function scoreHeadlineBatch(items){
   const weighted=scored.reduce((s,i)=>s+(i.hits||0),0);
   const totalScore=scored.reduce((s,i)=>s+(i.score||0),0);
   const avg=weighted>0?totalScore/weighted:0;
-  return to0_100(satur(avg,1.5));
+  // Top individual headlines by |score| — previously computed then discarded
+  // right after producing the single aggregate number. This is the raw
+  // material needed for Trader Analysis to name specific events ("Iran
+  // ceasefire violated") instead of a bare "geopolitics: 45".
+  const topHeadlines=scored.filter(s=>s.score!==0).sort((a,b)=>Math.abs(b.score)-Math.abs(a.score)).slice(0,3).map(s=>({title:s.title,score:s.score}));
+  return{score:to0_100(satur(avg,1.5)),topHeadlines};
 }
 
 // ---- Individual source fetchers — each returns {score:0-100} or throws ----
@@ -2729,7 +2748,8 @@ async function srcNewsRss(source){
   const json=await res.json();
   const articles=json.items||[];
   if(!articles.length)throw new Error('No articles received');
-  return{score:scoreHeadlineBatch(articles.map(a=>({title:a.title})))};
+  const{score,topHeadlines}=scoreHeadlineBatch(articles.map(a=>({title:a.title})));
+  return{score,topHeadlines:topHeadlines.map(h=>({...h,category:source}))};
 }
 async function srcSosoValueNews(){
   const url='https://openapi.sosovalue.com/openapi/v1/news?page_num=1&page_size=15&category_list=1,2,3,4,7,13';
@@ -2740,7 +2760,8 @@ async function srcSosoValueNews(){
   if(!articles.length)throw new Error('No articles received');
   const titled=articles.map(a=>({title:a.title||''})).filter(a=>a.title.trim());
   if(!titled.length)throw new Error('No usable titles in response');
-  return{score:scoreHeadlineBatch(titled)};
+  const{score,topHeadlines}=scoreHeadlineBatch(titled);
+  return{score,topHeadlines:topHeadlines.map(h=>({...h,category:'sosovalue'}))};
 }
 
 // ---- Composite aggregation — exact port of Pulse's renormalizeWeights/computeComposite ----
@@ -2851,6 +2872,24 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
       window.__sourceErrors[id]={message:e.message,at:new Date().toLocaleTimeString('en-US')};
     }
   }));
+  // ---- Aggregate top headlines across ALL news-sentiment sources (crypto,
+  // macro, geopolitics, regulatory, SoSoValue), ranked globally by |score| —
+  // not per-category, since "most impactful right now" might mean 3 geopolitics
+  // headlines and 0 regulatory ones, not one from each bucket regardless of
+  // actual weight. Exposed for Trader Analysis to name specific events instead
+  // of narrating a bare aggregate number it has no way to explain. ----
+  try{
+    const newsSourceIds=['cryptonews','macrogeo','geopolitics','regulatory','sosovalue'];
+    const allHeadlines=[];
+    newsSourceIds.forEach(id=>{
+      const v=sourceValues[id];
+      if(v&&Array.isArray(v.topHeadlines))allHeadlines.push(...v.topHeadlines);
+    });
+    window.__lastTopHeadlines=allHeadlines.sort((a,b)=>Math.abs(b.score)-Math.abs(a.score)).slice(0,5);
+  }catch(e){
+    console.warn('Failed to aggregate top headlines:',e.message);
+    window.__lastTopHeadlines=[];
+  }
   // Gold runs AFTER the above resolve — its regime classification (competing-
   // haven vs shared-narrative) needs nasdaq/sp500's scores from this SAME
   // cycle plus BTC's 24h change, not just gold's own price move.
@@ -3284,7 +3323,8 @@ async function _initSentimentTabImpl(){
       regimeScorecard:window.__lastRegimeScorecard||null,
       onChainDivergence:window.__lastOnChainDivergence||null,
       sectorRotation:window.__lastSectorRotation||null,
-      technicalAlignment:window.__lastTechnicalAlignment||null
+      technicalAlignment:window.__lastTechnicalAlignment||null,
+      topHeadlines:window.__lastTopHeadlines||[]
     };
     const result=await fetchTraderAnalysis(payload);
     renderTraderAnalysis(result);
