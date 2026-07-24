@@ -4586,6 +4586,38 @@ function whaleTileIsUnknown(label){
   const l=(label||'').toLowerCase().trim();
   return /^unknown(\s+new)?\s+wallet$/.test(l)||/^unknown\s+whale/.test(l);
 }
+// ---- Whale concentration detector: deterministic, NOT the LLM's job.
+// There's no historical baseline stored for this feed (each fetch is a fresh
+// snapshot of whatever Whale Alert's public channel currently shows), so this
+// can't be a calibrated statistical signal — it's a fixed, disclosed
+// threshold check for two patterns that are legitimately more attention-
+// worthy than a single transfer: (1) CONCENTRATION — 3+ transfers hitting the
+// same exchange in this snapshot, and (2) BIDIRECTIONAL — the same exchange
+// showing both outflow AND inflow at once, which usually means active
+// repositioning/uncertainty rather than a clean accumulation or distribution
+// trend. Neither is a validated volatility predictor; both are real,
+// checkable patterns worth surfacing. ----
+const WHALE_CONCENTRATION_MIN_COUNT=3;
+const WHALE_HIGH_VOLUME_USD=500e6; // fixed floor, not a calibrated baseline — disclosed as such in the UI
+function computeWhaleConcentration(classified){
+  const byExchange={};
+  classified.forEach(it=>{
+    const exchangeName=it.direction==='outflow'?it.from:it.to;
+    const key=exchangeName.toLowerCase().replace(/^#/,'');
+    byExchange[key]=byExchange[key]||{label:exchangeName,outflowUsd:0,inflowUsd:0,outflowCount:0,inflowCount:0};
+    if(it.direction==='outflow'){byExchange[key].outflowUsd+=it.usd;byExchange[key].outflowCount++;}
+    else{byExchange[key].inflowUsd+=it.usd;byExchange[key].inflowCount++;}
+  });
+  const flags=[];
+  Object.values(byExchange).forEach(e=>{
+    const total=e.outflowCount+e.inflowCount;
+    if(total>=WHALE_CONCENTRATION_MIN_COUNT)flags.push({type:'concentration',exchange:e.label,count:total});
+    if(e.outflowCount>0&&e.inflowCount>0)flags.push({type:'bidirectional',exchange:e.label,outflowUsd:e.outflowUsd,inflowUsd:e.inflowUsd});
+  });
+  const totalUsd=classified.reduce((s,it)=>s+it.usd,0);
+  const highVolume=totalUsd>=WHALE_HIGH_VOLUME_USD;
+  return{flags,totalUsd,highVolume,elevated:flags.length>0||highVolume};
+}
 function renderWhaleTile(){
   const el=$('#whaleTileBody');if(!el)return;
   fetch(`${PULSE_WORKER_URL}/whale-proxy`,{cache:'no-store'}).then(r=>r.json()).then(json=>{
@@ -4610,7 +4642,12 @@ function renderWhaleTile(){
       return{...it,direction};
     }).filter(it=>it.direction); // only the interpretable ones — exchange<->exchange and unknown<->unknown excluded
     if(!classified.length){el.innerHTML='<p class="text-xs text-mutet">No labeled-exchange transfers in the current window (only exchange<->unknown-wallet moves are shown here).</p>';return;}
+    const concentration=computeWhaleConcentration(classified);
+    const badge=concentration.elevated
+      ?'<div class="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg" style="background:rgba(245,184,67,0.12);border:1px solid rgba(245,184,67,0.3)"><span style="color:#F5B843">⚠</span><span class="text-xs font-semibold" style="color:#F5B843">Elevated exchange activity in this snapshot — often coincides with more volatile price action, though this is a pattern flag, not a validated prediction</span></div>'
+      :'';
     el.innerHTML=
+      badge+
       '<div id="whaleAnalysisBody" class="text-xs text-mutet mb-3 pb-3 border-b border-line/50">Loading plain-language summary…</div>'+
       classified.slice(0,10).map(it=>{
       const isOutflow=it.direction==='outflow';
@@ -4626,10 +4663,12 @@ function renderWhaleTile(){
       </div>`;
     }).join('');
     // ---- Plain-language AI narration — CryptoPulse already did the actual
-    // classification above; the Worker's LLM only explains it in everyday
-    // language for someone unfamiliar with exchange-flow reading, it never
-    // computes or invents which transfers were outflow/inflow. ----
-    fetch(`${PULSE_WORKER_URL}/whale-analysis`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transfers:classified})})
+    // classification AND the concentration/bidirectional flag detection
+    // above; the Worker's LLM only explains it in everyday language for
+    // someone unfamiliar with exchange-flow reading, it never computes or
+    // invents which transfers were outflow/inflow or which patterns qualify
+    // as elevated. ----
+    fetch(`${PULSE_WORKER_URL}/whale-analysis`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transfers:classified,concentration})})
       .then(r=>r.json())
       .then(res=>{
         const analysisEl=$('#whaleAnalysisBody');if(!analysisEl)return;
