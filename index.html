@@ -202,6 +202,9 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <button data-view="sentiment" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg> Sentiment
       </button>
+      <button data-view="traderanalysis" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 00-4 4v1a4 4 0 004 4 4 4 0 004-4V6a4 4 0 00-4-4z"/><path d="M6 11a6 6 0 0012 0M4 21h16M9 21v-4a3 3 0 116 0v4"/></svg> Trader Analysis
+      </button>
       <div class="border-t border-line mt-2 pt-2">
         <button data-view="settings" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition w-full">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H2a2 2 0 110-4h.09A1.65 1.65 0 003.6 8a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H8a1.65 1.65 0 001-1.51V2a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V8a1.65 1.65 0 001.51 1H22a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg> Settings
@@ -749,19 +752,12 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         </button>
       </div>
 
-      <!-- ═══ Trader Analysis — moved to the top: LLM synthesis (Pulse / Cloudflare
-           AI) across everything else on this tab: composite + raw sources,
-           per-source correlation, all 5 technical structure signals, the
-           probability model, and both buy-the-news mechanisms. Every number is
-           CryptoPulse's own — the Worker only narrates, never computes or
-           invents a figure. ═══ -->
-      <div class="rounded-2xl border border-line bg-panel p-5">
-        <div class="flex items-center justify-between mb-1">
-          <h2 class="font-semibold">Trader Analysis</h2>
-          <span class="text-xs text-mutet" id="traderAnalysisStatus">—</span>
-        </div>
-        <p class="text-xs text-mutet mb-3">AI synthesis (Pulse / Cloudflare AI) across every signal on this tab — narration only, not a new number. Not financial advice.</p>
-        <p class="text-sm" id="traderAnalysisBody" style="white-space:pre-line">—</p>
+      <!-- Trader Analysis moved to its own tab (with the manual news injection
+           panel) — kept out of this tab to avoid duplicating the render and
+           having two places to keep in sync. -->
+      <div class="rounded-2xl border border-line bg-panel p-4 flex items-center justify-between">
+        <p class="text-xs text-mutet">Full AI synthesis + manual news injection now lives in its own tab.</p>
+        <button class="text-xs font-semibold bg-panel2 hover:bg-line border border-line rounded-lg px-3 py-1.5 transition" onclick="setView('traderanalysis')">Open Trader Analysis →</button>
       </div>
 
       <!-- ═══ Three-way read, side by side — Sentiment stays exactly as computed
@@ -949,6 +945,62 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <h2 class="font-semibold mb-1">Buy the News vs. Priced In</h2>
         <p class="text-xs text-mutet mb-3">Has price already caught up to what recent sentiment shifts imply, or is there room left? Two independent reads below.</p>
         <div id="buyNewsBody"></div>
+      </div>
+    </section>
+
+    <!-- =============== TRADER ANALYSIS =============== -->
+    <section id="v-traderanalysis" class="hidden space-y-4">
+      <!-- ═══ Trader Analysis — LLM synthesis (Pulse / Cloudflare AI) across
+           everything on the Sentiment tab: composite + raw sources, per-source
+           correlation, all 5 technical structure signals, the probability
+           model, both buy-the-news mechanisms, and the top headlines below.
+           Every number is CryptoPulse's own — the Worker only narrates, never
+           computes or invents a figure. ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold">Trader Analysis</h2>
+          <span class="text-xs text-mutet" id="traderAnalysisStatus">—</span>
+        </div>
+        <p class="text-xs text-mutet mb-3">AI synthesis (Pulse / Cloudflare AI) across every signal on the Sentiment tab, plus the headlines below — narration only, not a new number. Not financial advice.</p>
+        <p class="text-sm" id="traderAnalysisBody" style="white-space:pre-line">—</p>
+      </div>
+
+      <!-- ═══ Manual news injection — for a real headline you found yourself
+           that the 5 automated feeds (CoinTelegraph/Investing.com/BBC/CoinDesk+
+           TheBlock/SoSoValue) may have missed or buried. Feeds the SAME
+           topHeadlines pool used above, guaranteed a slot rather than having
+           to out-rank the automated ones — the whole point is surfacing
+           something the automation might have missed. Never touches the
+           composite score written to D1 history (that pipeline needs to stay
+           methodologically consistent for the correlation/backtest math to
+           mean anything). ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <h2 class="font-semibold mb-1">Add a news item manually</h2>
+        <p class="text-xs text-mutet mb-3">Paste text, or add a screenshot (OCR extracts the text client-side — review/edit before submitting, since OCR from a real screenshot is often messy). Auto-scored by the same lexicon as everything else, with an override if you disagree. Expires after 5 days.</p>
+        <div class="flex gap-2 mb-2">
+          <label class="text-xs font-semibold bg-panel2 hover:bg-line border border-line rounded-lg px-3 py-1.5 transition cursor-pointer">
+            📷 Add screenshot
+            <input type="file" accept="image/*" id="manualNewsImageInput" class="hidden">
+          </label>
+          <span class="text-xs text-mutet self-center" id="manualNewsOcrStatus"></span>
+        </div>
+        <textarea id="manualNewsText" rows="3" placeholder="Paste or type the headline / news text here…" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-xs text-white placeholder:text-mutet resize-none"></textarea>
+        <div id="manualNewsDupeWarning" class="hidden text-[10px] text-amber-400 mt-1.5"></div>
+        <div class="flex items-center justify-between mt-2">
+          <div class="flex gap-1.5" id="manualNewsDirection">
+            <button data-dir="auto" class="dir-btn text-[10px] font-semibold px-2 py-1 rounded-md border border-line">Auto-score</button>
+            <button data-dir="bullish" class="dir-btn text-[10px] font-semibold px-2 py-1 rounded-md border border-line">Bullish</button>
+            <button data-dir="neutral" class="dir-btn text-[10px] font-semibold px-2 py-1 rounded-md border border-line">Neutral</button>
+            <button data-dir="bearish" class="dir-btn text-[10px] font-semibold px-2 py-1 rounded-md border border-line">Bearish</button>
+          </div>
+          <button id="manualNewsSubmit" class="text-xs font-semibold bg-neon text-ink rounded-lg px-3 py-1.5">Add</button>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <h2 class="font-semibold mb-1">Your active manual entries</h2>
+        <p class="text-xs text-mutet mb-3">Feeding into the analysis above until they expire.</p>
+        <div id="manualNewsList" class="space-y-2"><p class="text-xs text-mutet">None yet.</p></div>
       </div>
     </section>
 
@@ -1569,9 +1621,9 @@ function wireModal(){
   });
   $('#chartModal').onclick=(e)=>{if(e.target===$('#chartModal'))closeChartModal();};
 }
-function setView(v){state.view=v;['dashboard','mycrypto','dca','transactions','scenario','cycles','capital','radar','sentiment','settings'].forEach(x=>$('#v-'+x).classList.toggle('hidden',x!==v));
+function setView(v){state.view=v;['dashboard','mycrypto','dca','transactions','scenario','cycles','capital','radar','sentiment','traderanalysis','settings'].forEach(x=>$('#v-'+x).classList.toggle('hidden',x!==v));
   $$('#nav .navitem,#navMobile .navitem').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
-  $('#viewTitle').textContent={dashboard:'Dashboard',mycrypto:'My Crypto',dca:'DCA',transactions:'Transactions',scenario:'Scenarios',cycles:'Cycles',capital:'Capital',radar:'Radar',settings:'Settings'}[v];
+  $('#viewTitle').textContent={dashboard:'Dashboard',mycrypto:'My Crypto',dca:'DCA',transactions:'Transactions',scenario:'Scenarios',cycles:'Cycles',capital:'Capital',radar:'Radar',sentiment:'Sentiment',traderanalysis:'Trader Analysis',settings:'Settings'}[v];
   if(v==='dca'){fillAssets();$('#d_date').value=NOW();renderDcaAvgTable();}
   if(v==='dashboard'){renderPerf();renderAlloc();renderDcaDonuts();}
   if(v==='mycrypto'){renderCards();}
@@ -1580,6 +1632,7 @@ function setView(v){state.view=v;['dashboard','mycrypto','dca','transactions','s
   if(v==='capital'){renderCapital();}
   if(v==='radar'){initRadarTab();}
   if(v==='sentiment'){initSentimentTab();loadHypeFunding();}
+  if(v==='traderanalysis'){renderManualNewsList();}
   if(v==='settings'){renderFredDebugPanel();initAlertsSection();}}
 function setCcy(c){state.ccy=c;LS.ccy();
   $$('#ccyToggle button').forEach(b=>{const on=b.dataset.ccy===c;b.className=`px-3 py-1.5 rounded-lg text-xs font-bold ${on?'text-ink bg-white':'text-mutet'}`;});
@@ -2657,7 +2710,11 @@ function scoreHeadlineBatch(items){
   // material needed for Trader Analysis to name specific events ("Iran
   // ceasefire violated") instead of a bare "geopolitics: 45".
   const topHeadlines=scored.filter(s=>s.score!==0).sort((a,b)=>Math.abs(b.score)-Math.abs(a.score)).slice(0,3).map(s=>({title:s.title,score:s.score}));
-  return{score:to0_100(satur(avg,1.5)),topHeadlines};
+  // Full batch of titles (even score=0 ones) — for manual-news duplicate
+  // detection, which needs to check against everything actually fetched this
+  // cycle, not just whatever made the top-3 cut above.
+  const allTitles=scored.map(s=>s.title);
+  return{score:to0_100(satur(avg,1.5)),topHeadlines,allTitles};
 }
 
 // ---- Individual source fetchers — each returns {score:0-100} or throws ----
@@ -2748,8 +2805,8 @@ async function srcNewsRss(source){
   const json=await res.json();
   const articles=json.items||[];
   if(!articles.length)throw new Error('No articles received');
-  const{score,topHeadlines}=scoreHeadlineBatch(articles.map(a=>({title:a.title})));
-  return{score,topHeadlines:topHeadlines.map(h=>({...h,category:source}))};
+  const{score,topHeadlines,allTitles}=scoreHeadlineBatch(articles.map(a=>({title:a.title})));
+  return{score,topHeadlines:topHeadlines.map(h=>({...h,category:source})),allTitles};
 }
 async function srcSosoValueNews(){
   const url='https://openapi.sosovalue.com/openapi/v1/news?page_num=1&page_size=15&category_list=1,2,3,4,7,13';
@@ -2760,8 +2817,8 @@ async function srcSosoValueNews(){
   if(!articles.length)throw new Error('No articles received');
   const titled=articles.map(a=>({title:a.title||''})).filter(a=>a.title.trim());
   if(!titled.length)throw new Error('No usable titles in response');
-  const{score,topHeadlines}=scoreHeadlineBatch(titled);
-  return{score,topHeadlines:topHeadlines.map(h=>({...h,category:'sosovalue'}))};
+  const{score,topHeadlines,allTitles}=scoreHeadlineBatch(titled);
+  return{score,topHeadlines:topHeadlines.map(h=>({...h,category:'sosovalue'})),allTitles};
 }
 
 // ---- Composite aggregation — exact port of Pulse's renormalizeWeights/computeComposite ----
@@ -2877,18 +2934,29 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
   // not per-category, since "most impactful right now" might mean 3 geopolitics
   // headlines and 0 regulatory ones, not one from each bucket regardless of
   // actual weight. Exposed for Trader Analysis to name specific events instead
-  // of narrating a bare aggregate number it has no way to explain. ----
+  // of narrating a bare aggregate number it has no way to explain. Manually-
+  // added entries (see manualNews* functions) get GUARANTEED slots ahead of
+  // the auto-ranked ones — you added it specifically because you noticed
+  // something the automation might have missed or buried; making it compete
+  // on equal footing with 5 sources' worth of headlines would defeat that. ----
   try{
     const newsSourceIds=['cryptonews','macrogeo','geopolitics','regulatory','sosovalue'];
     const allHeadlines=[];
+    const allTitlePool=[];
     newsSourceIds.forEach(id=>{
       const v=sourceValues[id];
       if(v&&Array.isArray(v.topHeadlines))allHeadlines.push(...v.topHeadlines);
+      if(v&&Array.isArray(v.allTitles))allTitlePool.push(...v.allTitles);
     });
-    window.__lastTopHeadlines=allHeadlines.sort((a,b)=>Math.abs(b.score)-Math.abs(a.score)).slice(0,5);
+    window.__lastAllHeadlinePool=allTitlePool; // for manual-news duplicate detection
+    const manualFormatted=getActiveManualNewsEntries().map(e=>({title:e.text,score:resolveManualNewsScore(e),category:'manual'}));
+    const autoSorted=allHeadlines.sort((a,b)=>Math.abs(b.score)-Math.abs(a.score));
+    const remainingSlots=Math.max(0,5-manualFormatted.length);
+    window.__lastTopHeadlines=[...manualFormatted,...autoSorted.slice(0,remainingSlots)];
   }catch(e){
     console.warn('Failed to aggregate top headlines:',e.message);
     window.__lastTopHeadlines=[];
+    window.__lastAllHeadlinePool=[];
   }
   // Gold runs AFTER the above resolve — its regime classification (competing-
   // haven vs shared-narrative) needs nasdaq/sp500's scores from this SAME
@@ -3084,6 +3152,146 @@ async function fetchTraderAnalysis(payload){
   if(!json.analysis)throw new Error('Unexpected response shape');
   try{localStorage.setItem(cacheKey,JSON.stringify({analysis:json.analysis,fetchedAt:Date.now()}));}catch(e){}
   return{analysis:json.analysis,fromCache:false};
+}
+// ═══ Manual news injection — for a real headline the user found that the 5
+// automated feeds may have missed or buried. Scoped to Trader Analysis's
+// topHeadlines only — deliberately NEVER touches the composite score written
+// to D1 history, since that pipeline needs to stay methodologically
+// consistent for the correlation/backtest math to mean anything. ═══
+const MANUAL_NEWS_EXPIRY_DAYS=5;
+function loadManualNewsEntriesRaw(){
+  try{return JSON.parse(localStorage.getItem('cp2_manual_news')||'[]');}catch(e){return[];}
+}
+function saveManualNewsEntriesRaw(list){
+  try{localStorage.setItem('cp2_manual_news',JSON.stringify(list));}catch(e){/* storage full/unavailable — non-critical */}
+}
+function getActiveManualNewsEntries(){
+  const cutoff=Date.now()-MANUAL_NEWS_EXPIRY_DAYS*86400000;
+  const all=loadManualNewsEntriesRaw();
+  const active=all.filter(e=>e.ts>=cutoff);
+  if(active.length!==all.length)saveManualNewsEntriesRaw(active); // prune expired entries on read
+  return active;
+}
+function resolveManualNewsScore(entry){
+  if(entry.direction==='bullish')return 3;
+  if(entry.direction==='bearish')return-3;
+  if(entry.direction==='neutral')return 0;
+  return entry.autoScore||0; // 'auto' — same lexicon as every other headline
+}
+function addManualNewsEntry(text,direction){
+  const{score}=scoreHeadline(text);
+  const entries=loadManualNewsEntriesRaw();
+  entries.push({id:'m'+Date.now(),text:text.trim(),direction:direction||'auto',autoScore:score,ts:Date.now()});
+  saveManualNewsEntriesRaw(entries);
+}
+function removeManualNewsEntry(id){
+  saveManualNewsEntriesRaw(loadManualNewsEntriesRaw().filter(e=>e.id!==id));
+  renderManualNewsList();
+}
+// Cheap word-overlap (Jaccard) similarity check against everything actually
+// fetched this cycle across all 5 sources — not embeddings, just enough to
+// flag "you may have already seen this" before committing, without blocking.
+function normalizeForDupeCheck(s){
+  return s.toLowerCase().replace(/[^a-z0-9\s]/g,'').split(/\s+/).filter(w=>w.length>3);
+}
+function findSimilarHeadline(text){
+  const words=new Set(normalizeForDupeCheck(text));
+  if(!words.size)return null;
+  const pool=window.__lastAllHeadlinePool||[];
+  let best=null,bestScore=0;
+  pool.forEach(title=>{
+    const tWords=new Set(normalizeForDupeCheck(title));
+    if(!tWords.size)return;
+    let overlap=0;words.forEach(w=>{if(tWords.has(w))overlap++;});
+    const jaccard=overlap/Math.max(words.size,tWords.size);
+    if(jaccard>bestScore){bestScore=jaccard;best=title;}
+  });
+  return bestScore>=0.35?best:null;
+}
+function renderManualNewsList(){
+  const host=$('#manualNewsList');if(!host)return;
+  const entries=getActiveManualNewsEntries();
+  if(!entries.length){host.innerHTML='<p class="text-xs text-mutet">None yet.</p>';return;}
+  host.innerHTML=entries.map(e=>{
+    const score=resolveManualNewsScore(e);
+    const color=score>0?'#3BF38B':score<0?'#FF5C72':'#94A3B8';
+    const daysLeft=Math.max(0,MANUAL_NEWS_EXPIRY_DAYS-Math.floor((Date.now()-e.ts)/86400000));
+    const dirLabel=e.direction==='auto'?('auto-scored '+e.autoScore):e.direction;
+    return`<div class="flex items-center justify-between bg-panel2 rounded-lg px-3 py-2">
+      <div class="min-w-0 flex-1">
+        <p class="text-xs truncate">${e.text}</p>
+        <p class="text-[9px] text-mutet mt-0.5">${dirLabel} · expires in ${daysLeft}d</p>
+      </div>
+      <div class="flex items-center gap-2 ml-2 shrink-0">
+        <span style="width:7px;height:7px;border-radius:50%;display:inline-block;background:${color}"></span>
+        <button onclick="removeManualNewsEntry('${e.id}')" class="text-mutet hover:text-white text-xs">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+// Tesseract.js lazy-loaded only when the image input is actually used — no
+// reason to add load time to every boot for a feature most sessions won't touch.
+function loadTesseractIfNeeded(){
+  if(window.Tesseract)return Promise.resolve();
+  return new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    s.onload=()=>resolve();
+    s.onerror=()=>reject(new Error('Failed to load OCR library'));
+    document.head.appendChild(s);
+  });
+}
+function wireManualNewsPanel(){
+  const textarea=$('#manualNewsText'),dupeWarning=$('#manualNewsDupeWarning'),
+    dirBtns=$$('#manualNewsDirection .dir-btn'),submitBtn=$('#manualNewsSubmit'),
+    imgInput=$('#manualNewsImageInput'),ocrStatus=$('#manualNewsOcrStatus');
+  if(!textarea||!submitBtn)return; // panel not in DOM this build — skip quietly
+  let selectedDirection='auto';
+  const selectDir=dir=>{
+    selectedDirection=dir;
+    dirBtns.forEach(b=>b.classList.toggle('bg-neon',b.dataset.dir===dir));
+    dirBtns.forEach(b=>b.classList.toggle('text-ink',b.dataset.dir===dir));
+  };
+  dirBtns.forEach(b=>b.onclick=()=>selectDir(b.dataset.dir));
+  selectDir('auto'); // default state on load
+  textarea.oninput=()=>{
+    const text=textarea.value.trim();
+    if(text.length<10){dupeWarning.classList.add('hidden');return;}
+    const similar=findSimilarHeadline(text);
+    if(similar){
+      dupeWarning.textContent='This looks similar to an already-fetched headline: "'+similar+'" — add anyway, or edit to be more specific.';
+      dupeWarning.classList.remove('hidden');
+    }else{
+      dupeWarning.classList.add('hidden');
+    }
+  };
+  submitBtn.onclick=()=>{
+    const text=textarea.value.trim();
+    if(!text)return;
+    addManualNewsEntry(text,selectedDirection);
+    textarea.value='';
+    dupeWarning.classList.add('hidden');
+    selectDir('auto');
+    renderManualNewsList();
+  };
+  if(imgInput){
+    imgInput.onchange=async()=>{
+      const file=imgInput.files&&imgInput.files[0];
+      if(!file)return;
+      ocrStatus.textContent='Loading OCR…';
+      try{
+        await loadTesseractIfNeeded();
+        ocrStatus.textContent='Reading image…';
+        const{data}=await Tesseract.recognize(file,'eng');
+        textarea.value=(data.text||'').trim();
+        ocrStatus.textContent='Done — review/edit the text below before adding (OCR from a real screenshot is often messy).';
+        textarea.dispatchEvent(new Event('input'));
+      }catch(err){
+        ocrStatus.textContent='OCR failed: '+(err&&err.message?err.message:String(err));
+      }
+      imgInput.value='';
+    };
+  }
 }
 function renderTraderAnalysis(result){
   const host=$('#traderAnalysisBody'),status=$('#traderAnalysisStatus');
@@ -3558,7 +3766,7 @@ function initAlertsSection(){
 function buildMobileNav(){const host=$('#navMobile');
   const groups=[
     [['dashboard','Dashboard'],['mycrypto','My Crypto'],['dca','DCA'],['transactions','Transactions'],['capital','Capital'],['radar','Radar']],
-    [['scenario','Scenarios'],['cycles','Cycles'],['sentiment','Sentiment']],
+    [['scenario','Scenarios'],['cycles','Cycles'],['sentiment','Sentiment'],['traderanalysis','Trader Analysis']],
     [['settings','Settings']],
   ];
   groups.forEach((group,gi)=>{
@@ -5546,7 +5754,7 @@ window.loadHypeFunding=loadHypeFunding;
 // not change tabs), or inside the fullscreen chart modal. Also requires a
 // clearly horizontal gesture (bigger than vertical movement) past a real
 // distance threshold, so normal vertical page-scrolling never triggers it.
-const TAB_ORDER=['dashboard','mycrypto','dca','transactions','capital','radar','scenario','cycles','sentiment','settings'];
+const TAB_ORDER=['dashboard','mycrypto','dca','transactions','capital','radar','scenario','cycles','sentiment','traderanalysis','settings'];
 function wireSwipeNav(){
   const main=document.querySelector('main');
   if(!main)return;
@@ -5569,7 +5777,7 @@ function wireSwipeNav(){
     setView(TAB_ORDER[nextIdx]);
   },{passive:true});
 }
-async function init(){LS.load();buildMobileNav();wire();paintNav();wireSwipeNav();
+async function init(){LS.load();buildMobileNav();wire();paintNav();wireSwipeNav();wireManualNewsPanel();
   if(!state.txs)state.txs=hydrate(SEED_TXS);
   setCcy(state.ccy);setView('dashboard');setStatus(false);
   render();                    // instant: real embedded history (chart already moves)
