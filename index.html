@@ -705,7 +705,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <button data-liq-range="month" class="liq-range-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">Month</button>
         </div>
         <div class="h-[220px]"><canvas id="liqChart"></canvas></div>
-        <p class="text-[10px] text-mutet mt-2">Shaded bands = modeled clusters (light = lower leverage/smaller cluster, dark = higher leverage/bigger cluster, right against price). Faded dotted segments = a level price has already crossed and moved past. Faint background wash = which side (longs/shorts) is currently more crowded.</p>
+        <p class="text-[10px] text-mutet mt-2">Shaded bands = modeled clusters, using one intensity scale on both sides (dim indigo/teal = lower leverage/thinner, bright yellow-gold = higher leverage/denser — same convention CoinGlass and Glassnode use, not a directional color). Grey dotted bands = a level already crossed by price this window. Faint background wash = which side (longs/shorts) is currently more crowded. Space after "now" is projected forward with no price data, so you can watch price approach the fixed shelves.</p>
       </div>
 
       <!-- Fullscreen liquidation chart overlay: own Chart.js instance,
@@ -4799,52 +4799,74 @@ function liqTabsSetActive(){
 // Also flags each point as "tested" if a LATER point's price already crossed
 // that level, since a level price has already broken through with no
 // remaining position there reads differently than one still ahead of price. ----
-function computeLiqEnvelopeSeries(pricePts,tiersAsc){
-  const n=pricePts.length;
-  const longBands=tiersAsc.map(lev=>pricePts.map(p=>p*(1-1/lev)));
-  const shortBands=tiersAsc.map(lev=>pricePts.map(p=>p*(1+1/lev)));
-  const testFrom=(band,isLong)=>band.map((lvl,i)=>{
-    for(let j=i+1;j<n;j++){if(isLong?pricePts[j]<=lvl:pricePts[j]>=lvl)return true;}
-    return false;
-  });
-  return{
-    longBands,shortBands,
-    testedLong:longBands.map(b=>testFrom(b,true)),
-    testedShort:shortBands.map(b=>testFrom(b,false)),
-  };
+// ---- Color: single heat-intensity scale, Glassnode/CoinGlass-style — dim
+// (thin/low-leverage) to bright (dense/high-leverage), the SAME scale applied
+// above AND below price. Direction (which side is crowded) is a separate
+// piece of information, conveyed by the background tint, not by band color —
+// conflating the two into a red/green split was the mistake in the first version. ----
+function hexToRgbObj(hex){const h=hex.replace('#','');return{r:parseInt(h.substring(0,2),16),g:parseInt(h.substring(2,4),16),b:parseInt(h.substring(4,6),16)};}
+function mixRgb(a,b,t){return{r:Math.round(a.r+(b.r-a.r)*t),g:Math.round(a.g+(b.g-a.g)*t),b:Math.round(a.b+(b.b-a.b)*t)};}
+function rgbaStr(o,a){return`rgba(${o.r},${o.g},${o.b},${a})`;}
+const LIQ_COLOR_SCALE=['#241B4E','#1B6E8C','#2FA88E','#B7D74B','#FFD23F'].map(hexToRgbObj); // dark indigo -> teal -> green -> yellow-green -> bright gold
+function liqIntensityRgb(i,n){
+  const t=n<=1?1:i/(n-1);
+  const idx=t*(LIQ_COLOR_SCALE.length-1);
+  const lo=Math.floor(idx),hi=Math.min(Math.ceil(idx),LIQ_COLOR_SCALE.length-1);
+  return mixRgb(LIQ_COLOR_SCALE[lo],LIQ_COLOR_SCALE[hi],idx-lo);
 }
-function buildLiqChartConfig(labels,pricePts,tiersAsc,color,crowdedSide){
-  const env=computeLiqEnvelopeSeries(pricePts,tiersAsc);
+// ---- Extend the visible window with real future time/date labels (no price
+// data — that's the point) so the fixed shelves have visible room ahead of
+// price to watch it approach, instead of stopping dead at "now" like the
+// first version did. ----
+function extendFutureLabels(range,ipts,dayLabels){
+  const extra=range==='day'?Math.max(6,Math.round((ipts?.length||24)*0.25)):Math.max(3,Math.round((range==='week'?7:30)*0.25));
+  const out=[];
+  if(range==='day'){
+    const interval=ipts&&ipts.length>1?(ipts[ipts.length-1].t-ipts[ipts.length-2].t):5*60000;
+    let lastT=ipts&&ipts.length?ipts[ipts.length-1].t:Date.now();
+    for(let i=0;i<extra;i++){lastT+=interval;out.push(new Date(lastT).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}));}
+  }else{
+    let lastDate=new Date((dayLabels[dayLabels.length-1]||NOW())+'T00:00:00Z');
+    for(let i=1;i<=extra;i++){lastDate=new Date(lastDate);lastDate.setUTCDate(lastDate.getUTCDate()+1);out.push(lastDate.toISOString().slice(0,10));}
+  }
+  return out;
+}
+function buildLiqChartConfig(allLabels,allPricePts,realPricePts,tiersAsc,color,crowdedSide){
   const n=tiersAsc.length;
+  const livePrice=realPricePts[realPricePts.length-1];
+  const total=allLabels.length;
   const datasets=[];
-  // LONG side (below price): push ascending leverage (farthest bound first,
-  // lightest = lowest leverage / "smaller cluster") so fill:'-1' chains
-  // outward-to-inward, ending with the darkest band right under price
-  // (highest leverage / "biggest cluster").
+  // LONG side (below price): ascending leverage (farthest/dimmest first) so
+  // fill:'-1' chains outward-to-inward toward the brightest band nearest price.
   tiersAsc.forEach((lev,i)=>{
-    const opacity=0.08+0.42*(i/Math.max(1,n-1));
-    const tested=env.testedLong[i];
-    datasets.push({data:env.longBands[i],borderColor:'rgba(59,243,139,0.55)',backgroundColor:`rgba(59,243,139,${opacity})`,
-      borderWidth:1,borderDash:[3,3],pointRadius:0,tension:0,fill:i===0?false:'-1',label:lev+'x long liq',
-      segment:{borderDash:ctx=>tested[ctx.p0DataIndex]?[1,3]:[3,3],borderColor:ctx=>tested[ctx.p0DataIndex]?'rgba(59,243,139,0.18)':'rgba(59,243,139,0.55)'}});
+    const lvl=livePrice*(1-1/lev);
+    const everCrossed=realPricePts.some(p=>p<=lvl);
+    const rgb=liqIntensityRgb(i,n);
+    datasets.push({data:new Array(total).fill(lvl),
+      borderColor:everCrossed?'rgba(140,140,150,0.4)':rgbaStr(rgb,0.9),
+      backgroundColor:everCrossed?'rgba(120,120,130,0.05)':rgbaStr(rgb,0.14+0.06*i),
+      borderWidth:1,borderDash:everCrossed?[1,3]:[3,3],pointRadius:0,tension:0,fill:i===0?false:'-1',
+      label:lev+'x long liq'+(everCrossed?' (already tested this window)':'')});
   });
-  datasets.push({data:pricePts,borderColor:color,backgroundColor:'transparent',borderWidth:2,fill:n>0?'-1':false,tension:.25,pointRadius:0,pointHoverRadius:4,pointHoverBackgroundColor:color,label:'Price'});
+  datasets.push({data:allPricePts,borderColor:color,backgroundColor:'transparent',borderWidth:2,fill:false,tension:.25,pointRadius:0,pointHoverRadius:4,pointHoverBackgroundColor:color,label:'Price',spanGaps:false});
   const priceIndex=n;
-  // SHORT side (above price): push DESCENDING leverage (closest to price
-  // first) so fill:'-1' chains inward-to-outward starting from the price line.
+  // SHORT side (above price): descending leverage (closest to price first).
   for(let i=n-1;i>=0;i--){
     const lev=tiersAsc[i];
-    const opacity=0.08+0.42*(i/Math.max(1,n-1));
-    const tested=env.testedShort[i];
-    datasets.push({data:env.shortBands[i],borderColor:'rgba(255,92,114,0.55)',backgroundColor:`rgba(255,92,114,${opacity})`,
-      borderWidth:1,borderDash:[3,3],pointRadius:0,tension:0,fill:'-1',label:lev+'x short liq',
-      segment:{borderDash:ctx=>tested[ctx.p0DataIndex]?[1,3]:[3,3],borderColor:ctx=>tested[ctx.p0DataIndex]?'rgba(255,92,114,0.18)':'rgba(255,92,114,0.55)'}});
+    const lvl=livePrice*(1+1/lev);
+    const everCrossed=realPricePts.some(p=>p>=lvl);
+    const rgb=liqIntensityRgb(i,n);
+    datasets.push({data:new Array(total).fill(lvl),
+      borderColor:everCrossed?'rgba(140,140,150,0.4)':rgbaStr(rgb,0.9),
+      backgroundColor:everCrossed?'rgba(120,120,130,0.05)':rgbaStr(rgb,0.14+0.06*i),
+      borderWidth:1,borderDash:everCrossed?[1,3]:[3,3],pointRadius:0,tension:0,fill:i===n-1?false:'-1',
+      label:lev+'x short liq'+(everCrossed?' (already tested this window)':'')});
   }
-  return{type:'line',data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},
+  return{type:'line',data:{labels:allLabels,datasets},options:{responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},
     animation:{duration:400,easing:'easeOutQuart'},
     plugins:{legend:{display:false},crosshair:{enabled:true,datasetIndex:priceIndex},
       liqDirectionTint:{side:crowdedSide},
-      tooltip:{filter:it=>it.datasetIndex===priceIndex,callbacks:{label:c=>'Price: '+money(c.raw,pdec(c.raw))}}},
+      tooltip:{filter:it=>it.datasetIndex===priceIndex,callbacks:{label:c=>c.raw==null?'':'Price: '+money(c.raw,pdec(c.raw))}}},
     scales:{x:{grid:{display:false},ticks:{color:'#7A8499',font:{size:9},maxTicksLimit:8}},
       y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#7A8499',font:{size:9},callback:v=>symC()+Number(v).toLocaleString('en-US',{maximumFractionDigits:0})}}}
   }};
@@ -4854,12 +4876,13 @@ async function renderLiquidationChart(){
   const sym=liqState.asset;
   const d=liqState.dataByAsset[sym];if(!d)return;
   const fx=state.ccy==='USD'?1:(state.fx||FX0);
-  let labels=[],pricePts=[];
+  let labels=[],pricePts=[],futureLabels=[];
   if(liqState.range==='day'){
     const ipts=await fetchIntraday(sym);
     if(ipts&&ipts.length){
       labels=ipts.map(p=>new Date(p.t).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}));
       pricePts=ipts.map(p=>p.y/fx);
+      futureLabels=extendFutureLabels('day',ipts,null);
     }
   }else{
     const days=liqState.range==='week'?7:30;
@@ -4874,14 +4897,18 @@ async function renderLiquidationChart(){
       pts=pts.filter(p=>p.x>=cutoff);
       labels=pts.map(p=>p.x);
       pricePts=pts.map(p=>p.y);
+      futureLabels=extendFutureLabels(liqState.range,null,labels);
     }
   }
   if(!pricePts.length)return;
+  const allLabels=[...labels,...futureLabels];
+  const allPricePts=[...pricePts,...futureLabels.map(()=>null)];
   // Cached so the fullscreen view can reuse the exact same series without
   // re-fetching, same pattern as the fan chart's cycFanLastState.
-  liqState.lastLabels=labels;liqState.lastPricePts=pricePts;liqState.lastTiers=LIQ_LEVERAGE_TIERS[sym];liqState.lastColor=META[sym]?.c||'#3BF38B';
+  liqState.lastLabels=allLabels;liqState.lastPricePts=allPricePts;liqState.lastRealPricePts=pricePts;
+  liqState.lastTiers=LIQ_LEVERAGE_TIERS[sym];liqState.lastColor=META[sym]?.c||'#3BF38B';
   liqState.lastCrowdedSide=d.flags&&d.flags.crowded?d.flags.crowdedSide:null;
-  const cfg=buildLiqChartConfig(labels,pricePts,liqState.lastTiers,liqState.lastColor,liqState.lastCrowdedSide);
+  const cfg=buildLiqChartConfig(allLabels,allPricePts,pricePts,liqState.lastTiers,liqState.lastColor,liqState.lastCrowdedSide);
   if(liqChartInst){liqChartInst.data=cfg.data;liqChartInst.options=cfg.options;liqChartInst.update();}
   else liqChartInst=new Chart(cv,cfg);
 }
@@ -4891,7 +4918,7 @@ function openLiqFullscreen(){
   const modal=$('#liqChartFullscreen');if(!modal)return;
   modal.classList.remove('hidden');
   const cv=$('#liqChartFull');
-  const cfg=buildLiqChartConfig(liqState.lastLabels,liqState.lastPricePts,liqState.lastTiers,liqState.lastColor,liqState.lastCrowdedSide);
+  const cfg=buildLiqChartConfig(liqState.lastLabels,liqState.lastPricePts,liqState.lastRealPricePts,liqState.lastTiers,liqState.lastColor,liqState.lastCrowdedSide);
   if(liqChartFullInst)liqChartFullInst.destroy();
   liqChartFullInst=new Chart(cv,cfg);
 }
