@@ -3607,6 +3607,7 @@ async function _initSentimentTabImpl(){
   // only job is narrating what it means, never inventing its own figures. ----
   try{
     const t=technicalsForTrader||{};
+    const volFlag=computeHighVolatilityFlag('BTC');
     const payload={
       price:t.price!=null?t.price:pxUsd('BTC'),
       sentiment:{composite:compositeForTrader,sources:latestSourcesForTrader},
@@ -3629,7 +3630,13 @@ async function _initSentimentTabImpl(){
       // Populated only if the Liquidation tab was visited this session with BTC
       // focused — validated standalone on the Liquidation tab before being wired
       // in here per your instruction.
-      liquidationClusters:window.__lastLiqClusterSignal||null
+      liquidationClusters:window.__lastLiqClusterSignal||null,
+      // Whale activity is gated HERE, client-side: only ever sent to the Worker
+      // when high volatility is currently detected. If volatility isn't high,
+      // or the Whale tile hasn't been visited this session, this is simply
+      // null and the Worker is instructed to say nothing about it either way.
+      volatility:{highVol:volFlag.highVol,ratio:volFlag.ratio,insufficientData:volFlag.insufficientData},
+      whaleActivity:volFlag.highVol?(window.__lastWhaleSignal||null):null
     };
     const result=await fetchTraderAnalysis(payload);
     renderTraderAnalysis(result);
@@ -4717,6 +4724,16 @@ function renderWhaleTile(){
     }).filter(it=>it.direction); // only the interpretable ones — exchange<->exchange and unknown<->unknown excluded
     if(!classified.length){el.innerHTML='<p class="text-xs text-mutet">No labeled-exchange transfers in the current window (only exchange<->unknown-wallet moves are shown here).</p>';return;}
     const concentration=computeWhaleConcentration(classified);
+    // ---- Cross-tab handoff to Trader Analysis — same "populated only if
+    // visited this session" pattern as liquidationClusters. Only the raw
+    // computed classification/flags are stored (not this tile's own narrated
+    // text), so the trader prompt narrates it under its own consistent rules
+    // rather than splicing two separate LLM outputs together. Trimmed to the
+    // largest transfers to keep the trader prompt lean. ----
+    window.__lastWhaleSignal={
+      transfers:[...classified].sort((a,b)=>b.usd-a.usd).slice(0,8).map(t=>({symbol:t.symbol,usd:t.usd,direction:t.direction,from:t.from,to:t.to})),
+      concentration
+    };
     const badge=concentration.elevated
       ?'<div class="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg" style="background:rgba(245,184,67,0.12);border:1px solid rgba(245,184,67,0.3)"><span style="color:#F5B843">⚠</span><span class="text-xs font-semibold" style="color:#F5B843">Elevated exchange activity in this snapshot — often coincides with more volatile price action, though this is a pattern flag, not a validated prediction</span></div>'
       :'';
@@ -6002,6 +6019,20 @@ function sigmaFor(coin){
   const cp=COIN_PARAMS[coin]||{sigma:1.0};
   const live=computeRealizedVolatility(coin);
   return live!=null?{sigma:live,isLive:true}:{sigma:cp.sigma,isLive:false};
+}
+// ---- High-volatility detector for Trader Analysis: is CURRENT realized vol
+// meaningfully above the long-run calibrated baseline? Fixed, disclosed ratio
+// threshold — same philosophy as WHALE_HIGH_VOLUME_USD/LIQ_CROWDING_THRESHOLD_PCT,
+// not a statistically validated percentile. Requires live (≥30d) history —
+// with only the static fallback, the ratio is always 1.0 and there's nothing
+// to detect. ----
+const HIGH_VOL_RATIO_THRESHOLD=1.3; // live realized vol at least 30% above the calibrated baseline
+function computeHighVolatilityFlag(coin){
+  const cp=COIN_PARAMS[coin]||{sigma:1.0};
+  const{sigma:liveSigma,isLive}=sigmaFor(coin);
+  if(!isLive)return{highVol:false,ratio:null,insufficientData:true};
+  const ratio=liveSigma/cp.sigma;
+  return{highVol:ratio>=HIGH_VOL_RATIO_THRESHOLD,ratio,insufficientData:false};
 }
 function priceProba(coin,target,T){
   const S=pxNow(coin);
