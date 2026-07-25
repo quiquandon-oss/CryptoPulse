@@ -653,6 +653,39 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <p class="text-xs text-mutet mb-3">Recent BTC/ETH/SOL/LINK transfers involving a named exchange, via Whale Alert's public Telegram feed, with a plain-language AI summary. Standalone info only — not yet feeding Sentiment, the Regime Scorecard, or Trader Analysis.</p>
         <div id="whaleTileBody">Loading…</div>
       </div>
+
+      <!-- ═══ Liquidation Levels — standalone tile. Modeled from real
+           Hyperliquid data (mark price, funding) at documented leverage
+           tiers (BTC/ETH up to 50x, others up to 20x), assuming a position
+           opened at today's price — this is a MODEL, same as every public
+           liquidation heatmap (CoinGlass included, by their own admission),
+           not measured real positions. Deliberately NOT wired into
+           Sentiment, the Regime Scorecard, or Trader Analysis yet. ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold">Liquidation Levels (Modeled)</h2>
+          <button id="liqRefreshBtn" class="px-2 py-1 rounded-md text-mutet hover:text-white" title="Refresh" onclick="renderLiquidationTile()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v6h-6"/></svg>
+          </button>
+        </div>
+        <p class="text-xs text-mutet mb-3">Estimated liquidation prices at standard Hyperliquid leverage tiers, assuming a position opened at today's price — a model based on real mark price and funding data, not measured real positions (no public source gives that). Standalone info only — not yet feeding Sentiment, the Regime Scorecard, or Trader Analysis.</p>
+        <div id="liqAnalysisBody" class="text-xs text-mutet mb-3 pb-3 border-b border-line/50">Loading plain-language summary…</div>
+        <div id="liqSummaryRows" class="space-y-1.5 mb-3 text-xs">Loading…</div>
+        <div class="flex gap-1.5 mb-2 overflow-x-auto" id="liqAssetTabs">
+          <button data-liq-asset="BTC" class="liq-asset-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">BTC</button>
+          <button data-liq-asset="ETH" class="liq-asset-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">ETH</button>
+          <button data-liq-asset="SOL" class="liq-asset-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">SOL</button>
+          <button data-liq-asset="LINK" class="liq-asset-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">LINK</button>
+          <button data-liq-asset="HYPE" class="liq-asset-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">HYPE</button>
+        </div>
+        <div class="flex gap-1.5 mb-2" id="liqRangeTabs">
+          <button data-liq-range="day" class="liq-range-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">Day</button>
+          <button data-liq-range="week" class="liq-range-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">Week</button>
+          <button data-liq-range="month" class="liq-range-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">Month</button>
+        </div>
+        <div class="h-[220px]"><canvas id="liqChart"></canvas></div>
+        <p class="text-[10px] text-mutet mt-2">Dashed lines: modeled long (green, below price) and short (red, above price) liquidation levels per leverage tier. Solid line: actual price.</p>
+      </div>
     </section>
 
     <!-- Fullscreen fan chart overlay: own Chart.js instance (Chart.js needs one
@@ -4682,8 +4715,158 @@ function renderWhaleTile(){
     el.innerHTML='<p class="text-xs text-down">Could not load whale data: '+(err&&err.message?err.message:String(err))+'</p>';
   });
 }
+// ═══ Liquidation Levels — standalone tile only, same standalone principle as
+// Whale Movements. Models liquidation prices from REAL Hyperliquid mark price
+// and funding data at documented leverage tiers, assuming a position opened
+// at today's price — every public liquidation heatmap (CoinGlass included,
+// by their own stated disclaimer) makes an equivalent assumption; this
+// discloses it explicitly instead of implying measured precision. ═══
+const LIQ_SYMBOLS=['BTC','ETH','SOL','LINK','HYPE'];
+const LIQ_LEVERAGE_TIERS={BTC:[5,10,20,50],ETH:[5,10,20,50],SOL:[5,10,20],LINK:[5,10,20],HYPE:[5,10,20]};
+const LIQ_CROWDING_THRESHOLD_PCT=15; // premium APR magnitude beyond this = one side clearly dominant — a fixed, disclosed threshold, not a calibrated baseline
+const LIQ_PROXIMITY_PCT=8; // nearest crowded-side level within this % of price = elevated
+function computeLiquidationLevels(markPx,tiers){
+  return tiers.map(lev=>({leverage:lev,longLiq:markPx*(1-1/lev),shortLiq:markPx*(1+1/lev)}));
+}
+function computeLiqFlags(markPx,premiumPct,levels){
+  const crowded=Math.abs(premiumPct)>=LIQ_CROWDING_THRESHOLD_PCT;
+  if(!crowded)return{crowded:false,crowdedSide:null,elevated:false,nearestDistPct:null};
+  const crowdedSide=premiumPct>0?'long':'short'; // positive premium = longs paying = longs crowded, their liq levels sit BELOW price
+  let nearestDist=Infinity;
+  levels.forEach(l=>{
+    const lv=crowdedSide==='long'?l.longLiq:l.shortLiq;
+    const dist=Math.abs(markPx-lv)/markPx*100;
+    if(dist<nearestDist)nearestDist=dist;
+  });
+  return{crowded,crowdedSide,elevated:nearestDist<=LIQ_PROXIMITY_PCT,nearestDistPct:nearestDist};
+}
+// Monthly persistence: has the SAME crowded side been dominant over the last
+// 30 days of already-logged funding history (from the Hyperliquid funding
+// panel's existing local logging), or is today's reading new? Reuses data
+// already being collected, no new infrastructure.
+function computeLiqMonthlyPersistence(sym,currentPremiumSign){
+  const hist=fundingHistoryStats(sym,30);
+  if(!hist||!hist.points||!hist.points.length)return null;
+  const sameSide=hist.points.filter(p=>Math.sign(p.aprPct)===currentPremiumSign).length;
+  return{pct:Math.round(sameSide/hist.points.length*100),count:hist.points.length};
+}
+let liqChartInst=null;
+const liqState={asset:'BTC',range:'day',dataByAsset:{}};
+function liqTabsSetActive(){
+  $$('#liqAssetTabs .liq-asset-tab').forEach(b=>{
+    const on=b.dataset.liqAsset===liqState.asset;
+    b.classList.toggle('bg-neon',on);b.classList.toggle('text-ink',on);
+  });
+  $$('#liqRangeTabs .liq-range-tab').forEach(b=>{
+    const on=b.dataset.liqRange===liqState.range;
+    b.classList.toggle('bg-neon',on);b.classList.toggle('text-ink',on);
+  });
+}
+function buildLiqChartConfig(labels,pricePts,levels,color){
+  const datasets=[{data:pricePts,borderColor:color,backgroundColor:'transparent',borderWidth:2,fill:false,tension:.25,pointRadius:0,pointHoverRadius:4,pointHoverBackgroundColor:color,label:'Price'}];
+  levels.forEach(l=>{
+    const opacity=0.35+0.5*(l.leverage/Math.max(...levels.map(x=>x.leverage))); // higher leverage = closer to price = more visually prominent
+    datasets.push({data:labels.map(()=>l.longLiq),borderColor:`rgba(59,243,139,${opacity})`,borderWidth:1.5,borderDash:[4,3],pointRadius:0,fill:false,tension:0,label:l.leverage+'x long liq'});
+    datasets.push({data:labels.map(()=>l.shortLiq),borderColor:`rgba(255,92,114,${opacity})`,borderWidth:1.5,borderDash:[4,3],pointRadius:0,fill:false,tension:0,label:l.leverage+'x short liq'});
+  });
+  return{type:'line',data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},
+    animation:{duration:400,easing:'easeOutQuart'},
+    plugins:{legend:{display:false},crosshair:{enabled:true,datasetIndex:0},
+      tooltip:{filter:it=>it.datasetIndex===0,callbacks:{label:c=>'Price: '+money(c.raw,pdec(c.raw))}}},
+    scales:{x:{grid:{display:false},ticks:{color:'#7A8499',font:{size:9},maxTicksLimit:8}},
+      y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#7A8499',font:{size:9},callback:v=>symC()+Number(v).toLocaleString('en-US',{maximumFractionDigits:0})}}}
+  }};
+}
+async function renderLiquidationChart(){
+  const cv=$('#liqChart');if(!cv)return;
+  const sym=liqState.asset;
+  const d=liqState.dataByAsset[sym];if(!d)return;
+  const fx=state.ccy==='USD'?1:(state.fx||FX0);
+  let labels=[],pricePts=[];
+  if(liqState.range==='day'){
+    const ipts=await fetchIntraday(sym);
+    if(ipts&&ipts.length){
+      labels=ipts.map(p=>new Date(p.t).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}));
+      pricePts=ipts.map(p=>p.y/fx);
+    }
+  }else{
+    const days=liqState.range==='week'?7:30;
+    const h=PRICE_HISTORY[sym]||{};
+    const ks=Object.keys(h).sort();
+    if(ks.length){
+      const endIso=NOW()>TODAY?NOW():TODAY;
+      const axis=[];{const dd=new Date(ks[0]+'T00:00:00Z'),ee=new Date(endIso+'T00:00:00Z');
+        while(dd<=ee){axis.push(dd.toISOString().slice(0,10));dd.setUTCDate(dd.getUTCDate()+1);}}
+      let pts=axis.map(day=>({x:day,y:(day===endIso?pxUsd(sym):histPx(sym,day))/fx}));
+      const cutoff=new Date(Date.now()-days*864e5).toISOString().slice(0,10);
+      pts=pts.filter(p=>p.x>=cutoff);
+      labels=pts.map(p=>p.x);
+      pricePts=pts.map(p=>p.y);
+    }
+  }
+  if(!pricePts.length)return;
+  const cfg=buildLiqChartConfig(labels,pricePts,d.levels,META[sym]?.c||'#3BF38B');
+  if(liqChartInst){liqChartInst.data=cfg.data;liqChartInst.options=cfg.options;liqChartInst.update();}
+  else liqChartInst=new Chart(cv,cfg);
+}
+function wireLiqTabs(){
+  $$('#liqAssetTabs .liq-asset-tab').forEach(b=>b.onclick=()=>{liqState.asset=b.dataset.liqAsset;liqTabsSetActive();renderLiquidationChart();});
+  $$('#liqRangeTabs .liq-range-tab').forEach(b=>b.onclick=()=>{liqState.range=b.dataset.liqRange;liqTabsSetActive();renderLiquidationChart();});
+  liqTabsSetActive();
+}
+async function renderLiquidationTile(){
+  const analysisEl=$('#liqAnalysisBody'),summaryEl=$('#liqSummaryRows');
+  if(!summaryEl)return;
+  wireLiqTabs();
+  let assets;
+  try{assets=await fetchHyperliquidAssets();}catch(e){
+    summaryEl.innerHTML='<p class="text-mutet">Could not load Hyperliquid data: '+e.message+'</p>';
+    if(analysisEl)analysisEl.textContent='';
+    return;
+  }
+  const perAsset={};
+  LIQ_SYMBOLS.forEach(sym=>{
+    const c=assets[sym];if(!c)return;
+    const markPx=parseFloat(c.markPx);if(!markPx)return;
+    const levels=computeLiquidationLevels(markPx,LIQ_LEVERAGE_TIERS[sym]);
+    const premiumPct=(parseFloat(c.funding)-HL_FUNDING_FLOOR_HOURLY)*24*365*100;
+    const flags=computeLiqFlags(markPx,premiumPct,levels);
+    const monthly=flags.crowded?computeLiqMonthlyPersistence(sym,Math.sign(premiumPct)):null;
+    perAsset[sym]={markPx,levels,premiumPct,flags,monthly};
+  });
+  liqState.dataByAsset=perAsset;
+  if(!Object.keys(perAsset).length){
+    summaryEl.innerHTML='<p class="text-mutet">No Hyperliquid data available this cycle.</p>';
+    if(analysisEl)analysisEl.textContent='';
+    return;
+  }
+  summaryEl.innerHTML=LIQ_SYMBOLS.filter(s=>perAsset[s]).map(sym=>{
+    const d=perAsset[sym];
+    const dirColor=d.premiumPct>=0?'#3BF38B':'#FF5C72';
+    const dirLabel=!d.flags.crowded?'Balanced':(d.premiumPct>=0?'Longs crowded':'Shorts crowded');
+    const elevated=d.flags.elevated?' <span style="color:#F5B843">⚠ '+d.flags.nearestDistPct.toFixed(1)+'% from a level</span>':'';
+    return`<div class="flex items-center justify-between">
+      <span class="font-semibold">${sym}</span>
+      <span class="text-mutet tnum">${money(d.markPx,pdec(d.markPx))}</span>
+      <span style="color:${dirColor}">${dirLabel}</span>
+      <span>${elevated}</span>
+    </div>`;
+  }).join('');
+  if(analysisEl){
+    analysisEl.textContent='Loading plain-language summary…';
+    fetch(`${PULSE_WORKER_URL}/liquidation-analysis`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({assets:perAsset,focus:liqState.asset})})
+      .then(r=>r.json())
+      .then(res=>{
+        if(res.error){analysisEl.textContent='Could not load summary: '+res.error;return;}
+        analysisEl.textContent=res.analysis;
+      })
+      .catch(err=>{analysisEl.textContent='Could not load summary: '+(err&&err.message?err.message:String(err));});
+  }
+  renderLiquidationChart();
+}
 function renderCyclesTab(){
   renderWhaleTile();
+  renderLiquidationTile();
   const now=new Date();
   // ---- Halving position + phase estimate ----
   const halDays=Math.floor((now-HALVING_DATE)/86400000);
