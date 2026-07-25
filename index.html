@@ -705,17 +705,40 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <button data-liq-range="month" class="liq-range-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">Month</button>
         </div>
         <div class="h-[220px]"><canvas id="liqChart"></canvas></div>
-        <p class="text-[10px] text-mutet mt-2">Density heatmap using Glassnode's actual color scale (purple/blue = thin, teal/green = moderate, yellow/orange/red = densest cluster) — computed from a fine leverage grid (every 1x), so real clusters show through instead of a few coarse bands. Grey/flat = already crossed by price (consumed), stays that way into the future too. Full color = still fresh, including the projected space after "now" so you can watch price approach it. Yellow ↑/↓ prices on the left axis mark the nearest un-eaten significant cluster above and below current price.</p>
+        <div class="flex items-center gap-2 mt-2">
+          <span class="text-[9px] text-mutet">Thin</span>
+          <div class="flex-1 h-2 rounded-full" style="background:linear-gradient(to right,#7C3AED,#2563EB,#0891B2,#16A34A,#EAB308,#F97316,#DC2626)"></div>
+          <span class="text-[9px] text-mutet">Dense</span>
+        </div>
+        <p class="text-[10px] text-mutet mt-2">Density heatmap using Glassnode's actual color scale (violet/blue = thin, cyan/green = moderate, gold/orange/red = densest cluster) — computed from a fine leverage grid (every 1x), so real clusters show through instead of a few coarse bands. Grey/flat = already crossed by price (consumed), stays that way into the future too. Full color = still fresh, including the projected space after "now" so you can watch price approach it. Yellow ↑/↓ prices on the left axis mark the nearest un-eaten significant cluster; dimmer labels mark every other tier level.</p>
       </div>
 
       <!-- Fullscreen liquidation chart overlay: own Chart.js instance,
-           reusing the last-rendered series so it doesn't re-fetch. -->
+           reusing the last-rendered series so it doesn't re-fetch. Has its
+           own asset/range tabs so switching coins/timeframes works here too. -->
       <div id="liqChartFullscreen" class="hidden fixed inset-0 z-50 bg-panel p-4 flex flex-col">
         <div class="flex items-center justify-between mb-2">
           <h3 class="text-sm font-semibold">Liquidation Levels (Modeled)</h3>
           <button class="px-2.5 py-1.5 rounded-md text-xs bg-panel2 hover:text-white border border-line" onclick="closeLiqFullscreen()">✕ Close</button>
         </div>
+        <div class="flex gap-1.5 mb-2 overflow-x-auto" id="liqAssetTabsFull">
+          <button data-liq-asset="BTC" class="liq-asset-tab-full text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">BTC</button>
+          <button data-liq-asset="ETH" class="liq-asset-tab-full text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">ETH</button>
+          <button data-liq-asset="SOL" class="liq-asset-tab-full text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">SOL</button>
+          <button data-liq-asset="LINK" class="liq-asset-tab-full text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">LINK</button>
+          <button data-liq-asset="HYPE" class="liq-asset-tab-full text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">HYPE</button>
+        </div>
+        <div class="flex gap-1.5 mb-2" id="liqRangeTabsFull">
+          <button data-liq-range="day" class="liq-range-tab-full text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">Day</button>
+          <button data-liq-range="week" class="liq-range-tab-full text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">Week</button>
+          <button data-liq-range="month" class="liq-range-tab-full text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">Month</button>
+        </div>
         <div class="flex-1"><canvas id="liqChartFull"></canvas></div>
+        <div class="flex items-center gap-2 mt-2">
+          <span class="text-[9px] text-mutet">Thin</span>
+          <div class="flex-1 h-2 rounded-full" style="background:linear-gradient(to right,#7C3AED,#2563EB,#0891B2,#16A34A,#EAB308,#F97316,#DC2626)"></div>
+          <span class="text-[9px] text-mutet">Dense</span>
+        </div>
       </div>
     </section>
 
@@ -4784,11 +4807,11 @@ function computeLiqMonthlyPersistence(sym,currentPremiumSign){
 let liqChartInst=null;
 const liqState={asset:'BTC',range:'day',dataByAsset:{}};
 function liqTabsSetActive(){
-  $$('#liqAssetTabs .liq-asset-tab').forEach(b=>{
+  $$('#liqAssetTabs .liq-asset-tab, #liqAssetTabsFull .liq-asset-tab-full').forEach(b=>{
     const on=b.dataset.liqAsset===liqState.asset;
     b.classList.toggle('bg-neon',on);b.classList.toggle('text-ink',on);
   });
-  $$('#liqRangeTabs .liq-range-tab').forEach(b=>{
+  $$('#liqRangeTabs .liq-range-tab, #liqRangeTabsFull .liq-range-tab-full').forEach(b=>{
     const on=b.dataset.liqRange===liqState.range;
     b.classList.toggle('bg-neon',on);b.classList.toggle('text-ink',on);
   });
@@ -4807,7 +4830,7 @@ function liqTabsSetActive(){
 function hexToRgbObj(hex){const h=hex.replace('#','');return{r:parseInt(h.substring(0,2),16),g:parseInt(h.substring(2,4),16),b:parseInt(h.substring(4,6),16)};}
 function mixRgb(a,b,t){return{r:Math.round(a.r+(b.r-a.r)*t),g:Math.round(a.g+(b.g-a.g)*t),b:Math.round(a.b+(b.b-a.b)*t)};}
 function rgbaStr(o,a){return`rgba(${o.r},${o.g},${o.b},${a})`;}
-const LIQ_HEAT_STOPS=['#6A5ACD','#3D6EA5','#2FA0A0','#5FB35A','#D9D94A','#F2994A','#E0483C'].map(hexToRgbObj);
+const LIQ_HEAT_STOPS=['#7C3AED','#2563EB','#0891B2','#16A34A','#EAB308','#F97316','#DC2626'].map(hexToRgbObj); // violet -> blue -> cyan -> green -> gold -> orange -> red, more saturated/vivid than the first pass
 function liqHeatColor(t,alpha){
   t=Math.max(0,Math.min(1,t));
   const idx=t*(LIQ_HEAT_STOPS.length-1);
@@ -4877,7 +4900,7 @@ const liqHeatmapPlugin={id:'liqHeatmap',beforeDatasetsDraw(chart){
     if(bin.eaten){
       ctx.fillStyle='rgba(120,120,130,0.05)';
     }else{
-      ctx.fillStyle=liqHeatColor(bin.intensity,0.12+0.55*bin.intensity);
+      ctx.fillStyle=liqHeatColor(bin.intensity,bin.intensity<0.06?0.02:0.18+0.62*bin.intensity);
     }
     ctx.fillRect(left,yTop,right-left,yBot-yTop);
   });
@@ -4915,17 +4938,30 @@ function buildLiqChartConfig(allLabels,allPricePts,realPricePts,tiersAsc,color,c
       tooltip:{filter:it=>it.datasetIndex===0,callbacks:{label:c=>c.raw==null?'':'Price: '+money(c.raw,pdec(c.raw))}}},
     scales:{x:{grid:{display:false},ticks:{color:'#7A8499',font:{size:9},maxTicksLimit:8}},
       y:{min:density.yMin,max:density.yMax,grid:{color:'rgba(255,255,255,.06)'},
-        // Inject the nearest-fresh-cluster prices as extra highlighted ticks
-        // on top of the normal auto-generated ones — same technique already
-        // used for the fan chart's custom Now/6M/2Y/5Y ticks.
+        // Label EVERY classic tier boundary with its real price (not just
+        // round numbers) — this is what actually answers "what price do I
+        // need to reach the next visible level," on every band, not just the
+        // two nearest-fresh-cluster ones. Those two stay specially
+        // highlighted (bold yellow ↑/↓) since they're the most actionable;
+        // the rest render dimmer but still labeled. autoSkip thins the set on
+        // the small inline chart and shows more on the fullscreen view.
         afterBuildTicks:axis=>{
-          const extra=[];
-          if(nextCluster.above!=null)extra.push({value:nextCluster.above,liqCluster:'above'});
-          if(nextCluster.below!=null)extra.push({value:nextCluster.below,liqCluster:'below'});
-          axis.ticks=[...axis.ticks,...extra].sort((a,b)=>a.value-b.value);
+          const seen=new Map();
+          const addTick=(value,extra)=>{
+            const key=Math.round(value);
+            if(seen.has(key))Object.assign(seen.get(key),extra);
+            else seen.set(key,{value,...extra});
+          };
+          tiersAsc.forEach(lev=>{
+            addTick(livePrice*(1-1/lev),{tierLabel:true});
+            addTick(livePrice*(1+1/lev),{tierLabel:true});
+          });
+          if(nextCluster.above!=null)addTick(nextCluster.above,{liqCluster:'above'});
+          if(nextCluster.below!=null)addTick(nextCluster.below,{liqCluster:'below'});
+          axis.ticks=Array.from(seen.values()).sort((a,b)=>a.value-b.value);
         },
-        ticks:{color:ctx=>ctx.tick?.liqCluster?'#FFD23F':'#7A8499',
-          font:ctx=>ctx.tick?.liqCluster?{size:9,weight:'700'}:{size:9},
+        ticks:{color:ctx=>ctx.tick?.liqCluster?'#FFD23F':ctx.tick?.tierLabel?'#9AA5B8':'#7A8499',
+          font:ctx=>ctx.tick?.liqCluster?{size:9,weight:'700'}:{size:8},
           callback:function(v,idx,ticksArr){
             const tick=ticksArr&&ticksArr[idx];
             const prefix=tick&&tick.liqCluster==='above'?'↑ ':tick&&tick.liqCluster==='below'?'↓ ':'';
@@ -4973,6 +5009,14 @@ async function renderLiquidationChart(){
   const cfg=buildLiqChartConfig(allLabels,allPricePts,pricePts,liqState.lastTiers,liqState.lastColor,liqState.lastCrowdedSide);
   if(liqChartInst){liqChartInst.data=cfg.data;liqChartInst.options=cfg.options;liqChartInst.update();}
   else liqChartInst=new Chart(cv,cfg);
+  // Keep the fullscreen chart in sync if it's currently open, so switching
+  // asset/range from either the inline tile or the fullscreen tabs updates
+  // both instead of only the one that triggered it.
+  const fullModal=$('#liqChartFullscreen');
+  if(liqChartFullInst&&fullModal&&!fullModal.classList.contains('hidden')){
+    const cfgFull=buildLiqChartConfig(allLabels,allPricePts,pricePts,liqState.lastTiers,liqState.lastColor,liqState.lastCrowdedSide);
+    liqChartFullInst.data=cfgFull.data;liqChartFullInst.options=cfgFull.options;liqChartFullInst.update();
+  }
 }
 let liqChartFullInst=null;
 function openLiqFullscreen(){
@@ -4990,8 +5034,8 @@ function closeLiqFullscreen(){
   if(liqChartFullInst){liqChartFullInst.destroy();liqChartFullInst=null;}
 }
 function wireLiqTabs(){
-  $$('#liqAssetTabs .liq-asset-tab').forEach(b=>b.onclick=()=>{liqState.asset=b.dataset.liqAsset;liqTabsSetActive();renderLiquidationChart();});
-  $$('#liqRangeTabs .liq-range-tab').forEach(b=>b.onclick=()=>{liqState.range=b.dataset.liqRange;liqTabsSetActive();renderLiquidationChart();});
+  $$('#liqAssetTabs .liq-asset-tab, #liqAssetTabsFull .liq-asset-tab-full').forEach(b=>b.onclick=()=>{liqState.asset=b.dataset.liqAsset;liqTabsSetActive();renderLiquidationTile();});
+  $$('#liqRangeTabs .liq-range-tab, #liqRangeTabsFull .liq-range-tab-full').forEach(b=>b.onclick=()=>{liqState.range=b.dataset.liqRange;liqTabsSetActive();renderLiquidationTile();});
   liqTabsSetActive();
 }
 async function renderLiquidationTile(){
@@ -5032,9 +5076,21 @@ async function renderLiquidationTile(){
       <span>${elevated}</span>
     </div>`;
   }).join('');
+  await renderLiquidationChart(); // populate liqState.last* first, so the AI payload can reference the actual visible chart data
   if(analysisEl){
     analysisEl.textContent='Loading plain-language summary…';
-    fetch(`${PULSE_WORKER_URL}/liquidation-analysis`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({assets:perAsset,focus:liqState.asset})})
+    let chartContext=null;
+    if(liqState.lastRealPricePts&&liqState.lastTiers){
+      const livePx=liqState.lastRealPricePts[liqState.lastRealPricePts.length-1];
+      const minLev=Math.min(...liqState.lastTiers),maxLev=Math.max(...liqState.lastTiers);
+      const density=computeLiqDensityBins(livePx,minLev,maxLev,LIQ_HEATMAP_RANGE_PCT,70,liqState.lastRealPricePts);
+      const nextCluster=findNearestFreshClusters(density,livePx,LIQ_CLUSTER_THRESHOLD);
+      chartContext={
+        asset:liqState.asset,range:liqState.range,livePrice:livePx,
+        nextClusterAbove:nextCluster.above,nextClusterBelow:nextCluster.below,
+      };
+    }
+    fetch(`${PULSE_WORKER_URL}/liquidation-analysis`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({assets:perAsset,focus:liqState.asset,chartContext})})
       .then(r=>r.json())
       .then(res=>{
         if(res.error){analysisEl.textContent='Could not load summary: '+res.error;return;}
@@ -5042,7 +5098,6 @@ async function renderLiquidationTile(){
       })
       .catch(err=>{analysisEl.textContent='Could not load summary: '+(err&&err.message?err.message:String(err));});
   }
-  renderLiquidationChart();
 }
 function renderCyclesTab(){
   renderWhaleTile();
