@@ -3625,7 +3625,11 @@ async function _initSentimentTabImpl(){
       onChainDivergence:window.__lastOnChainDivergence||null,
       sectorRotation:window.__lastSectorRotation||null,
       technicalAlignment:window.__lastTechnicalAlignment||null,
-      topHeadlines:window.__lastTopHeadlines||[]
+      topHeadlines:window.__lastTopHeadlines||[],
+      // Populated only if the Liquidation tab was visited this session with BTC
+      // focused — validated standalone on the Liquidation tab before being wired
+      // in here per your instruction.
+      liquidationClusters:window.__lastLiqClusterSignal||null
     };
     const result=await fetchTraderAnalysis(payload);
     renderTraderAnalysis(result);
@@ -5137,6 +5141,27 @@ async function renderLiquidationTile(){
         chartContext.probBelow=p;
         logLiqClusterPrediction(liqState.range,'below',nextCluster.below,p,horizonDays);
         chartContext.calibrationBelow=computeLiqProbCalibration(p);
+      }
+      // ---- Cross-tab handoff to Trader Analysis, BTC-focused only (Trader
+      // Analysis reasons about BTC specifically; a non-BTC focus in this tab
+      // isn't relevant to it). Same "populated only if visited this session"
+      // pattern already used for regimeScorecard/onChainDivergence/etc — the
+      // Worker prompt treats absence as "not available", never as a signal
+      // of its own. Validated standalone before being wired in here. ----
+      if(liqState.asset==='BTC'){
+        const d=perAsset.BTC;
+        window.__lastLiqClusterSignal={
+          livePrice:chartContext.livePrice,range:liqState.range,horizonDays,
+          nextClusterAbove:chartContext.nextClusterAbove,nextClusterBelow:chartContext.nextClusterBelow,
+          probAbove:chartContext.probAbove!=null?chartContext.probAbove:null,
+          probBelow:chartContext.probBelow!=null?chartContext.probBelow:null,
+          calibrationAbove:chartContext.calibrationAbove||null,
+          calibrationBelow:chartContext.calibrationBelow||null,
+          crowded:d?d.flags.crowded:false,
+          crowdedSide:d&&d.flags.crowded?d.flags.crowdedSide:null,
+          nearestDistPct:d?d.flags.nearestDistPct:null,
+          monthly:d?d.monthly:null
+        };
       }
     }
     fetch(`${PULSE_WORKER_URL}/liquidation-analysis`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({assets:perAsset,focus:liqState.asset,chartContext})})
