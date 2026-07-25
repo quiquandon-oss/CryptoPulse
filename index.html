@@ -5393,7 +5393,11 @@ function renderCyclesTab(){
     fetchOnChainDivergence().catch(err=>({error:err.message})),
     fetchSectorRotation().catch(err=>({error:err.message})),
     fetchTechnicalTimeframeAlignment().catch(err=>({error:err.message})),
-  ]).then(([{history},onchain,rotation,longTermEma])=>{
+    // Reused for the new short-term liquidation-cluster factor below — same
+    // free Hyperliquid metaAndAssetCtxs call the Liquidation/Whale tiles
+    // already make, no new cost, no new dependency.
+    fetchHyperliquidAssets().catch(err=>({error:err.message})),
+  ]).then(([{history},onchain,rotation,longTermEma,hlAssets])=>{
     if(!history||!history.length){
       liveEl.innerHTML='<p class="text-mutet col-span-2">No Sentiment data yet — visit the Sentiment tab first.</p>';
       if(scoreEl)scoreEl.innerHTML='<p class="text-mutet">No Sentiment data yet — visit the Sentiment tab first.</p>';
@@ -5458,6 +5462,42 @@ function renderCyclesTab(){
         ?{label:'Regulatory/trade-policy news',display:latestSources.regulatory,tag:tagOf(latestSources.regulatory,55,45),mag:magOf01(latestSources.regulatory),available:true}
         :{label:'Regulatory/trade-policy news',display:'—',tag:'neutral',mag:0,available:false,reason:'Not included in the latest Sentiment reading (source likely failed that cycle)'},
     ];
+    // ---- Liquidation cluster pull (SHORT-TERM ONLY, days). Deliberately
+    // computed fresh here at a FIXED 1-day horizon, independent of whatever
+    // range (day/week/month) the Liquidation tab happens to be showing this
+    // session — reusing that cross-tab cache would silently mismatch this
+    // "days" bucket's own timeframe. Direction: a cluster ABOVE price is a
+    // SHORT-liquidation zone (shorts forced to buy back = upward pressure);
+    // a cluster BELOW is a LONG-liquidation zone (forced selling = downward
+    // pressure). Net pull = P(reach above) - P(reach below), same
+    // differential-gap pattern as On-chain-vs-price/BTC-vs-Nasdaq above.
+    // Free: reuses the same Hyperliquid fetch + embedded price history
+    // already used elsewhere, no new API or cost. ----
+    {
+      const btcHl=hlAssets&&!hlAssets.error?hlAssets.BTC:null;
+      const markPx=btcHl?parseFloat(btcHl.markPx):null;
+      let liqFactor;
+      if(markPx){
+        const tiers=LIQ_LEVERAGE_TIERS.BTC;
+        const realPricePts=Object.keys(PRICE_HISTORY.BTC||{}).sort().map(k=>PRICE_HISTORY.BTC[k]).filter(p=>p>0);
+        const density=computeLiqDensityBins(markPx,Math.min(...tiers),Math.max(...tiers),LIQ_HEATMAP_RANGE_PCT,70,realPricePts);
+        const nextCluster=findNearestFreshClusters(density,markPx,LIQ_CLUSTER_THRESHOLD);
+        const probAbove=nextCluster.above!=null?priceProba('BTC',nextCluster.above,1/365):null;
+        const probBelow=nextCluster.below!=null?1-priceProba('BTC',nextCluster.below,1/365):null;
+        if(probAbove!=null||probBelow!=null){
+          const netPull=(probAbove||0)-(probBelow||0);
+          const parts=[];
+          if(probAbove!=null)parts.push('+'+Math.round(probAbove*100)+'%\u2191$'+Math.round(nextCluster.above).toLocaleString());
+          if(probBelow!=null)parts.push('-'+Math.round(probBelow*100)+'%\u2193$'+Math.round(nextCluster.below).toLocaleString());
+          liqFactor={label:'Liquidation cluster pull (1d)',display:parts.join(' / '),tag:netPull>0.05?'bullish':netPull<-0.05?'bearish':'neutral',mag:clamp(netPull/0.2,-1,1),available:true};
+        }else{
+          liqFactor={label:'Liquidation cluster pull (1d)',display:'—',tag:'neutral',mag:0,available:false,reason:'No fresh (not-already-eaten) cluster found above or below within the modeled range'};
+        }
+      }else{
+        liqFactor={label:'Liquidation cluster pull (1d)',display:'—',tag:'neutral',mag:0,available:false,reason:(hlAssets&&hlAssets.error)||'Hyperliquid BTC data unavailable this cycle'};
+      }
+      shortTerm.push(liqFactor);
+    }
 
     // ---- MEDIUM-TERM (weeks): trend-based reads, not single-day snapshots ----
     const midTerm=[
