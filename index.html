@@ -440,7 +440,24 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <p class="text-xs text-mutet" id="dryNote">—</p>
       </div>
 
-      <div class="rounded-2xl border border-line bg-panel p-5 sm:p-6">
+      <!-- Average cost per coin — plain numbers, one line per coin -->
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <p class="text-sm font-semibold mb-3">Average Cost <span class="text-mutet font-normal">· Revolut · Neverless · All</span></p>
+        <div id="dcaAvgTable" class="overflow-x-auto"></div>
+      </div>
+
+      <!-- DCA average cost per coin — one donut per crypto, split Revolut vs Neverless
+           (moved here from Dashboard, per user request) -->
+      <div class="mt-4 rounded-2xl border border-line bg-panel p-5">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <p class="text-sm font-semibold">DCA · Average Cost per Coin <span class="text-mutet font-normal">· split by account</span></p>
+          <span class="text-[10px] text-mutet bg-panel2 px-2 py-1 rounded-lg">🔵 Revolut · 🟦 Neverless · % = share of invested</span>
+        </div>
+        <div id="dcaDonuts" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3"></div>
+      </div>
+
+      <!-- Dollar-Cost Average entry form — moved to bottom of DCA tab, per user request -->
+      <div class="mt-4 rounded-2xl border border-line bg-panel p-5 sm:p-6">
         <h2 class="font-semibold mb-1">Dollar-Cost Average</h2>
         <p class="text-xs text-mutet mb-4">Record a buy or sell. Enter the amount of coins and the price you paid, in USD or EUR.</p>
         <label class="text-xs text-mutet">Coin</label>
@@ -491,22 +508,6 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <p id="pv_qty" class="text-xs text-mutet mt-2 text-center"></p>
         </div>
         <button id="d_save" class="w-full mt-4 bg-neon hover:bg-neon/90 text-ink font-bold rounded-xl py-3 transition">Save DCA</button>
-      </div>
-
-      <!-- Average cost per coin — plain numbers, one line per coin -->
-      <div class="mt-4 rounded-2xl border border-line bg-panel p-5">
-        <p class="text-sm font-semibold mb-3">Average Cost <span class="text-mutet font-normal">· Revolut · Neverless · All</span></p>
-        <div id="dcaAvgTable" class="overflow-x-auto"></div>
-      </div>
-
-      <!-- DCA average cost per coin — one donut per crypto, split Revolut vs Neverless
-           (moved here from Dashboard, per user request) -->
-      <div class="mt-4 rounded-2xl border border-line bg-panel p-5">
-        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-          <p class="text-sm font-semibold">DCA · Average Cost per Coin <span class="text-mutet font-normal">· split by account</span></p>
-          <span class="text-[10px] text-mutet bg-panel2 px-2 py-1 rounded-lg">🔵 Revolut · 🟦 Neverless · % = share of invested</span>
-        </div>
-        <div id="dcaDonuts" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3"></div>
       </div>
     </section>
 
