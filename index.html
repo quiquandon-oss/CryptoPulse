@@ -3068,6 +3068,25 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
   const active=COMPOSITE_SOURCES.filter(s=>sourceValues[s.id]).map(s=>({...s,value:sourceValues[s.id]}));
   const composite=computeComposite(active);
   if(composite==null)return{ok:false,activeCount:0};
+  // ---- FIX: completeness gate. A composite computed from just 1-2 of the
+  // ~18 weighted sources (e.g. onchain+gold alone, ~7% of total possible
+  // weight, after most sources failed that fetch cycle) used to get written
+  // to D1 indistinguishably from a genuinely full ~18-source reading —
+  // confirmed via D1: readings of 14-16 landed on a day the composite
+  // otherwise sat in the mid-40s. Fixed, disclosed floor (not a
+  // statistically validated cutoff, same philosophy as other thresholds in
+  // this app): skip the PERSISTENT D1 write if under half the total possible
+  // source weight actually resolved this cycle. This only gates what feeds
+  // history/calibration/backtests going forward — it doesn't touch or
+  // retroactively flag the already-written rows from before this fix. ----
+  const totalPossibleWeight=COMPOSITE_SOURCES.reduce((s,src)=>s+src.weight,0)||1;
+  const activeWeight=active.reduce((s,src)=>s+src.weight,0);
+  const sourceCompleteness=activeWeight/totalPossibleWeight;
+  const COMPLETENESS_FLOOR=0.5;
+  if(sourceCompleteness<COMPLETENESS_FLOOR){
+    console.warn('Composite computed from only '+Math.round(sourceCompleteness*100)+'% of possible source weight ('+active.length+'/'+COMPOSITE_SOURCES.length+' sources) — not written to D1 this cycle to avoid polluting history with an unrepresentative reading.');
+    return{ok:false,activeCount:active.length,lowCompleteness:true,composite};
+  }
   const sourcesSnapshot={};
   active.forEach(s=>{sourcesSnapshot[s.id]=s.value.score;});
   // ---- Throttle: don't write a new D1 point more often than every 15min.
@@ -3091,7 +3110,20 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
     try{
       await fetch(`${PULSE_WORKER_URL}/history`,{
         method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({score:composite,technicalScore:typeof technicalScore==='number'?technicalScore:null,btcPrice:pxUsd('BTC')||null,sources:sourcesSnapshot,goldRegime:window.__lastGoldRegime||null,regimeMag:window.__lastRegimeScorecard?.overallMag??null})
+        // FIX: was btcPrice:pxUsd('BTC')||null — pxUsd() silently falls back
+        // to histPx('BTC', TODAY) whenever state.prices.BTC.usd isn't
+        // populated yet this cycle, and histPx walks the static embedded
+        // PRICE_HISTORY table for the nearest date <= today. That table
+        // hasn't been refreshed since 2026-06-26, so for any date after
+        // that it always returns the SAME stale value ($59,724) — and
+        // because that number is truthy, ||null never catches it, so a
+        // months-old price got written into a timestamped log as if it
+        // were live. Confirmed in D1: exactly $59,724 recorded 4 separate
+        // times against completely different real price levels. Reading
+        // straight from state.prices bypasses that fallback chain entirely
+        // — genuinely missing this cycle now writes null (filterable),
+        // never a stale guess dressed up as real.
+        body:JSON.stringify({score:composite,technicalScore:typeof technicalScore==='number'?technicalScore:null,btcPrice:state.prices.BTC?.usd||null,sources:sourcesSnapshot,goldRegime:window.__lastGoldRegime||null,regimeMag:window.__lastRegimeScorecard?.overallMag??null})
       });
     }catch(e){console.warn('Failed to POST composite score to /history:',e.message);}
   }
@@ -5397,7 +5429,16 @@ function renderCyclesTab(){
     // free Hyperliquid metaAndAssetCtxs call the Liquidation/Whale tiles
     // already make, no new cost, no new dependency.
     fetchHyperliquidAssets().catch(err=>({error:err.message})),
-  ]).then(([{history},onchain,rotation,longTermEma,hlAssets])=>{
+    // FIX: originally this factor used the static PRICE_HISTORY.BTC table for
+    // "eaten" cluster detection — wrong data source. That table is a
+    // snapshot frozen months ago and spans a much wider price range ($59.7K-
+    // $82K) than today's live price, so it marked nearly every bin in the
+    // +-20% band as already-eaten, producing "no fresh cluster found" every
+    // time. fetchIntraday is the SAME free, already-used call the
+    // Liquidation tab's own 'day' range makes for exactly this purpose —
+    // genuinely recent (last 24h) real price points, not a stale embed.
+    fetchIntraday('BTC').catch(()=>null),
+  ]).then(([{history},onchain,rotation,longTermEma,hlAssets,intraday])=>{
     if(!history||!history.length){
       liveEl.innerHTML='<p class="text-mutet col-span-2">No Sentiment data yet — visit the Sentiment tab first.</p>';
       if(scoreEl)scoreEl.innerHTML='<p class="text-mutet">No Sentiment data yet — visit the Sentiment tab first.</p>';
@@ -5479,7 +5520,7 @@ function renderCyclesTab(){
       let liqFactor;
       if(markPx){
         const tiers=LIQ_LEVERAGE_TIERS.BTC;
-        const realPricePts=Object.keys(PRICE_HISTORY.BTC||{}).sort().map(k=>PRICE_HISTORY.BTC[k]).filter(p=>p>0);
+        const realPricePts=(intraday||[]).map(p=>p.y).filter(p=>p>0);
         const density=computeLiqDensityBins(markPx,Math.min(...tiers),Math.max(...tiers),LIQ_HEATMAP_RANGE_PCT,70,realPricePts);
         const nextCluster=findNearestFreshClusters(density,markPx,LIQ_CLUSTER_THRESHOLD);
         const probAbove=nextCluster.above!=null?priceProba('BTC',nextCluster.above,1/365):null;
