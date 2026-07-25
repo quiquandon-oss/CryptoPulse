@@ -5430,19 +5430,10 @@ function renderCyclesTab(){
     fetchSectorRotation().catch(err=>({error:err.message})),
     fetchTechnicalTimeframeAlignment().catch(err=>({error:err.message})),
     // Reused for the new short-term liquidation-cluster factor below — same
-    // free Hyperliquid metaAndAssetCtxs call the Liquidation/Whale tiles
-    // already make, no new cost, no new dependency.
-    fetchHyperliquidAssets().catch(err=>({error:err.message})),
-    // FIX: originally this factor used the static PRICE_HISTORY.BTC table for
-    // "eaten" cluster detection — wrong data source. That table is a
-    // snapshot frozen months ago and spans a much wider price range ($59.7K-
-    // $82K) than today's live price, so it marked nearly every bin in the
-    // +-20% band as already-eaten, producing "no fresh cluster found" every
-    // time. fetchIntraday is the SAME free, already-used call the
-    // Liquidation tab's own 'day' range makes for exactly this purpose —
-    // genuinely recent (last 24h) real price points, not a stale embed.
+    // free intraday CoinGecko call the Liquidation tab's own 'day' view
+    // already makes, no new cost, no new dependency.
     fetchIntraday('BTC').catch(()=>null),
-  ]).then(([{history},onchain,rotation,longTermEma,hlAssets,intraday])=>{
+  ]).then(([{history},onchain,rotation,longTermEma,intraday])=>{
     if(!history||!history.length){
       liveEl.innerHTML='<p class="text-mutet col-span-2">No Sentiment data yet — visit the Sentiment tab first.</p>';
       if(scoreEl)scoreEl.innerHTML='<p class="text-mutet">No Sentiment data yet — visit the Sentiment tab first.</p>';
@@ -5516,15 +5507,29 @@ function renderCyclesTab(){
     // a cluster BELOW is a LONG-liquidation zone (forced selling = downward
     // pressure). Net pull = P(reach above) - P(reach below), same
     // differential-gap pattern as On-chain-vs-price/BTC-vs-Nasdaq above.
-    // Free: reuses the same Hyperliquid fetch + embedded price history
-    // already used elsewhere, no new API or cost. ----
+    // Free: reuses the same CoinGecik intraday fetch already used by the
+    // Liquidation tab's own 'day' view, no new API or cost.
+    //
+    // FIX: originally anchored the density bins to Hyperliquid's markPx
+    // (fetched separately) while checking "already eaten" against this
+    // CoinGecko intraday series — any small gap between those two
+    // independently-fetched live prices could spuriously mark the nearest,
+    // highest-intensity clusters on EITHER side as already-eaten, since the
+    // "where is price now" anchor and the "has price been here" series
+    // didn't agree on where "now" actually is. That's what was producing
+    // "no fresh cluster found" essentially every time. The original
+    // Liquidation tab never has this problem because it derives the anchor
+    // price from the LAST POINT of the very same real series used for
+    // eaten-detection — trivially self-consistent, since the live price can
+    // never appear to have already crossed itself. Matching that exactly
+    // here, and dropping the Hyperliquid fetch entirely since it wasn't
+    // actually needed for this computation. ----
     {
-      const btcHl=hlAssets&&!hlAssets.error?hlAssets.BTC:null;
-      const markPx=btcHl?parseFloat(btcHl.markPx):null;
+      const realPricePts=(intraday||[]).map(p=>p.y).filter(p=>p>0);
+      const markPx=realPricePts.length?realPricePts[realPricePts.length-1]:null;
       let liqFactor;
       if(markPx){
         const tiers=LIQ_LEVERAGE_TIERS.BTC;
-        const realPricePts=(intraday||[]).map(p=>p.y).filter(p=>p>0);
         const density=computeLiqDensityBins(markPx,Math.min(...tiers),Math.max(...tiers),LIQ_HEATMAP_RANGE_PCT,70,realPricePts);
         const nextCluster=findNearestFreshClusters(density,markPx,LIQ_CLUSTER_THRESHOLD);
         const probAbove=nextCluster.above!=null?priceProba('BTC',nextCluster.above,1/365):null;
@@ -5539,7 +5544,7 @@ function renderCyclesTab(){
           liqFactor={label:'Liquidation cluster pull (1d)',display:'—',tag:'neutral',mag:0,available:false,reason:'No fresh (not-already-eaten) cluster found above or below within the modeled range'};
         }
       }else{
-        liqFactor={label:'Liquidation cluster pull (1d)',display:'—',tag:'neutral',mag:0,available:false,reason:(hlAssets&&hlAssets.error)||'Hyperliquid BTC data unavailable this cycle'};
+        liqFactor={label:'Liquidation cluster pull (1d)',display:'—',tag:'neutral',mag:0,available:false,reason:'CoinGecko intraday BTC data unavailable this cycle'};
       }
       shortTerm.push(liqFactor);
     }
