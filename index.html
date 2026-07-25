@@ -261,8 +261,8 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
     <!-- =============== DASHBOARD =============== -->
     <section id="v-dashboard">
       <!-- Market Snapshot — conclusion strip, then Sentiment/Technical/Combined,
-           then Bottom Signal/Cycle Scorecard, then a 24h-ago comparison row.
-           All populated by renderDashboardSummary(). -->
+           then Bottom Signal/Cycle Scorecard. Each card carries its own 24h-ago
+           delta line at the bottom. All populated by renderDashboardSummary(). -->
       <div class="rounded-2xl border border-line bg-panel p-4 mb-4">
         <h3 class="font-semibold text-sm mb-3">Market Snapshot</h3>
         <!-- Conclusion: a plain descriptive lean, not an instruction — see
@@ -277,19 +277,22 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             <p class="text-[10px] text-mutet mb-1">Sentiment</p>
             <p id="dashSentScore" class="grot font-bold tnum text-lg">—</p>
             <p id="dashSentLabel" class="text-[10px] font-medium mt-1 leading-tight">Loading…</p>
+            <p id="dash24hSent" class="text-[9px] font-semibold tnum mt-1.5 pt-1 border-t border-line/40">—</p>
           </div>
           <div class="rounded-xl bg-panel2 p-3 text-center">
             <p class="text-[10px] text-mutet mb-1">Technical</p>
             <p id="dashTechScore" class="grot font-bold tnum text-lg">—</p>
             <p id="dashTechLabel" class="text-[10px] font-medium mt-1 leading-tight">Loading…</p>
+            <p id="dash24hTech" class="text-[9px] font-semibold tnum mt-1.5 pt-1 border-t border-line/40">—</p>
           </div>
           <div id="dashCombinedCard" class="rounded-xl bg-panel2 p-3 text-center border-2 border-line/60">
             <p class="text-[10px] text-mutet mb-1">Combined</p>
             <p id="dashCombinedScore" class="grot font-bold tnum text-lg">—</p>
             <p id="dashCombinedLabel" class="text-[10px] font-medium mt-1 leading-tight">Loading…</p>
+            <p id="dash24hCombined" class="text-[9px] font-semibold tnum mt-1.5 pt-1 border-t border-line/40">—</p>
           </div>
         </div>
-        <div class="grid grid-cols-2 gap-2 mb-3">
+        <div class="grid grid-cols-2 gap-2">
           <div class="rounded-xl bg-panel2 p-3 text-center">
             <p class="text-[10px] text-mutet mb-1">Market Bottom</p>
             <p class="grot font-bold tnum text-lg js-bScore">—</p>
@@ -297,22 +300,14 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             <div class="h-1.5 bg-panel rounded-full overflow-hidden mt-2">
               <div class="js-bBar h-full rounded-full transition-all duration-700" style="width:0%"></div>
             </div>
+            <p id="dash24hBottom" class="text-[9px] font-semibold tnum mt-1.5 pt-1 border-t border-line/40">—</p>
           </div>
           <div class="rounded-xl bg-panel2 p-3 text-center">
             <p class="text-[10px] text-mutet mb-1">Cycle Scorecard</p>
             <p id="dashScorecardDot" class="text-lg leading-tight">⚪</p>
             <p id="dashScorecardLabel" class="text-[10px] font-medium mt-1 leading-tight">Loading…</p>
             <p id="dashScorecardConviction" class="text-[9px] text-mutet mt-0.5">&nbsp;</p>
-          </div>
-        </div>
-        <div class="border-t border-line/50 pt-2">
-          <p class="text-[9px] uppercase tracking-wide text-mutet mb-1.5">vs. 24h ago</p>
-          <div class="grid grid-cols-5 gap-1 text-center">
-            <div><p class="text-[9px] text-mutet">Sent.</p><p id="dash24hSent" class="text-[10px] font-semibold tnum">—</p></div>
-            <div><p class="text-[9px] text-mutet">Tech.</p><p id="dash24hTech" class="text-[10px] font-semibold tnum">—</p></div>
-            <div><p class="text-[9px] text-mutet">Comb.</p><p id="dash24hCombined" class="text-[10px] font-semibold tnum">—</p></div>
-            <div><p class="text-[9px] text-mutet">Bottom</p><p id="dash24hBottom" class="text-[10px] font-semibold tnum">—</p></div>
-            <div><p class="text-[9px] text-mutet">Cycle</p><p id="dash24hScorecard" class="text-[10px] font-semibold tnum">—</p></div>
+            <p id="dash24hScorecard" class="text-[9px] font-semibold tnum mt-1.5 pt-1 border-t border-line/40">—</p>
           </div>
         </div>
       </div>
@@ -6396,12 +6391,12 @@ function findClosestHistoryPoint(history,targetTs){
 // already uses). Not a claim that "up" is objectively good in every sense,
 // just consistent with how every other number on this dashboard is colored.
 function fmtDashDelta(curr,past,decimals){
-  if(curr==null||past==null)return{text:'—',color:'#94A3B8'};
+  if(curr==null||past==null)return{text:'24h: —',color:'#94A3B8'};
   const d=curr-past;
   const rounded=decimals?Math.round(d*100)/100:Math.round(d);
-  if(rounded===0)return{text:'→ 0',color:'#94A3B8'};
+  if(rounded===0)return{text:'24h: → 0',color:'#94A3B8'};
   const val=decimals?Math.abs(rounded).toFixed(2):Math.abs(rounded);
-  return{text:(rounded>0?'↑ +':'↓ -')+val,color:rounded>0?'#3BF38B':'#FF5C72'};
+  return{text:'24h: '+(rounded>0?'↑ +':'↓ -')+val,color:rounded>0?'#3BF38B':'#FF5C72'};
 }
 // Conclusion: a plain descriptive lean built ENTIRELY from the 5 tiles
 // already on screen — never a new hidden number. Deliberately "Bullish/
@@ -6484,9 +6479,21 @@ function renderDashboardSummary(){
     const{text,color}=fmtDashDelta(curr,pastVal,decimals);
     el.textContent=text;el.style.color=color;
   };
+  // FIX: Combined has never had its own stored field in D1 — only raw score
+  // and technicalScore are persisted, and Combined is always computed fresh
+  // via computeCombinedScore(). Looking for p.combined on the historical row
+  // was always going to fail (undefined forever, regardless of how much
+  // history existed) — this is a real bug, not "not enough data yet" like
+  // Bottom/Cycle genuinely are. Now derives the historical Combined value the
+  // same way the current one is derived: from that row's own score +
+  // technicalScore, using today's weight setting applied consistently to
+  // both points (not claiming to reconstruct whatever weight was configured
+  // back then, which isn't tracked per-row).
+  const weight=loadCombinedWeight();
+  const pastCombined=p?computeCombinedScore(p.score,p.technicalScore,weight):null;
   setDelta('dash24hSent',lc?lc.score:null,p?p.score:null,false);
   setDelta('dash24hTech',lc?lc.technicalScore:null,p?p.technicalScore:null,false);
-  setDelta('dash24hCombined',lc?lc.combined:null,p?p.combined:null,false);
+  setDelta('dash24hCombined',lc?lc.combined:null,pastCombined,false);
   setDelta('dash24hBottom',bottomNow,p?p.bottomScore:null,false);
   setDelta('dash24hScorecard',sc?sc.overallMag:null,p?p.regimeMag:null,true);
 }
