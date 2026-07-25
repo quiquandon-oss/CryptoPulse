@@ -3693,9 +3693,20 @@ async function _initSentimentTabImpl(){
     if($('#traderAnalysisStatus'))$('#traderAnalysisStatus').textContent='Error';
   }
   // ---- Three-way read: Sentiment / Technical / Combined — reuses the
-  // technicalScore computed earlier (before the composite POST), not recomputed ----
+  // technicalScore computed earlier (before the composite POST), not recomputed.
+  // FIX: Sentiment here used to be compositeForTrader, a fresh LIVE recompute
+  // done this exact instant — while the Sentiment Engine (Pulse) section a
+  // few rows above reads latest.score, the last row actually PERSISTED to
+  // D1 moments earlier. Since several underlying sources tick continuously
+  // (funding, on-chain, oil/gold/EUR), those two independently-timed reads
+  // could land a point apart after rounding — same live number, two
+  // slightly different instants, no visible explanation. Now reads the
+  // SAME latest.score from the SAME already-fetched history array the Pulse
+  // engine section uses, so the two always match exactly. Falls back to
+  // compositeForTrader only if history is empty (nothing persisted yet). ----
   try{
-    renderThreeWayScores(compositeForTrader,technicalScore);
+    const latestPersistedScore=pulseHistoryForModels.length?pulseHistoryForModels[pulseHistoryForModels.length-1].score:compositeForTrader;
+    renderThreeWayScores(latestPersistedScore,technicalScore);
   }catch(err){
     console.error('Error rendering three-way scores:',err);
   }
