@@ -4924,10 +4924,10 @@ function buildLiqChartConfig(allLabels,allPricePts,realPricePts,tiersAsc,color,c
           if(nextCluster.below!=null)extra.push({value:nextCluster.below,liqCluster:'below'});
           axis.ticks=[...axis.ticks,...extra].sort((a,b)=>a.value-b.value);
         },
-        ticks:{color:ctx=>ctx.tick.liqCluster?'#FFD23F':'#7A8499',
-          font:ctx=>ctx.tick.liqCluster?{size:9,weight:'700'}:{size:9},
-          callback:function(v,idx){
-            const tick=this.chart.scales.y.ticks[idx];
+        ticks:{color:ctx=>ctx.tick?.liqCluster?'#FFD23F':'#7A8499',
+          font:ctx=>ctx.tick?.liqCluster?{size:9,weight:'700'}:{size:9},
+          callback:function(v,idx,ticksArr){
+            const tick=ticksArr&&ticksArr[idx];
             const prefix=tick&&tick.liqCluster==='above'?'↑ ':tick&&tick.liqCluster==='below'?'↓ ':'';
             return prefix+symC()+Number(v).toLocaleString('en-US',{maximumFractionDigits:0});
           }}}}
