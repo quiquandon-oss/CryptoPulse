@@ -6490,8 +6490,8 @@ function computeDashboardConclusion(sentiment,technical,combined,scOverallLabel,
   if(scOverallLabel==='Leaning bullish')bull++;else if(scOverallLabel==='Leaning bearish')bear++;
   if(bottomScore!=null&&bottomScore>=50)bull++;
   const net=bull-bear;
-  if(net>=2)return{label:'Bullish lean',color:'#3BF38B',icon:'🐂'};
-  if(net<=-2)return{label:'Bearish lean',color:'#FF2D55',icon:'🐻'};
+  if(net>=2)return{label:'Bullish lean',color:'#3BF38B',icon:''};
+  if(net<=-2)return{label:'Bearish lean',color:'#FF2D55',icon:''};
   return{label:'Mixed \u2014 no clear read',color:'#F5B843',icon:'\u2696\ufe0f'};
 }
 function renderDashboardSummary(){
@@ -6552,7 +6552,8 @@ function renderDashboardSummary(){
     if(lc||sc){
       const concl=computeDashboardConclusion(lc?lc.score:null,lc?lc.technicalScore:null,lc?lc.combined:null,sc?sc.overallLabel:null,bottomNow);
       conclIconEl.textContent=concl.icon;
-      conclIconEl.style.filter='drop-shadow(0 0 6px '+concl.color+')';
+      conclIconEl.style.display=concl.icon?'':'none';
+      conclIconEl.style.filter=concl.icon?'drop-shadow(0 0 6px '+concl.color+')':'';
       conclLabelEl.textContent=concl.label;
       conclLabelEl.style.color=concl.color;
       conclLabelEl.style.textShadow='0 0 10px '+concl.color+'99';
@@ -6560,7 +6561,7 @@ function renderDashboardSummary(){
       conclEl.style.background='radial-gradient(ellipse at center,'+concl.color+'26,transparent 70%)';
       conclEl.style.boxShadow='0 0 22px '+concl.color+'4D';
     }else{
-      conclIconEl.textContent='⏳';conclIconEl.style.filter='';
+      conclIconEl.textContent='⏳';conclIconEl.style.filter='';conclIconEl.style.display='';
       conclLabelEl.textContent='Loading…';
       conclLabelEl.style.color='';conclLabelEl.style.textShadow='';
       conclEl.style.borderColor='';conclEl.style.background='';conclEl.style.boxShadow='';
