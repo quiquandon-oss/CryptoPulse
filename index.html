@@ -200,7 +200,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5h3a2 2 0 010 4h-3v-4zm0 4v3"/></svg> My Crypto
       </button>
       <button data-view="dca" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg> DCA
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg> Average Cost
       </button>
       <button data-view="capital" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg> Capital
@@ -395,7 +395,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
     <section id="v-mycrypto" class="hidden">
       <div class="flex items-center justify-between mb-3">
         <h2 class="font-semibold">My Crypto</h2>
-        <button id="goDca" class="text-sm font-semibold bg-neon/15 hover:bg-neon/25 text-neon border border-neon/30 rounded-lg px-3 py-1.5 transition">+ DCA</button>
+        <button id="goDca" class="text-sm font-semibold bg-neon/15 hover:bg-neon/25 text-neon border border-neon/30 rounded-lg px-3 py-1.5 transition">+ Add</button>
       </div>
       <p class="text-[10px] text-mutet mb-3">🤖 Signal = rule-based score from RSI, your cost basis, 30d trend &amp; Combined sentiment — short-term only, not financial advice. Cycle phase (shown separately below) is a distinct long-term read — deliberately not blended into the same number.</p>
       <div id="holdingCards" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4"></div>
@@ -504,7 +504,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           </div>
           <p id="pv_qty" class="text-xs text-mutet mt-2 text-center"></p>
         </div>
-        <button id="d_save" class="w-full mt-4 bg-neon hover:bg-neon/90 text-ink font-bold rounded-xl py-3 transition">Save DCA</button>
+        <button id="d_save" class="w-full mt-4 bg-neon hover:bg-neon/90 text-ink font-bold rounded-xl py-3 transition">Save Entry</button>
       </div>
     </section>
 
@@ -1778,7 +1778,7 @@ function wireModal(){
 }
 function setView(v){state.view=v;['dashboard','mycrypto','dca','scenario','cycles','capital','radar','sentiment','traderanalysis','settings'].forEach(x=>$('#v-'+x).classList.toggle('hidden',x!==v));
   $$('#nav .navitem,#navMobile .navitem').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
-  $('#viewTitle').textContent={dashboard:'Dashboard',mycrypto:'My Crypto',dca:'DCA',scenario:'Scenarios',cycles:'Cycles',capital:'Capital',radar:'Radar',sentiment:'Sentiment',traderanalysis:'Trader Analysis',settings:'Settings'}[v];
+  $('#viewTitle').textContent={dashboard:'Dashboard',mycrypto:'My Crypto',dca:'Average Cost',scenario:'Scenarios',cycles:'Cycles',capital:'Capital',radar:'Radar',sentiment:'Sentiment',traderanalysis:'Trader Analysis',settings:'Settings'}[v];
   if(v==='dca'){fillAssets();$('#d_date').value=NOW();renderDcaAvgTable();renderDcaDonuts();}
   if(v==='dashboard'){renderPerf();renderAlloc();}
   if(v==='mycrypto'){renderCards();}
@@ -3991,7 +3991,7 @@ function initAlertsSection(){
 /* ---- wire ---- */
 function buildMobileNav(){const host=$('#navMobile');
   const groups=[
-    [['dashboard','Dashboard'],['traderanalysis','Trader Analysis'],['mycrypto','My Crypto'],['dca','DCA'],['capital','Capital'],['radar','Radar']],
+    [['dashboard','Dashboard'],['traderanalysis','Trader Analysis'],['mycrypto','My Crypto'],['dca','Average Cost'],['capital','Capital'],['radar','Radar']],
     [['scenario','Scenarios'],['cycles','Cycles'],['sentiment','Sentiment']],
     [['settings','Settings']],
   ];
