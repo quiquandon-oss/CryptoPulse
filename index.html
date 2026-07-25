@@ -113,6 +113,22 @@ const crosshairPlugin={id:'crosshair',afterDraw(chart){
   ctx.restore();
 }};
 Chart.register(crosshairPlugin);
+// ---- Direction tint: a faint full-plot-area wash (green if longs crowded,
+// red if shorts crowded) so the dominant side is visible at a glance without
+// reading the text summary separately. Opt-in via plugins.liqDirectionTint.side
+// — only the Liquidation Levels chart sets this, zero effect elsewhere. ----
+const liqDirectionTintPlugin={id:'liqDirectionTint',beforeDraw(chart){
+  const opt=chart.options.plugins?.liqDirectionTint;
+  if(!opt||!opt.side)return;
+  const{ctx,chartArea:{left,right,top,bottom}}=chart;
+  if(!chartArea_valid(left,right,top,bottom))return;
+  ctx.save();
+  ctx.fillStyle=opt.side==='long'?'rgba(59,243,139,0.05)':'rgba(255,92,114,0.05)';
+  ctx.fillRect(left,top,right-left,bottom-top);
+  ctx.restore();
+}};
+function chartArea_valid(l,r,t,b){return[l,r,t,b].every(v=>typeof v==='number'&&isFinite(v));}
+Chart.register(liqDirectionTintPlugin);
 </script>
 
 </head>
@@ -664,11 +680,16 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-center justify-between mb-1">
           <h2 class="font-semibold">Liquidation Levels (Modeled)</h2>
-          <button id="liqRefreshBtn" class="px-2 py-1 rounded-md text-mutet hover:text-white" title="Refresh" onclick="renderLiquidationTile()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v6h-6"/></svg>
-          </button>
+          <div class="flex items-center gap-1">
+            <button id="liqExpandBtn" class="px-2 py-1 rounded-md text-mutet hover:text-white" title="Fullscreen" onclick="openLiqFullscreen()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
+            </button>
+            <button id="liqRefreshBtn" class="px-2 py-1 rounded-md text-mutet hover:text-white" title="Refresh" onclick="renderLiquidationTile()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v6h-6"/></svg>
+            </button>
+          </div>
         </div>
-        <p class="text-xs text-mutet mb-3">Estimated liquidation prices at standard Hyperliquid leverage tiers, assuming a position opened at today's price — a model based on real mark price and funding data, not measured real positions (no public source gives that). Standalone info only — not yet feeding Sentiment, the Regime Scorecard, or Trader Analysis.</p>
+        <p class="text-xs text-mutet mb-3">Estimated liquidation prices at standard Hyperliquid leverage tiers, assuming a position opened at each day's own price — a model based on real mark price and funding data, not measured real positions (no public source gives that). Standalone info only — not yet feeding Sentiment, the Regime Scorecard, or Trader Analysis.</p>
         <div id="liqAnalysisBody" class="text-xs text-mutet mb-3 pb-3 border-b border-line/50">Loading plain-language summary…</div>
         <div id="liqSummaryRows" class="space-y-1.5 mb-3 text-xs">Loading…</div>
         <div class="flex gap-1.5 mb-2 overflow-x-auto" id="liqAssetTabs">
@@ -684,7 +705,17 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <button data-liq-range="month" class="liq-range-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">Month</button>
         </div>
         <div class="h-[220px]"><canvas id="liqChart"></canvas></div>
-        <p class="text-[10px] text-mutet mt-2">Dashed lines: modeled long (green, below price) and short (red, above price) liquidation levels per leverage tier. Solid line: actual price.</p>
+        <p class="text-[10px] text-mutet mt-2">Shaded bands = modeled clusters (light = lower leverage/smaller cluster, dark = higher leverage/bigger cluster, right against price). Faded dotted segments = a level price has already crossed and moved past. Faint background wash = which side (longs/shorts) is currently more crowded.</p>
+      </div>
+
+      <!-- Fullscreen liquidation chart overlay: own Chart.js instance,
+           reusing the last-rendered series so it doesn't re-fetch. -->
+      <div id="liqChartFullscreen" class="hidden fixed inset-0 z-50 bg-panel p-4 flex flex-col">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-semibold">Liquidation Levels (Modeled)</h3>
+          <button class="px-2.5 py-1.5 rounded-md text-xs bg-panel2 hover:text-white border border-line" onclick="closeLiqFullscreen()">✕ Close</button>
+        </div>
+        <div class="flex-1"><canvas id="liqChartFull"></canvas></div>
       </div>
     </section>
 
@@ -4762,17 +4793,58 @@ function liqTabsSetActive(){
     b.classList.toggle('bg-neon',on);b.classList.toggle('text-ink',on);
   });
 }
-function buildLiqChartConfig(labels,pricePts,levels,color){
-  const datasets=[{data:pricePts,borderColor:color,backgroundColor:'transparent',borderWidth:2,fill:false,tension:.25,pointRadius:0,pointHoverRadius:4,pointHoverBackgroundColor:color,label:'Price'}];
-  levels.forEach(l=>{
-    const opacity=0.35+0.5*(l.leverage/Math.max(...levels.map(x=>x.leverage))); // higher leverage = closer to price = more visually prominent
-    datasets.push({data:labels.map(()=>l.longLiq),borderColor:`rgba(59,243,139,${opacity})`,borderWidth:1.5,borderDash:[4,3],pointRadius:0,fill:false,tension:0,label:l.leverage+'x long liq'});
-    datasets.push({data:labels.map(()=>l.shortLiq),borderColor:`rgba(255,92,114,${opacity})`,borderWidth:1.5,borderDash:[4,3],pointRadius:0,fill:false,tension:0,label:l.leverage+'x short liq'});
+// ---- Moving envelope: tier levels computed PER POINT using that point's own
+// price, not a flat line from today's price — otherwise a Week/Month view
+// would show today's levels applied to yesterday's price, which is wrong.
+// Also flags each point as "tested" if a LATER point's price already crossed
+// that level, since a level price has already broken through with no
+// remaining position there reads differently than one still ahead of price. ----
+function computeLiqEnvelopeSeries(pricePts,tiersAsc){
+  const n=pricePts.length;
+  const longBands=tiersAsc.map(lev=>pricePts.map(p=>p*(1-1/lev)));
+  const shortBands=tiersAsc.map(lev=>pricePts.map(p=>p*(1+1/lev)));
+  const testFrom=(band,isLong)=>band.map((lvl,i)=>{
+    for(let j=i+1;j<n;j++){if(isLong?pricePts[j]<=lvl:pricePts[j]>=lvl)return true;}
+    return false;
   });
+  return{
+    longBands,shortBands,
+    testedLong:longBands.map(b=>testFrom(b,true)),
+    testedShort:shortBands.map(b=>testFrom(b,false)),
+  };
+}
+function buildLiqChartConfig(labels,pricePts,tiersAsc,color,crowdedSide){
+  const env=computeLiqEnvelopeSeries(pricePts,tiersAsc);
+  const n=tiersAsc.length;
+  const datasets=[];
+  // LONG side (below price): push ascending leverage (farthest bound first,
+  // lightest = lowest leverage / "smaller cluster") so fill:'-1' chains
+  // outward-to-inward, ending with the darkest band right under price
+  // (highest leverage / "biggest cluster").
+  tiersAsc.forEach((lev,i)=>{
+    const opacity=0.08+0.42*(i/Math.max(1,n-1));
+    const tested=env.testedLong[i];
+    datasets.push({data:env.longBands[i],borderColor:'rgba(59,243,139,0.55)',backgroundColor:`rgba(59,243,139,${opacity})`,
+      borderWidth:1,borderDash:[3,3],pointRadius:0,tension:0,fill:i===0?false:'-1',label:lev+'x long liq',
+      segment:{borderDash:ctx=>tested[ctx.p0DataIndex]?[1,3]:[3,3],borderColor:ctx=>tested[ctx.p0DataIndex]?'rgba(59,243,139,0.18)':'rgba(59,243,139,0.55)'}});
+  });
+  datasets.push({data:pricePts,borderColor:color,backgroundColor:'transparent',borderWidth:2,fill:n>0?'-1':false,tension:.25,pointRadius:0,pointHoverRadius:4,pointHoverBackgroundColor:color,label:'Price'});
+  const priceIndex=n;
+  // SHORT side (above price): push DESCENDING leverage (closest to price
+  // first) so fill:'-1' chains inward-to-outward starting from the price line.
+  for(let i=n-1;i>=0;i--){
+    const lev=tiersAsc[i];
+    const opacity=0.08+0.42*(i/Math.max(1,n-1));
+    const tested=env.testedShort[i];
+    datasets.push({data:env.shortBands[i],borderColor:'rgba(255,92,114,0.55)',backgroundColor:`rgba(255,92,114,${opacity})`,
+      borderWidth:1,borderDash:[3,3],pointRadius:0,tension:0,fill:'-1',label:lev+'x short liq',
+      segment:{borderDash:ctx=>tested[ctx.p0DataIndex]?[1,3]:[3,3],borderColor:ctx=>tested[ctx.p0DataIndex]?'rgba(255,92,114,0.18)':'rgba(255,92,114,0.55)'}});
+  }
   return{type:'line',data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},
     animation:{duration:400,easing:'easeOutQuart'},
-    plugins:{legend:{display:false},crosshair:{enabled:true,datasetIndex:0},
-      tooltip:{filter:it=>it.datasetIndex===0,callbacks:{label:c=>'Price: '+money(c.raw,pdec(c.raw))}}},
+    plugins:{legend:{display:false},crosshair:{enabled:true,datasetIndex:priceIndex},
+      liqDirectionTint:{side:crowdedSide},
+      tooltip:{filter:it=>it.datasetIndex===priceIndex,callbacks:{label:c=>'Price: '+money(c.raw,pdec(c.raw))}}},
     scales:{x:{grid:{display:false},ticks:{color:'#7A8499',font:{size:9},maxTicksLimit:8}},
       y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#7A8499',font:{size:9},callback:v=>symC()+Number(v).toLocaleString('en-US',{maximumFractionDigits:0})}}}
   }};
@@ -4805,9 +4877,28 @@ async function renderLiquidationChart(){
     }
   }
   if(!pricePts.length)return;
-  const cfg=buildLiqChartConfig(labels,pricePts,d.levels,META[sym]?.c||'#3BF38B');
+  // Cached so the fullscreen view can reuse the exact same series without
+  // re-fetching, same pattern as the fan chart's cycFanLastState.
+  liqState.lastLabels=labels;liqState.lastPricePts=pricePts;liqState.lastTiers=LIQ_LEVERAGE_TIERS[sym];liqState.lastColor=META[sym]?.c||'#3BF38B';
+  liqState.lastCrowdedSide=d.flags&&d.flags.crowded?d.flags.crowdedSide:null;
+  const cfg=buildLiqChartConfig(labels,pricePts,liqState.lastTiers,liqState.lastColor,liqState.lastCrowdedSide);
   if(liqChartInst){liqChartInst.data=cfg.data;liqChartInst.options=cfg.options;liqChartInst.update();}
   else liqChartInst=new Chart(cv,cfg);
+}
+let liqChartFullInst=null;
+function openLiqFullscreen(){
+  if(!liqState.lastPricePts)return; // nothing rendered yet
+  const modal=$('#liqChartFullscreen');if(!modal)return;
+  modal.classList.remove('hidden');
+  const cv=$('#liqChartFull');
+  const cfg=buildLiqChartConfig(liqState.lastLabels,liqState.lastPricePts,liqState.lastTiers,liqState.lastColor,liqState.lastCrowdedSide);
+  if(liqChartFullInst)liqChartFullInst.destroy();
+  liqChartFullInst=new Chart(cv,cfg);
+}
+function closeLiqFullscreen(){
+  const modal=$('#liqChartFullscreen');if(!modal)return;
+  modal.classList.add('hidden');
+  if(liqChartFullInst){liqChartFullInst.destroy();liqChartFullInst=null;}
 }
 function wireLiqTabs(){
   $$('#liqAssetTabs .liq-asset-tab').forEach(b=>b.onclick=()=>{liqState.asset=b.dataset.liqAsset;liqTabsSetActive();renderLiquidationChart();});
