@@ -268,10 +268,16 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <h3 class="font-semibold text-sm mb-3">Market Snapshot</h3>
         <!-- Conclusion: a plain descriptive lean, not an instruction — see
              computeDashboardConclusion(). Traceable back to the 5 tiles below,
-             not a new hidden number. Filled badge (background tint + solid
-             border), not just a thin outline — meant to read at a glance. -->
-        <div id="dashConclusion" class="rounded-xl py-2.5 px-4 mb-3 text-center border">
-          <span id="dashConclusionLabel" class="font-extrabold text-base">Loading…</span>
+             not a new hidden number. Glowing pill badge with an icon, styled
+             after the reference mockup (colored glow border + soft radial
+             background tint + icon+text) — built with CSS shadows/gradients
+             rather than custom artwork, since no image-gen tool is available
+             in this environment. -->
+        <div class="flex justify-center mb-3">
+          <div id="dashConclusion" class="rounded-full px-5 py-2.5 flex items-center gap-3 border-2">
+            <span id="dashConclusionIcon" class="text-2xl leading-none">⏳</span>
+            <span id="dashConclusionLabel" class="font-extrabold text-base whitespace-nowrap">Loading…</span>
+          </div>
         </div>
         <div class="grid grid-cols-3 gap-2 mb-2">
           <div class="rounded-xl bg-panel2 p-3 text-center">
@@ -6484,9 +6490,9 @@ function computeDashboardConclusion(sentiment,technical,combined,scOverallLabel,
   if(scOverallLabel==='Leaning bullish')bull++;else if(scOverallLabel==='Leaning bearish')bear++;
   if(bottomScore!=null&&bottomScore>=50)bull++;
   const net=bull-bear;
-  if(net>=2)return{label:'Bullish lean',color:'#3BF38B'};
-  if(net<=-2)return{label:'Bearish lean',color:'#FF2D55'};
-  return{label:'Mixed \u2014 no clear read',color:'#F5B843'};
+  if(net>=2)return{label:'Bullish lean',color:'#3BF38B',icon:'🐂'};
+  if(net<=-2)return{label:'Bearish lean',color:'#FF2D55',icon:'🐻'};
+  return{label:'Mixed \u2014 no clear read',color:'#F5B843',icon:'\u2696\ufe0f'};
 }
 function renderDashboardSummary(){
   const lc=window.__lastLiveConditions;
@@ -6538,20 +6544,26 @@ function renderDashboardSummary(){
     }
   }
 
-  // Conclusion strip — filled color badge (background tint + solid border),
-  // not just a thin outline, so it reads at a glance rather than blending
-  // into the panel background.
-  const conclEl=$('#dashConclusion'),conclLabelEl=$('#dashConclusionLabel');
-  if(conclEl&&conclLabelEl){
+  // Conclusion strip — glowing pill badge with icon, styled after the
+  // reference mockup: colored glow border + soft radial background tint +
+  // text-shadow/drop-shadow glow on the icon and label.
+  const conclEl=$('#dashConclusion'),conclLabelEl=$('#dashConclusionLabel'),conclIconEl=$('#dashConclusionIcon');
+  if(conclEl&&conclLabelEl&&conclIconEl){
     if(lc||sc){
       const concl=computeDashboardConclusion(lc?lc.score:null,lc?lc.technicalScore:null,lc?lc.combined:null,sc?sc.overallLabel:null,bottomNow);
+      conclIconEl.textContent=concl.icon;
+      conclIconEl.style.filter='drop-shadow(0 0 6px '+concl.color+')';
       conclLabelEl.textContent=concl.label;
       conclLabelEl.style.color=concl.color;
+      conclLabelEl.style.textShadow='0 0 10px '+concl.color+'99';
       conclEl.style.borderColor=concl.color;
-      conclEl.style.background=concl.color+'22';
+      conclEl.style.background='radial-gradient(ellipse at center,'+concl.color+'26,transparent 70%)';
+      conclEl.style.boxShadow='0 0 22px '+concl.color+'4D';
     }else{
+      conclIconEl.textContent='⏳';conclIconEl.style.filter='';
       conclLabelEl.textContent='Loading…';
-      conclLabelEl.style.color='';conclEl.style.borderColor='';conclEl.style.background='';
+      conclLabelEl.style.color='';conclLabelEl.style.textShadow='';
+      conclEl.style.borderColor='';conclEl.style.background='';conclEl.style.boxShadow='';
     }
   }
 
