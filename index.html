@@ -2997,7 +2997,18 @@ function renderSentimentWeightControls(){
 async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
   const sourceValues={};
   const jobs=[
-    ['fng',async()=>({score:fgValue!=null?fgValue:50})], // reuses existing app-wide fgValue, no duplicate fetch
+    // FIX: was `async()=>({score:fgValue!=null?fgValue:50})` — silently
+    // substituted 50 whenever fgValue hadn't been populated yet this session
+    // (it's only set when the separate "Buy the News" panel happens to have
+    // run its own alternative.me fetch first). That masqueraded as a
+    // genuine reading — confirmed in D1: 28 of 371 readings sat at exactly
+    // 50 while every OTHER source in those same rows was populated and
+    // varying normally, isolated to fng specifically. Because it never
+    // threw, it bypassed both the per-source catch-and-exclude below AND
+    // the completeness gate. Now throws honestly when unavailable, so it
+    // flows through the same exclusion path every other source already
+    // uses — still reuses the existing fgValue with no duplicate fetch.
+    ['fng',async()=>{if(fgValue==null)throw new Error('fgValue not populated yet this session');return{score:fgValue};}],
     ['funding',srcFundingRate],
     ['longshort',srcLongShort],
     ['global',srcGlobalMcap],
