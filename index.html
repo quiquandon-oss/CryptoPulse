@@ -202,9 +202,6 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <button data-view="dca" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg> DCA
       </button>
-      <button data-view="transactions" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg> Transactions
-      </button>
       <button data-view="capital" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg> Capital
       </button>
@@ -509,15 +506,6 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         </div>
         <button id="d_save" class="w-full mt-4 bg-neon hover:bg-neon/90 text-ink font-bold rounded-xl py-3 transition">Save DCA</button>
       </div>
-    </section>
-
-    <!-- =============== TRANSACTIONS =============== -->
-    <section id="v-transactions" class="hidden">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="font-semibold">Transactions &amp; average-price impact</h2>
-        <button id="addCoin2" class="text-sm font-semibold bg-panel2 hover:bg-line border border-line rounded-lg px-3 py-1.5 transition">+ Add coin</button>
-      </div>
-      <div id="txByCoin" class="space-y-4"></div>
     </section>
 
     <!-- =============== SCENARIO =============== -->
@@ -1338,7 +1326,7 @@ function fxOnDate(d){const m=+d.slice(5,7);return m<=4?1.175:m===5?1.16:1.145;} 
 const TABC={dashboard:'#3BF38B',mycrypto:'#8B7BFF',dca:'#F5B843',transactions:'#38BDF8',capital:'#06B6D4',scenario:'#A78BFA',radar:'#2A5ADA',sentiment:'#F472B6',settings:'#94A3B8'};
 function paintNav(){document.querySelectorAll('.navitem').forEach(b=>{const c=TABC[b.dataset.view]||'#3BF38B';b.style.setProperty('--tc',c);});}
 
-const state={txs:[],prices:{},fx:FX0,ccy:'USD',view:'dashboard',coin:'ALL',range:'ALL',tType:'buy',tCcy:'USD',expanded:new Set(),detailCoin:null,detailRange:'30d',
+const state={txs:[],prices:{},fx:FX0,ccy:'USD',view:'dashboard',coin:'ALL',range:'ALL',tType:'buy',tCcy:'USD',expanded:new Set(),capTxOpen:new Set(),detailCoin:null,detailRange:'30d',
   radar:{coin:'BTC',cache:{}}};
 
 /* ---- storage ---- */
@@ -1483,7 +1471,7 @@ function miniSpark(cv,a){const sd=sparkSeries(a);const data=sd.data;if(!data.len
           callback:v=>symC()+Number(v).toLocaleString('en-US',{maximumFractionDigits:pdc(v)})}}}}});}
 
 /* ---- renders ---- */
-function render(){renderHeader();renderChips();renderRange();renderPerf();renderAlloc();renderCards();renderTx();renderTxDbCount();renderBottomSignal();renderDashboardSummary();if(state.view==='dca')renderDcaDonuts();if(state.view==='dca')renderDcaAvgTable();if(state.view==='scenario')renderScenario();if(state.view==='capital')renderCapital();
+function render(){renderHeader();renderChips();renderRange();renderPerf();renderAlloc();renderCards();renderTxDbCount();renderBottomSignal();renderDashboardSummary();populateDryAssetSelect();wireDryPowder();renderDryPowder();if(state.view==='dca')renderDcaDonuts();if(state.view==='dca')renderDcaAvgTable();if(state.view==='scenario')renderScenario();if(state.view==='capital')renderCapital();
   $('#fxVal').textContent=(state.fx||FX0).toFixed(4);$('#interestVal').textContent=moneyIn(interestEUR(),'EUR');}
 
 function renderHeader(){const t=totals();const up=t.pnl>=0;
@@ -1562,54 +1550,42 @@ function renderCards(){const host=$('#holdingCards');host.innerHTML='';
 }
 
 /* ---- transactions + avg impact ---- */
-function renderTx(){const host=$('#txByCoin');host.innerHTML='';
-  const order=syms().filter(a=>qtyOf(a)>1e-12||state.txs.some(t=>t.asset===a));
-  order.sort((x,y)=>statOf(y).val-statOf(x).val);
-  order.forEach(a=>{const list=state.txs.filter(t=>t.asset===a).sort((x,y)=>x.date.localeCompare(y.date)||(x.id>y.id?1:-1));
-    if(!list.length)return;const m=META[a]||{name:a,c:'#888'};
-    // running average computed chronologically (oldest -> newest)
-    let q=0,c=0;const rows=list.map(t=>{const before=q>0?c/q:0;const p=state.ccy==='USD'?t.usd:t.eur;
-      if(t.type==='buy'){c+=t.qty*p;q+=t.qty;}else{const a0=q>0?c/q:0;c-=t.qty*a0;q-=t.qty;if(q<1e-12){q=0;c=0;}}
-      const after=q>0?c/q:0;return {t,before,after,runqty:q};});
-    rows.reverse();                                   // newest transaction on top
-    const expanded=state.expanded.has(a);
-    const shown=expanded?rows:rows.slice(0,10);       // last 10 unless expanded
-    const cur=statOf(a);
-    const card=document.createElement('div');card.className='rounded-2xl border border-line bg-panel overflow-hidden';
-    card.innerHTML=`<div class="flex items-center justify-between px-4 py-3 border-b border-line">
-        <div class="flex items-center gap-2.5"><span class="h-8 w-8 rounded-full flex items-center justify-center grot font-bold text-xs" style="background:${m.c}22;color:${m.c}">${a.slice(0,3)}</span>
-          <div><p class="font-semibold text-sm">${m.name} <span class="text-mutet font-normal">· ${list.length} txns</span></p>
-          <p class="text-xs text-mutet">Now: ${qf(cur.q)} ${a} · avg ${money(cur.av,pdec(cur.av))}</p></div></div>
-        <button data-coin="${a}" class="dcaJump text-xs font-semibold bg-neon/15 text-neon border border-neon/30 rounded-lg px-2.5 py-1.5">+ DCA</button></div>
-      <div class="overflow-x-auto"><table class="w-full text-xs">
-        <thead class="text-mutet uppercase tracking-wide border-b border-line"><tr>
-          <th class="text-left font-medium px-4 py-2">Date</th><th class="text-left font-medium px-3 py-2">Type</th>
-          <th class="text-right font-medium px-3 py-2">Coins</th><th class="text-right font-medium px-3 py-2">Price</th>
-          <th class="text-right font-medium px-3 py-2">Value</th>
-          <th class="text-right font-medium px-3 py-2">Avg before</th><th class="text-right font-medium px-3 py-2">Avg after</th>
-          <th class="text-right font-medium px-3 py-2">Δ avg</th><th class="px-3 py-2"></th></tr></thead><tbody>
-        ${shown.map(r=>{const buy=r.t.type==='buy';const delta=r.after-r.before;const dpos=delta<=0;
-          const pdc=pdec(r.after||r.before||1);
-          return `<tr class="border-b border-line/50">
-            <td class="px-4 py-2 text-mutet">${fmtDate(r.t.date)}</td>
-            <td class="px-3 py-2"><span class="px-1.5 py-0.5 rounded ${buy?'bg-up/15 text-up':'bg-down/15 text-down'} font-semibold">${buy?'Buy':'Sell'}</span></td>
-            <td class="px-3 py-2 text-right tnum">${qf(r.t.qty)}</td>
-            <td class="px-3 py-2 text-right tnum">${moneyIn(state.ccy==='USD'?r.t.usd:r.t.eur,state.ccy,pdec(r.t.usd))}</td>
-            <td class="px-3 py-2 text-right tnum font-medium">${moneyIn(r.t.qty*(state.ccy==='USD'?r.t.usd:r.t.eur),state.ccy,2)}</td>
-            <td class="px-3 py-2 text-right tnum text-mutet">${r.before?money(r.before,pdc):'—'}</td>
-            <td class="px-3 py-2 text-right tnum font-medium">${money(r.after,pdc)}</td>
-            <td class="px-3 py-2 text-right tnum ${dpos?'text-up':'text-down'}">${r.before?(delta<=0?'▼':'▲')+' '+money(Math.abs(delta),pdc):'—'}</td>
-            <td class="px-3 py-2 text-right"><button data-del="${r.t.id}" class="delTx text-mutet hover:text-down">✕</button></td>
-          </tr>`;}).join('')}
-      </tbody></table></div>
-      ${rows.length>10?`<button data-exp="${a}" class="expBtn w-full text-xs font-semibold text-neon hover:bg-panel2 py-2.5 border-t border-line transition">${expanded?'Show less':'Show all '+rows.length+' transactions'}</button>`:''}`;
-    host.appendChild(card);});
-  $$('.delTx').forEach(b=>b.onclick=()=>{state.txs=state.txs.filter(t=>t.id!==b.dataset.del);LS.save();render();toast('Deleted');});
-  $$('.dcaJump').forEach(b=>b.onclick=()=>{setView('dca');$('#d_asset').value=b.dataset.coin;});
-  $$('.expBtn').forEach(b=>b.onclick=()=>{const a=b.dataset.exp;if(state.expanded.has(a))state.expanded.delete(a);else state.expanded.add(a);renderTx();});
-  populateDryAssetSelect();
-  wireDryPowder();
-  renderDryPowder();
+// Builds the transaction-table HTML for one coin's expanded section within its
+// merged Capital card. Extracted from the old standalone renderTx() when
+// Transactions was merged into Capital (per user request) — same running-
+// average math and expand/collapse-past-10 behavior, just without its own
+// card wrapper/header since Capital's card already provides those.
+function buildTxTableHtml(a){
+  const list=state.txs.filter(t=>t.asset===a).sort((x,y)=>x.date.localeCompare(y.date)||(x.id>y.id?1:-1));
+  if(!list.length)return'';
+  let q=0,c=0;const rows=list.map(t=>{const before=q>0?c/q:0;const p=state.ccy==='USD'?t.usd:t.eur;
+    if(t.type==='buy'){c+=t.qty*p;q+=t.qty;}else{const a0=q>0?c/q:0;c-=t.qty*a0;q-=t.qty;if(q<1e-12){q=0;c=0;}}
+    const after=q>0?c/q:0;return {t,before,after,runqty:q};});
+  rows.reverse();
+  const expanded=state.expanded.has(a);
+  const shown=expanded?rows:rows.slice(0,10);
+  return `<div class="overflow-x-auto border-t border-line"><table class="w-full text-xs">
+      <thead class="text-mutet uppercase tracking-wide border-b border-line"><tr>
+        <th class="text-left font-medium px-4 py-2">Date</th><th class="text-left font-medium px-3 py-2">Type</th>
+        <th class="text-right font-medium px-3 py-2">Coins</th><th class="text-right font-medium px-3 py-2">Price</th>
+        <th class="text-right font-medium px-3 py-2">Value</th>
+        <th class="text-right font-medium px-3 py-2">Avg before</th><th class="text-right font-medium px-3 py-2">Avg after</th>
+        <th class="text-right font-medium px-3 py-2">Δ avg</th><th class="px-3 py-2"></th></tr></thead><tbody>
+      ${shown.map(r=>{const buy=r.t.type==='buy';const delta=r.after-r.before;const dpos=delta<=0;
+        const pdc=pdec(r.after||r.before||1);
+        return `<tr class="border-b border-line/50">
+          <td class="px-4 py-2 text-mutet">${fmtDate(r.t.date)}</td>
+          <td class="px-3 py-2"><span class="px-1.5 py-0.5 rounded ${buy?'bg-up/15 text-up':'bg-down/15 text-down'} font-semibold">${buy?'Buy':'Sell'}</span></td>
+          <td class="px-3 py-2 text-right tnum">${qf(r.t.qty)}</td>
+          <td class="px-3 py-2 text-right tnum">${moneyIn(state.ccy==='USD'?r.t.usd:r.t.eur,state.ccy,pdec(r.t.usd))}</td>
+          <td class="px-3 py-2 text-right tnum font-medium">${moneyIn(r.t.qty*(state.ccy==='USD'?r.t.usd:r.t.eur),state.ccy,2)}</td>
+          <td class="px-3 py-2 text-right tnum text-mutet">${r.before?money(r.before,pdc):'—'}</td>
+          <td class="px-3 py-2 text-right tnum font-medium">${money(r.after,pdc)}</td>
+          <td class="px-3 py-2 text-right tnum ${dpos?'text-up':'text-down'}">${r.before?(delta<=0?'▼':'▲')+' '+money(Math.abs(delta),pdc):'—'}</td>
+          <td class="px-3 py-2 text-right"><button data-del="${r.t.id}" class="delTx text-mutet hover:text-down">✕</button></td>
+        </tr>`;}).join('')}
+    </tbody></table></div>
+    ${rows.length>10?`<button data-exp="${a}" class="expBtn w-full text-xs font-semibold text-neon hover:bg-panel2 py-2.5 border-t border-line transition">${expanded?'Show less':'Show all '+rows.length+' transactions'}</button>`:''}`;
 }
 
 /* ---- DCA form ---- */
@@ -1637,7 +1613,7 @@ async function saveDca(){const a=$('#d_asset').value,q=parseFloat($('#d_qty').va
   const usd=state.tCcy==='EUR'?p*fx:p,eur=state.tCcy==='EUR'?p:p/fx;
   state.txs.push({id:uid(),date,asset:a,acct,type:state.tType,qty:q,price:p,ccy:state.tCcy,usd,eur});
   LS.save();$('#d_qty').value='';$('#d_price').value='';preview();
-  toast(`${state.tType==='buy'?'Buy':'Sell'} saved`);render();setView('transactions');}
+  toast(`${state.tType==='buy'?'Buy':'Sell'} saved`);state.capTxOpen.add(a);render();setView('capital');}
 
 /* ---- chart detail modal ---- */
 let modalChartInstance;
@@ -1800,9 +1776,9 @@ function wireModal(){
   });
   $('#chartModal').onclick=(e)=>{if(e.target===$('#chartModal'))closeChartModal();};
 }
-function setView(v){state.view=v;['dashboard','mycrypto','dca','transactions','scenario','cycles','capital','radar','sentiment','traderanalysis','settings'].forEach(x=>$('#v-'+x).classList.toggle('hidden',x!==v));
+function setView(v){state.view=v;['dashboard','mycrypto','dca','scenario','cycles','capital','radar','sentiment','traderanalysis','settings'].forEach(x=>$('#v-'+x).classList.toggle('hidden',x!==v));
   $$('#nav .navitem,#navMobile .navitem').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
-  $('#viewTitle').textContent={dashboard:'Dashboard',mycrypto:'My Crypto',dca:'DCA',transactions:'Transactions',scenario:'Scenarios',cycles:'Cycles',capital:'Capital',radar:'Radar',sentiment:'Sentiment',traderanalysis:'Trader Analysis',settings:'Settings'}[v];
+  $('#viewTitle').textContent={dashboard:'Dashboard',mycrypto:'My Crypto',dca:'DCA',scenario:'Scenarios',cycles:'Cycles',capital:'Capital',radar:'Radar',sentiment:'Sentiment',traderanalysis:'Trader Analysis',settings:'Settings'}[v];
   if(v==='dca'){fillAssets();$('#d_date').value=NOW();renderDcaAvgTable();renderDcaDonuts();}
   if(v==='dashboard'){renderPerf();renderAlloc();}
   if(v==='mycrypto'){renderCards();}
@@ -4015,7 +3991,7 @@ function initAlertsSection(){
 /* ---- wire ---- */
 function buildMobileNav(){const host=$('#navMobile');
   const groups=[
-    [['dashboard','Dashboard'],['traderanalysis','Trader Analysis'],['mycrypto','My Crypto'],['dca','DCA'],['transactions','Transactions'],['capital','Capital'],['radar','Radar']],
+    [['dashboard','Dashboard'],['traderanalysis','Trader Analysis'],['mycrypto','My Crypto'],['dca','DCA'],['capital','Capital'],['radar','Radar']],
     [['scenario','Scenarios'],['cycles','Cycles'],['sentiment','Sentiment']],
     [['settings','Settings']],
   ];
@@ -4031,7 +4007,7 @@ function buildMobileNav(){const host=$('#navMobile');
 function wire(){
   $$('#nav .navitem').forEach(b=>b.onclick=()=>setView(b.dataset.view));
   $$('#ccyToggle button').forEach(b=>b.onclick=()=>setCcy(b.dataset.ccy));
-  $('#refreshBtn').onclick=refresh;$('#goDca').onclick=()=>setView('dca');$('#addCoin2').onclick=()=>{setView('dca');};
+  $('#refreshBtn').onclick=refresh;$('#goDca').onclick=()=>setView('dca');
   {const scenDateInp=$('#scenDatePicker');if(scenDateInp)scenDateInp.onchange=renderScenarioDateReadout;}
   $('#sentimentRefreshBtn').onclick=async()=>{
     const btn=$('#sentimentRefreshBtn'),icon=$('#sentimentRefreshIcon');
@@ -4239,7 +4215,10 @@ function wireDryPowder(){
   sliderEl.oninput=()=>{amountEl.value=sliderEl.value;renderDryPowder();};
 }
 function renderCapital(){
-  const coins=syms().filter(a=>qtyOf(a)>1e-12);
+  // Includes coins with a past transaction even if currently fully sold
+  // (qty~0) — matches the old standalone Transactions tab's inclusion rule,
+  // so selling out of a coin doesn't make its history disappear.
+  const coins=syms().filter(a=>qtyOf(a)>1e-12||state.txs.some(t=>t.asset===a));
   let grandInv=0,grandVal=0;
   const rows=coins.map(a=>{
     const inv=totalInvested(a);
@@ -4266,20 +4245,33 @@ function renderCapital(){
   rows.forEach(({a,inv,val,gain,pct,s})=>{
     const m=META[a]||{name:a,c:'#888'};const up=gain>=0;
     const nBuys=state.txs.filter(t=>t.asset===a&&t.type==='buy').length;
+    const nTxns=state.txs.filter(t=>t.asset===a).length;
+    const isOpen=state.capTxOpen.has(a);
     const el=document.createElement('div');
-    el.className='rounded-2xl border border-line bg-panel p-4';
-    el.innerHTML=`<div class="flex items-center gap-2.5 mb-3">
-      <span class="h-9 w-9 rounded-full flex items-center justify-center grot font-bold text-xs" style="background:${m.c}22;color:${m.c}">${a.slice(0,3)}</span>
-      <div><p class="font-semibold text-sm">${m.name}</p><p class="text-xs text-mutet">${qf(s.q)} ${a} · ${nBuys} buys</p></div>
-      <span class="ml-auto text-xs font-semibold px-2 py-0.5 rounded ${up?'bg-up/15 text-up':'bg-down/15 text-down'} tnum">${pct>=0?'+':''}${pct.toFixed(1)}%</span>
+    el.className='rounded-2xl border border-line bg-panel overflow-hidden';
+    el.innerHTML=`<div class="p-4">
+      <div class="flex items-center gap-2.5 mb-3">
+        <span class="h-9 w-9 rounded-full flex items-center justify-center grot font-bold text-xs" style="background:${m.c}22;color:${m.c}">${a.slice(0,3)}</span>
+        <div><p class="font-semibold text-sm">${m.name}</p><p class="text-xs text-mutet">${qf(s.q)} ${a} · ${nBuys} buys</p></div>
+        <span class="ml-auto text-xs font-semibold px-2 py-0.5 rounded ${up?'bg-up/15 text-up':'bg-down/15 text-down'} tnum">${pct>=0?'+':''}${pct.toFixed(1)}%</span>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-xs mb-3">
+        <div class="bg-panel2 rounded-lg p-2.5 text-center"><p class="text-mutet mb-1">Invested</p><p class="font-bold tnum">${money(inv)}</p></div>
+        <div class="bg-panel2 rounded-lg p-2.5 text-center"><p class="text-mutet mb-1">Now Worth</p><p class="font-bold tnum">${money(val)}</p></div>
+        <div class="bg-panel2 rounded-lg p-2.5 text-center"><p class="text-mutet mb-1">Gain/Loss</p><p class="font-bold tnum ${up?'text-up':'text-down'}">${up?'+':''}${money(Math.abs(gain))}</p></div>
+      </div>
+      <div class="flex gap-2">
+        <button data-toggletx="${a}" class="toggleTx flex-1 text-xs font-semibold bg-panel2 hover:bg-line border border-line rounded-lg px-3 py-2 transition">${isOpen?'Hide':'Show'} ${nTxns} transaction${nTxns===1?'':'s'} ${isOpen?'▲':'▼'}</button>
+        <button data-coin="${a}" class="dcaJump text-xs font-semibold bg-neon/15 text-neon border border-neon/30 rounded-lg px-3 py-2">+ Add</button>
+      </div>
     </div>
-    <div class="grid grid-cols-3 gap-2 text-xs">
-      <div class="bg-panel2 rounded-lg p-2.5 text-center"><p class="text-mutet mb-1">Invested</p><p class="font-bold tnum">${money(inv)}</p></div>
-      <div class="bg-panel2 rounded-lg p-2.5 text-center"><p class="text-mutet mb-1">Now Worth</p><p class="font-bold tnum">${money(val)}</p></div>
-      <div class="bg-panel2 rounded-lg p-2.5 text-center"><p class="text-mutet mb-1">Gain/Loss</p><p class="font-bold tnum ${up?'text-up':'text-down'}">${up?'+':''}${money(Math.abs(gain))}</p></div>
-    </div>`;
+    ${isOpen?buildTxTableHtml(a):''}`;
     host.appendChild(el);
   });
+  $$('.toggleTx').forEach(b=>b.onclick=()=>{const a=b.dataset.toggletx;if(state.capTxOpen.has(a))state.capTxOpen.delete(a);else state.capTxOpen.add(a);renderCapital();});
+  $$('.dcaJump').forEach(b=>b.onclick=()=>{setView('dca');$('#d_asset').value=b.dataset.coin;});
+  $$('.delTx').forEach(b=>b.onclick=()=>{state.txs=state.txs.filter(t=>t.id!==b.dataset.del);LS.save();render();toast('Deleted');});
+  $$('.expBtn').forEach(b=>b.onclick=()=>{const a=b.dataset.exp;if(state.expanded.has(a))state.expanded.delete(a);else state.expanded.add(a);renderCapital();});
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -4456,7 +4448,7 @@ async function handleCsvFile(file){
     $('#csvPreviewText').innerHTML=`<strong>${label}</strong> · ✓ <span class="text-up font-bold">${newTxs.length} new transactions imported</span>${skipped?` · <span class="text-mutet">${skipped} already had them</span>`:''}${outlierHtml}`;
     $('#csvPreview').classList.remove('hidden');
     toast(outliers.length?'✓ imported, but '+outliers.length+' row(s) look suspicious — check the preview':'✓ '+newTxs.length+' transactions imported');
-    setView('transactions'); // show the result immediately, no extra tap required
+    setView('capital'); // show the result immediately, no extra tap required
   }else{
     $('#csvPreviewText').innerHTML=`<strong>${label}</strong> · ${parsed.length} transactions read — <span class="text-mutet">all ${skipped} were already in this browser, nothing new to add</span>`;
     $('#csvPreview').classList.remove('hidden');
@@ -6953,7 +6945,7 @@ window.loadHypeFunding=loadHypeFunding;
 // not change tabs), or inside the fullscreen chart modal. Also requires a
 // clearly horizontal gesture (bigger than vertical movement) past a real
 // distance threshold, so normal vertical page-scrolling never triggers it.
-const TAB_ORDER=['dashboard','mycrypto','dca','transactions','capital','radar','scenario','cycles','sentiment','traderanalysis','settings'];
+const TAB_ORDER=['dashboard','mycrypto','dca','capital','radar','scenario','cycles','sentiment','traderanalysis','settings'];
 function wireSwipeNav(){
   const main=document.querySelector('main');
   if(!main)return;
