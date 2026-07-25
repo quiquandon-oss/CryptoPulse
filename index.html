@@ -2928,9 +2928,13 @@ const COMPOSITE_SOURCES_DEFAULTS=[
   // 12 points and 17 sources being compared, some will look "significant" by
   // chance alone (multiple-comparisons risk), and there's no clear mechanism
   // for why news/geopolitics sentiment would swing that strongly-contrarian.
-  // usd was cut hard (6->2): confirmed via D1 to be frozen at exactly 50 on
-  // ALL 86 readings since it launched — a real bug (Hyperliquid xyz:DXY isn't
-  // varying), separate from this reweighting, still needs its own fix.
+  // usd was cut hard (6->2) back when Hyperliquid xyz:DXY was confirmed frozen
+  // at exactly 50 on every reading. Since fixed by switching the underlying
+  // fetch to xyz:EUR (see srcUsdFromHyperliquid) — confirmed via D1: frozen
+  // at 50 on every reading through Jul 19, transitioned Jul 20, genuine
+  // variation (44-58 range) every reading from Jul 21 onward. Weight left at
+  // 2 here as a leftover from the broken era — now that it's a working
+  // signal, this could reasonably be revisited upward.
   {id:'fng',label:'Fear & Greed Index',weight:28,confidence:1.0},
   {id:'funding',label:'Funding Rate (BTC/ETH, Hyperliquid)',weight:15,confidence:1.0},
   {id:'longshort',label:'Long/Short Ratio (accounts)',weight:18,confidence:1.0},
@@ -2943,7 +2947,7 @@ const COMPOSITE_SOURCES_DEFAULTS=[
   {id:'onchain',label:'On-Chain Activity (BTC)',weight:8,confidence:0.5},
   {id:'oil',label:'Brent Oil (Hyperliquid xyz:BRENTOIL)',weight:6,confidence:0.6},
   {id:'yield10y',label:'10Y Treasury Yield (FRED)',weight:5,confidence:0.6},
-  {id:'usd',label:'US Dollar Index (Hyperliquid xyz:DXY)',weight:2,confidence:0.6},
+  {id:'usd',label:'US Dollar Strength (Hyperliquid xyz:EUR, inverted)',weight:2,confidence:0.6},
   {id:'nasdaq',label:'Nasdaq Composite (FRED)',weight:6,confidence:0.7},
   {id:'sp500',label:'S&P 500 (FRED)',weight:6,confidence:0.7},
   {id:'etfflows',label:'BTC ETF Flows (SoSoValue)',weight:10,confidence:0.8},
@@ -6377,11 +6381,13 @@ async function fetchHyperliquidXyzAssets(){
   const out={};
   (meta&&meta.universe||[]).forEach((u,i)=>{out[u.name]=ctxs[i];});
   window.__hlXyzNames=Object.keys(out); // every asset name this dex query actually returned
-  // DIAGNOSTIC: usd (xyz:DXY) has been frozen at score 50 on all 86 readings so
-  // far (confirmed via D1) — meaning markPx===prevDayPx exactly, every single
-  // time. Capturing the raw fields for DXY plus GOLD/BRENTOIL (which DO vary,
-  // as a working comparison) so we can see whether DXY's prevDayPx is missing/
-  // null/equal-to-markPx, versus a genuine (if implausible) zero-movement read.
+  // General xyz-dex asset health check, kept running after doing its job:
+  // this is what originally caught usd (xyz:DXY) being frozen at score 50 on
+  // every reading (markPx===prevDayPx exactly, every time — confirmed dead,
+  // no real order book). Since fixed by switching usd to xyz:EUR (which
+  // showed genuinely distinct fields here from the start). Left capturing
+  // all four so a future silent freeze on any of them — DXY, GOLD,
+  // BRENTOIL, or EUR — would show up the same way this one did.
   window.__hlXyzDebug={};
   ['xyz:DXY','xyz:GOLD','xyz:BRENTOIL','xyz:EUR'].forEach(name=>{
     const c=out[name];
