@@ -692,13 +692,6 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <p class="text-xs text-mutet mb-3">Estimated liquidation prices at standard Hyperliquid leverage tiers, assuming a position opened at each day's own price — a model based on real mark price and funding data, not measured real positions (no public source gives that). Standalone info only — not yet feeding Sentiment, the Regime Scorecard, or Trader Analysis.</p>
         <div id="liqAnalysisBody" class="text-xs text-mutet mb-3 pb-3 border-b border-line/50">Loading plain-language summary…</div>
         <div id="liqSummaryRows" class="space-y-1.5 mb-3 text-xs">Loading…</div>
-        <div class="flex gap-1.5 mb-2 overflow-x-auto" id="liqAssetTabs">
-          <button data-liq-asset="BTC" class="liq-asset-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">BTC</button>
-          <button data-liq-asset="ETH" class="liq-asset-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">ETH</button>
-          <button data-liq-asset="SOL" class="liq-asset-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">SOL</button>
-          <button data-liq-asset="LINK" class="liq-asset-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">LINK</button>
-          <button data-liq-asset="HYPE" class="liq-asset-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">HYPE</button>
-        </div>
         <div class="flex gap-1.5 mb-2" id="liqRangeTabs">
           <button data-liq-range="day" class="liq-range-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">Day</button>
           <button data-liq-range="week" class="liq-range-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">Week</button>
@@ -710,23 +703,14 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <div class="flex-1 h-2 rounded-full" style="background:linear-gradient(to right,#7C3AED,#2563EB,#0891B2,#16A34A,#EAB308,#F97316,#DC2626)"></div>
           <span class="text-[9px] text-mutet">Dense</span>
         </div>
-        <p class="text-[10px] text-mutet mt-2">Density heatmap using Glassnode's actual color scale (violet/blue = thin, cyan/green = moderate, gold/orange/red = densest cluster) — computed from a fine leverage grid (every 1x), so real clusters show through instead of a few coarse bands. Grey/flat = already crossed by price (consumed), stays that way into the future too. Full color = still fresh, including the projected space after "now" so you can watch price approach it. Yellow ↑/↓ prices on the left axis mark the nearest un-eaten significant cluster; dimmer labels mark every other tier level.</p>
       </div>
 
       <!-- Fullscreen liquidation chart overlay: own Chart.js instance,
-           reusing the last-rendered series so it doesn't re-fetch. Has its
-           own asset/range tabs so switching coins/timeframes works here too. -->
+           reusing the last-rendered series so it doesn't re-fetch. -->
       <div id="liqChartFullscreen" class="hidden fixed inset-0 z-50 bg-panel p-4 flex flex-col">
         <div class="flex items-center justify-between mb-2">
           <h3 class="text-sm font-semibold">Liquidation Levels (Modeled)</h3>
           <button class="px-2.5 py-1.5 rounded-md text-xs bg-panel2 hover:text-white border border-line" onclick="closeLiqFullscreen()">✕ Close</button>
-        </div>
-        <div class="flex gap-1.5 mb-2 overflow-x-auto" id="liqAssetTabsFull">
-          <button data-liq-asset="BTC" class="liq-asset-tab-full text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">BTC</button>
-          <button data-liq-asset="ETH" class="liq-asset-tab-full text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">ETH</button>
-          <button data-liq-asset="SOL" class="liq-asset-tab-full text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">SOL</button>
-          <button data-liq-asset="LINK" class="liq-asset-tab-full text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">LINK</button>
-          <button data-liq-asset="HYPE" class="liq-asset-tab-full text-xs font-semibold px-2.5 py-1 rounded-lg border border-line whitespace-nowrap">HYPE</button>
         </div>
         <div class="flex gap-1.5 mb-2" id="liqRangeTabsFull">
           <button data-liq-range="day" class="liq-range-tab-full text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">Day</button>
@@ -4775,7 +4759,7 @@ function renderWhaleTile(){
 // at today's price — every public liquidation heatmap (CoinGlass included,
 // by their own stated disclaimer) makes an equivalent assumption; this
 // discloses it explicitly instead of implying measured precision. ═══
-const LIQ_SYMBOLS=['BTC','ETH','SOL','LINK','HYPE'];
+const LIQ_SYMBOLS=['BTC'];
 const LIQ_LEVERAGE_TIERS={BTC:[5,10,20,50],ETH:[5,10,20,50],SOL:[5,10,20],LINK:[5,10,20],HYPE:[5,10,20]};
 const LIQ_CROWDING_THRESHOLD_PCT=15; // premium APR magnitude beyond this = one side clearly dominant — a fixed, disclosed threshold, not a calibrated baseline
 const LIQ_PROXIMITY_PCT=8; // nearest crowded-side level within this % of price = elevated
@@ -4807,10 +4791,6 @@ function computeLiqMonthlyPersistence(sym,currentPremiumSign){
 let liqChartInst=null;
 const liqState={asset:'BTC',range:'day',dataByAsset:{}};
 function liqTabsSetActive(){
-  $$('#liqAssetTabs .liq-asset-tab, #liqAssetTabsFull .liq-asset-tab-full').forEach(b=>{
-    const on=b.dataset.liqAsset===liqState.asset;
-    b.classList.toggle('bg-neon',on);b.classList.toggle('text-ink',on);
-  });
   $$('#liqRangeTabs .liq-range-tab, #liqRangeTabsFull .liq-range-tab-full').forEach(b=>{
     const on=b.dataset.liqRange===liqState.range;
     b.classList.toggle('bg-neon',on);b.classList.toggle('text-ink',on);
@@ -4907,6 +4887,33 @@ const liqHeatmapPlugin={id:'liqHeatmap',beforeDatasetsDraw(chart){
   ctx.restore();
 }};
 Chart.register(liqHeatmapPlugin);
+// ---- Future-zone marker: an explicit vertical boundary + highlight wash +
+// text labels at the "now" line, so the projected future zone is unmistakably
+// visible rather than something the viewer has to infer from where the price
+// line happens to stop. Drawn on top of everything (afterDatasetsDraw). ----
+const liqFutureZonePlugin={id:'liqFutureZone',afterDatasetsDraw(chart){
+  const opt=chart.options.plugins?.liqFutureZone;
+  if(!opt||opt.boundaryIndex==null)return;
+  const{ctx,chartArea,scales}=chart;
+  if(!chartArea)return;
+  const{top,bottom,right}=chartArea;
+  const xScale=scales.x;
+  const boundaryX=xScale.getPixelForValue(opt.boundaryIndex);
+  ctx.save();
+  // Highlight wash over the projected future zone specifically
+  ctx.fillStyle='rgba(255,255,255,0.045)';
+  ctx.fillRect(boundaryX,top,right-boundaryX,bottom-top);
+  // Vertical dashed boundary line at "now"
+  ctx.beginPath();ctx.moveTo(boundaryX,top);ctx.lineTo(boundaryX,bottom);
+  ctx.strokeStyle='rgba(255,255,255,0.4)';ctx.lineWidth=1;ctx.setLineDash([4,4]);ctx.stroke();
+  ctx.setLineDash([]);
+  // Labels
+  ctx.font='9px sans-serif';ctx.fillStyle='rgba(255,255,255,0.55)';
+  ctx.textAlign='right';ctx.fillText('Now',boundaryX-4,top+11);
+  ctx.textAlign='left';ctx.fillText('Projected →',boundaryX+4,top+11);
+  ctx.restore();
+}};
+Chart.register(liqFutureZonePlugin);
 // ---- Extend the visible window with real future time/date labels (no price
 // data — that's the point) so the fixed heatmap has visible room ahead of
 // price to watch it approach, instead of stopping dead at "now". ----
@@ -4935,6 +4942,7 @@ function buildLiqChartConfig(allLabels,allPricePts,realPricePts,tiersAsc,color,c
     animation:{duration:400,easing:'easeOutQuart'},
     plugins:{legend:{display:false},crosshair:{enabled:true,datasetIndex:0},
       liqDirectionTint:{side:crowdedSide},liqHeatmap:{density},
+      liqFutureZone:{boundaryIndex:realPricePts.length-1},
       tooltip:{filter:it=>it.datasetIndex===0,callbacks:{label:c=>c.raw==null?'':'Price: '+money(c.raw,pdec(c.raw))}}},
     scales:{x:{grid:{display:false},
       afterBuildTicks:axis=>{
@@ -5039,7 +5047,6 @@ function closeLiqFullscreen(){
   if(liqChartFullInst){liqChartFullInst.destroy();liqChartFullInst=null;}
 }
 function wireLiqTabs(){
-  $$('#liqAssetTabs .liq-asset-tab, #liqAssetTabsFull .liq-asset-tab-full').forEach(b=>b.onclick=()=>{liqState.asset=b.dataset.liqAsset;liqTabsSetActive();renderLiquidationTile();});
   $$('#liqRangeTabs .liq-range-tab, #liqRangeTabsFull .liq-range-tab-full').forEach(b=>b.onclick=()=>{liqState.range=b.dataset.liqRange;liqTabsSetActive();renderLiquidationTile();});
   liqTabsSetActive();
 }
