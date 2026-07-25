@@ -260,35 +260,63 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
 
     <!-- =============== DASHBOARD =============== -->
     <section id="v-dashboard">
-      <!-- Market Snapshot — conclusion strip, then Sentiment/Technical/Combined,
-           then Bottom Signal/Cycle Scorecard. Each card carries its own 24h-ago
-           delta line at the bottom. All populated by renderDashboardSummary(). -->
+      <!-- Market Snapshot — conclusion strip, then gauge-dial Sentiment/
+           Technical/Combined, then a slider-style Bottom Signal + gradient-bar
+           Cycle Scorecard. Each card carries its own 24h-ago delta line at the
+           bottom. All populated by renderDashboardSummary(). -->
       <div class="rounded-2xl border border-line bg-panel p-4 mb-4">
         <h3 class="font-semibold text-sm mb-3">Market Snapshot</h3>
         <!-- Conclusion: a plain descriptive lean, not an instruction — see
              computeDashboardConclusion(). Traceable back to the 5 tiles below,
              not a new hidden number. -->
-        <div id="dashConclusion" class="rounded-xl p-3 mb-3 flex items-center justify-center gap-2 border-2 border-line/60">
-          <span id="dashConclusionDot" class="text-xl leading-none">⚪</span>
+        <div id="dashConclusion" class="rounded-xl p-3 mb-3 flex items-center justify-center gap-2.5 border-2 border-line/60">
+          <span id="dashConclusionDot" class="inline-block w-4 h-4 rounded-full shrink-0"></span>
           <span id="dashConclusionLabel" class="font-bold text-sm">Loading…</span>
         </div>
         <div class="grid grid-cols-3 gap-2 mb-2">
           <div class="rounded-xl bg-panel2 p-3 text-center">
             <p class="text-[10px] text-mutet mb-1">Sentiment</p>
-            <p id="dashSentScore" class="grot font-bold tnum text-lg">—</p>
-            <p id="dashSentLabel" class="text-[10px] font-medium mt-1 leading-tight">Loading…</p>
+            <svg viewBox="0 0 200 112" class="w-full max-w-[130px] mx-auto -mb-1">
+              <defs><linearGradient id="gaugeGradSent" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#F5606C"/><stop offset="35%" stop-color="#F5B843"/>
+                <stop offset="65%" stop-color="#FFD93D"/><stop offset="100%" stop-color="#3BF38B"/>
+              </linearGradient></defs>
+              <path d="M20,100 A80,80 0 0 1 180,100" fill="none" stroke="url(#gaugeGradSent)" stroke-width="14" stroke-linecap="round"/>
+              <line id="gaugeNeedleSent" x1="100" y1="100" x2="100" y2="32" stroke="#E5E7EB" stroke-width="4" stroke-linecap="round" style="transform-origin:100px 100px;transform:rotate(-90deg);transition:transform .6s ease"/>
+              <circle cx="100" cy="100" r="7" fill="#E5E7EB"/>
+            </svg>
+            <p id="dashSentScore" class="grot font-bold tnum text-lg -mt-1">—</p>
+            <p class="flex items-center justify-center gap-1.5 mt-1"><span id="dashSentDot" class="inline-block w-2.5 h-2.5 rounded-full"></span><span id="dashSentLabel" class="text-[10px] font-medium leading-tight">Loading…</span></p>
             <p id="dash24hSent" class="text-[9px] font-semibold tnum mt-1.5 pt-1 border-t border-line/40">—</p>
           </div>
           <div class="rounded-xl bg-panel2 p-3 text-center">
             <p class="text-[10px] text-mutet mb-1">Technical</p>
-            <p id="dashTechScore" class="grot font-bold tnum text-lg">—</p>
-            <p id="dashTechLabel" class="text-[10px] font-medium mt-1 leading-tight">Loading…</p>
+            <svg viewBox="0 0 200 112" class="w-full max-w-[130px] mx-auto -mb-1">
+              <defs><linearGradient id="gaugeGradTech" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#F5606C"/><stop offset="35%" stop-color="#F5B843"/>
+                <stop offset="65%" stop-color="#FFD93D"/><stop offset="100%" stop-color="#3BF38B"/>
+              </linearGradient></defs>
+              <path d="M20,100 A80,80 0 0 1 180,100" fill="none" stroke="url(#gaugeGradTech)" stroke-width="14" stroke-linecap="round"/>
+              <line id="gaugeNeedleTech" x1="100" y1="100" x2="100" y2="32" stroke="#E5E7EB" stroke-width="4" stroke-linecap="round" style="transform-origin:100px 100px;transform:rotate(-90deg);transition:transform .6s ease"/>
+              <circle cx="100" cy="100" r="7" fill="#E5E7EB"/>
+            </svg>
+            <p id="dashTechScore" class="grot font-bold tnum text-lg -mt-1">—</p>
+            <p class="flex items-center justify-center gap-1.5 mt-1"><span id="dashTechDot" class="inline-block w-2.5 h-2.5 rounded-full"></span><span id="dashTechLabel" class="text-[10px] font-medium leading-tight">Loading…</span></p>
             <p id="dash24hTech" class="text-[9px] font-semibold tnum mt-1.5 pt-1 border-t border-line/40">—</p>
           </div>
           <div id="dashCombinedCard" class="rounded-xl bg-panel2 p-3 text-center border-2 border-line/60">
             <p class="text-[10px] text-mutet mb-1">Combined</p>
-            <p id="dashCombinedScore" class="grot font-bold tnum text-lg">—</p>
-            <p id="dashCombinedLabel" class="text-[10px] font-medium mt-1 leading-tight">Loading…</p>
+            <svg viewBox="0 0 200 112" class="w-full max-w-[130px] mx-auto -mb-1">
+              <defs><linearGradient id="gaugeGradCombined" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#F5606C"/><stop offset="35%" stop-color="#F5B843"/>
+                <stop offset="65%" stop-color="#FFD93D"/><stop offset="100%" stop-color="#3BF38B"/>
+              </linearGradient></defs>
+              <path d="M20,100 A80,80 0 0 1 180,100" fill="none" stroke="url(#gaugeGradCombined)" stroke-width="14" stroke-linecap="round"/>
+              <line id="gaugeNeedleCombined" x1="100" y1="100" x2="100" y2="32" stroke="#E5E7EB" stroke-width="4" stroke-linecap="round" style="transform-origin:100px 100px;transform:rotate(-90deg);transition:transform .6s ease"/>
+              <circle cx="100" cy="100" r="7" fill="#E5E7EB"/>
+            </svg>
+            <p id="dashCombinedScore" class="grot font-bold tnum text-lg -mt-1">—</p>
+            <p class="flex items-center justify-center gap-1.5 mt-1"><span id="dashCombinedDot" class="inline-block w-2.5 h-2.5 rounded-full"></span><span id="dashCombinedLabel" class="text-[10px] font-medium leading-tight">Loading…</span></p>
             <p id="dash24hCombined" class="text-[9px] font-semibold tnum mt-1.5 pt-1 border-t border-line/40">—</p>
           </div>
         </div>
@@ -296,17 +324,25 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <div class="rounded-xl bg-panel2 p-3 text-center">
             <p class="text-[10px] text-mutet mb-1">Market Bottom</p>
             <p class="grot font-bold tnum text-lg js-bScore">—</p>
-            <p class="text-[10px] font-medium mt-1 leading-tight js-bLabel">—</p>
-            <div class="h-1.5 bg-panel rounded-full overflow-hidden mt-2">
-              <div class="js-bBar h-full rounded-full transition-all duration-700" style="width:0%"></div>
+            <div class="relative mt-3 mb-1 px-1">
+              <div class="h-1 bg-line rounded-full"></div>
+              <div class="js-bMarker absolute -top-[5px] w-0 h-0" style="left:0%;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid #E5E7EB;transform:translateX(-50%);transition:left .6s ease"></div>
             </div>
+            <div class="flex justify-between text-[9px] text-mutet px-1"><span>0</span><span>100</span></div>
+            <p class="flex items-center justify-center gap-1.5 mt-1"><span id="dashBottomDot" class="inline-block w-2.5 h-2.5 rounded-full shrink-0"></span><span class="text-[10px] font-medium leading-tight js-bLabel">—</span></p>
             <p id="dash24hBottom" class="text-[9px] font-semibold tnum mt-1.5 pt-1 border-t border-line/40">—</p>
           </div>
           <div class="rounded-xl bg-panel2 p-3 text-center">
             <p class="text-[10px] text-mutet mb-1">Cycle Scorecard</p>
-            <p id="dashScorecardDot" class="text-lg leading-tight">⚪</p>
+            <span id="dashScorecardDot" class="inline-block w-4 h-4 rounded-full mt-1"></span>
             <p id="dashScorecardLabel" class="text-[10px] font-medium mt-1 leading-tight">Loading…</p>
             <p id="dashScorecardConviction" class="text-[9px] text-mutet mt-0.5">&nbsp;</p>
+            <div class="relative mt-2 mb-1 px-1">
+              <div class="h-1.5 rounded-full" style="background:linear-gradient(90deg,#FF5C72,#4B5563,#3BF38B)"></div>
+              <div class="absolute top-1/2 left-1/2 w-px h-3 bg-mutet" style="transform:translate(-50%,-50%)"></div>
+              <div id="dashScorecardMarker" class="absolute -top-[5px] w-0 h-0" style="left:50%;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid #E5E7EB;transform:translateX(-50%);transition:left .6s ease"></div>
+            </div>
+            <div class="flex justify-between text-[9px] text-mutet px-1"><span>Bear</span><span>Bull</span></div>
             <p id="dash24hScorecard" class="text-[9px] font-semibold tnum mt-1.5 pt-1 border-t border-line/40">—</p>
           </div>
         </div>
@@ -6353,6 +6389,9 @@ function renderBottomSignal(){
   $$('.js-bScore,.js-bScore2').forEach(function(el){el.textContent=score+'/100';});
   $$('.js-bLabel,.js-bLabel2').forEach(function(el){el.textContent=label;});
   $$('.js-bBar,.js-bBar2').forEach(function(el){el.style.width=score+'%';el.style.background=barCol;});
+  $$('.js-bMarker').forEach(function(el){el.style.left=score+'%';el.style.borderTopColor=barCol;});
+  const bDotEl=$('#dashBottomDot');
+  if(bDotEl){bDotEl.style.background=barCol;bDotEl.style.boxShadow='0 0 8px '+barCol;}
   const det2=$('#bottomDetails2');
   if(det2){
     det2.innerHTML=sigs.map(function(s){const pCol=s.pts>=s.max*0.75?'#3BF38B':s.pts>=s.max*0.4?'#F5B843':'#FF5C72';return '<div class="flex items-center gap-2 py-1 border-t border-line/40 text-xs"><span class="w-4 text-center shrink-0">'+s.icon+'</span><span class="text-mutet flex-1">'+s.name+'</span><span class="tnum text-mutet text-[10px] shrink-0">'+s.val+'</span><span class="font-bold tnum w-8 text-right shrink-0" style="color:'+pCol+'">'+s.pts+'/'+s.max+'</span></div>';}).join('');
@@ -6407,6 +6446,22 @@ function fmtDashDelta(curr,past,decimals){
 // Market Bottom only ever contributes a BULLISH vote (score>=50), never a
 // bearish one — a low score just means "no bottom signal detected", which
 // is genuinely uninformative, not a bearish confirmation.
+// Same thresholds/colors as pulseLabelFor, but plain text (no emoji) — pairs
+// with a real glowing CSS dot instead, to match the gauge-dial redesign.
+// pulseLabelFor itself is left untouched since it's used elsewhere in the app
+// with the emoji baked into the text.
+function plainLabelFor(score){
+  if(score==null)return{text:'No data',color:'#94A3B8'};
+  if(score<20)return{text:'Extreme Bear',color:'#F5606C'};
+  if(score<40)return{text:'Bear',color:'#F5B843'};
+  if(score<60)return{text:'Neutral',color:'#94A3B8'};
+  if(score<80)return{text:'Bull',color:'#3BF38B'};
+  return{text:'Extreme Bull',color:'#3BF38B'};
+}
+function setGlowDot(el,color){
+  if(!el)return;
+  el.style.background=color;el.style.boxShadow=color?'0 0 8px '+color:'';
+}
 function computeDashboardConclusion(sentiment,technical,combined,scOverallLabel,bottomScore){
   let bull=0,bear=0;
   const vote=v=>{if(v==null)return; if(v>=60)bull++; else if(v<=40)bear++;};
@@ -6414,61 +6469,74 @@ function computeDashboardConclusion(sentiment,technical,combined,scOverallLabel,
   if(scOverallLabel==='Leaning bullish')bull++;else if(scOverallLabel==='Leaning bearish')bear++;
   if(bottomScore!=null&&bottomScore>=50)bull++;
   const net=bull-bear;
-  if(net>=2)return{label:'Bullish lean',dot:'🟢',color:'#3BF38B'};
-  if(net<=-2)return{label:'Bearish lean',dot:'🔴',color:'#FF2D55'};
-  return{label:'Mixed \u2014 no clear read',dot:'⚪',color:'#F5B843'};
+  if(net>=2)return{label:'Bullish lean',color:'#3BF38B'};
+  if(net<=-2)return{label:'Bearish lean',color:'#FF2D55'};
+  return{label:'Mixed \u2014 no clear read',color:'#F5B843'};
 }
 function renderDashboardSummary(){
   const lc=window.__lastLiveConditions;
   const sc=window.__lastRegimeScorecard;
   const bottomNow=calcBottomScore(false).score;
 
+  // Sentiment / Technical / Combined gauge dials
   const tiles=[
-    ['dashSentScore','dashSentLabel',lc?lc.score:null],
-    ['dashTechScore','dashTechLabel',lc?lc.technicalScore:null],
-    ['dashCombinedScore','dashCombinedLabel',lc?lc.combined:null],
+    ['dashSentScore','dashSentLabel','dashSentDot','gaugeNeedleSent',lc?lc.score:null],
+    ['dashTechScore','dashTechLabel','dashTechDot','gaugeNeedleTech',lc?lc.technicalScore:null],
+    ['dashCombinedScore','dashCombinedLabel','dashCombinedDot','gaugeNeedleCombined',lc?lc.combined:null],
   ];
-  tiles.forEach(([scoreId,labelId,val])=>{
-    const scoreEl=$('#'+scoreId),labelEl=$('#'+labelId);
+  tiles.forEach(([scoreId,labelId,dotId,needleId,val])=>{
+    const scoreEl=$('#'+scoreId),labelEl=$('#'+labelId),dotEl=$('#'+dotId),needleEl=$('#'+needleId);
     if(!scoreEl||!labelEl)return;
     if(val!=null){
-      const{text,color}=pulseLabelFor(val);
+      const{text,color}=plainLabelFor(val);
       scoreEl.textContent=val;scoreEl.style.color=color;
       labelEl.textContent=text;labelEl.style.color=color;
+      setGlowDot(dotEl,color);
+      if(needleEl)needleEl.style.transform='rotate('+((Math.max(0,Math.min(100,val))/100)*180-90)+'deg)';
     }else{
       scoreEl.textContent='—';scoreEl.style.color='';
       labelEl.textContent='Loading…';labelEl.style.color='';
+      setGlowDot(dotEl,'');
+      if(needleEl)needleEl.style.transform='rotate(-90deg)';
     }
   });
   const combinedCard=$('#dashCombinedCard');
-  if(combinedCard)combinedCard.style.borderColor=(lc&&lc.combined!=null)?pulseLabelFor(lc.combined).color:'';
+  if(combinedCard)combinedCard.style.borderColor=(lc&&lc.combined!=null)?plainLabelFor(lc.combined).color:'';
 
-  const scDotEl=$('#dashScorecardDot'),scLabelEl=$('#dashScorecardLabel'),scConvEl=$('#dashScorecardConviction');
+  // Cycle Scorecard: glow dot + gradient-bar marker
+  const scDotEl=$('#dashScorecardDot'),scLabelEl=$('#dashScorecardLabel'),scConvEl=$('#dashScorecardConviction'),scMarkerEl=$('#dashScorecardMarker');
   if(scDotEl&&scLabelEl){
     if(sc){
       const isBull=sc.overallLabel==='Leaning bullish',isBear=sc.overallLabel==='Leaning bearish';
       const color=isBull?'#3BF38B':isBear?'#FF2D55':'#F5B843';
-      scDotEl.textContent=isBull?'🟢':isBear?'🔴':'⚪';
+      setGlowDot(scDotEl,color);
       scLabelEl.textContent=sc.overallLabel;scLabelEl.style.color=color;
       if(scConvEl)scConvEl.textContent='conviction '+(sc.overallMag>=0?'+':'')+sc.overallMag.toFixed(2);
+      if(scMarkerEl){
+        const pct=((Math.max(-1,Math.min(1,sc.overallMag))+1)/2)*100;
+        scMarkerEl.style.left=pct+'%';scMarkerEl.style.borderTopColor=color;
+      }
     }else{
-      scDotEl.textContent='⚪';scLabelEl.textContent='Loading…';scLabelEl.style.color='';
+      setGlowDot(scDotEl,'');scLabelEl.textContent='Loading…';scLabelEl.style.color='';
       if(scConvEl)scConvEl.textContent='\u00A0';
+      if(scMarkerEl){scMarkerEl.style.left='50%';scMarkerEl.style.borderTopColor='#E5E7EB';}
     }
   }
 
+  // Conclusion strip
   const conclEl=$('#dashConclusion'),conclDotEl=$('#dashConclusionDot'),conclLabelEl=$('#dashConclusionLabel');
   if(conclEl&&conclDotEl&&conclLabelEl){
     if(lc||sc){
       const concl=computeDashboardConclusion(lc?lc.score:null,lc?lc.technicalScore:null,lc?lc.combined:null,sc?sc.overallLabel:null,bottomNow);
-      conclDotEl.textContent=concl.dot;conclLabelEl.textContent=concl.label;
+      setGlowDot(conclDotEl,concl.color);conclLabelEl.textContent=concl.label;
       conclLabelEl.style.color=concl.color;conclEl.style.borderColor=concl.color;
     }else{
-      conclDotEl.textContent='⚪';conclLabelEl.textContent='Loading…';
+      setGlowDot(conclDotEl,'');conclLabelEl.textContent='Loading…';
       conclLabelEl.style.color='';conclEl.style.borderColor='';
     }
   }
 
+  // 24h-ago comparison
   const history=window.__lastHistoryFull;
   const dayAgoTs=Date.now()-24*3600*1000;
   const past=(history&&history.length)?findClosestHistoryPoint(history,dayAgoTs):null;
