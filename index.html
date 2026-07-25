@@ -392,15 +392,6 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <div id="allocLegend" class="mt-4 space-y-2 text-sm"></div>
         </div>
       </div>
-
-      <!-- DCA average cost per coin — one donut per crypto, split Revolut vs Neverless -->
-      <div class="rounded-2xl border border-line bg-panel p-5">
-        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-          <p class="text-sm font-semibold">DCA · Average Cost per Coin <span class="text-mutet font-normal">· split by account</span></p>
-          <span class="text-[10px] text-mutet bg-panel2 px-2 py-1 rounded-lg">🔵 Revolut · 🟦 Neverless · % = share of invested</span>
-        </div>
-        <div id="dcaDonuts" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3"></div>
-      </div>
     </section>
 
     <!-- =============== MY CRYPTO =============== -->
@@ -415,6 +406,40 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
 
     <!-- =============== DCA =============== -->
     <section id="v-dca" class="hidden max-w-xl">
+      <!-- ═══ Dry Powder Planner ═══ (moved to top of DCA, per user request)
+           Reuses the app's existing cost-basis math (avg/qtyOf/pxNow) rather than
+           inventing a new model — this just re-runs those same functions with a
+           hypothetical extra purchase folded in. No statistical projections here
+           (deliberately) — just honest arithmetic on real portfolio data. -->
+      <div class="rounded-2xl border border-line bg-panel p-5 space-y-3 mb-4">
+        <div>
+          <h2 class="font-semibold">Dry Powder Planner</h2>
+          <p class="text-xs text-mutet mt-1">See how deploying more capital right now would shift your blended average cost for a coin.</p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs text-mutet mb-1 block">Asset</label>
+            <select id="dryAsset" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2.5 text-sm"></select>
+          </div>
+          <div>
+            <label class="text-xs text-mutet mb-1 block">Amount to deploy</label>
+            <input id="dryAmount" type="number" min="0" step="10" value="500" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2.5 text-sm tnum" />
+          </div>
+        </div>
+        <input id="drySlider" type="range" min="0" max="2000" step="10" value="500" class="w-full accent-accent" />
+        <div class="grid grid-cols-2 gap-3">
+          <div class="bg-panel2 rounded-xl p-3">
+            <p class="text-xs text-mutet mb-1">Avg Cost — Before → After</p>
+            <p class="tnum font-semibold text-sm" id="dryAvgBeforeAfter">—</p>
+          </div>
+          <div class="bg-panel2 rounded-xl p-3">
+            <p class="text-xs text-mutet mb-1">Total Invested — Before → After</p>
+            <p class="tnum font-semibold text-sm" id="dryInvestedBeforeAfter">—</p>
+          </div>
+        </div>
+        <p class="text-xs text-mutet" id="dryNote">—</p>
+      </div>
+
       <div class="rounded-2xl border border-line bg-panel p-5 sm:p-6">
         <h2 class="font-semibold mb-1">Dollar-Cost Average</h2>
         <p class="text-xs text-mutet mb-4">Record a buy or sell. Enter the amount of coins and the price you paid, in USD or EUR.</p>
@@ -473,44 +498,20 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <p class="text-sm font-semibold mb-3">Average Cost <span class="text-mutet font-normal">· Revolut · Neverless · All</span></p>
         <div id="dcaAvgTable" class="overflow-x-auto"></div>
       </div>
+
+      <!-- DCA average cost per coin — one donut per crypto, split Revolut vs Neverless
+           (moved here from Dashboard, per user request) -->
+      <div class="mt-4 rounded-2xl border border-line bg-panel p-5">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <p class="text-sm font-semibold">DCA · Average Cost per Coin <span class="text-mutet font-normal">· split by account</span></p>
+          <span class="text-[10px] text-mutet bg-panel2 px-2 py-1 rounded-lg">🔵 Revolut · 🟦 Neverless · % = share of invested</span>
+        </div>
+        <div id="dcaDonuts" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3"></div>
+      </div>
     </section>
 
     <!-- =============== TRANSACTIONS =============== -->
     <section id="v-transactions" class="hidden">
-      <!-- ═══ Dry Powder Planner ═══ (moved here from Capital, per user request)
-           Reuses the app's existing cost-basis math (avg/qtyOf/pxNow) rather than
-           inventing a new model — this just re-runs those same functions with a
-           hypothetical extra purchase folded in. No statistical projections here
-           (deliberately) — just honest arithmetic on real portfolio data. -->
-      <div class="rounded-2xl border border-line bg-panel p-5 space-y-3 mb-4">
-        <div>
-          <h2 class="font-semibold">Dry Powder Planner</h2>
-          <p class="text-xs text-mutet mt-1">See how deploying more capital right now would shift your blended average cost for a coin.</p>
-        </div>
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="text-xs text-mutet mb-1 block">Asset</label>
-            <select id="dryAsset" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2.5 text-sm"></select>
-          </div>
-          <div>
-            <label class="text-xs text-mutet mb-1 block">Amount to deploy</label>
-            <input id="dryAmount" type="number" min="0" step="10" value="500" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2.5 text-sm tnum" />
-          </div>
-        </div>
-        <input id="drySlider" type="range" min="0" max="2000" step="10" value="500" class="w-full accent-accent" />
-        <div class="grid grid-cols-2 gap-3">
-          <div class="bg-panel2 rounded-xl p-3">
-            <p class="text-xs text-mutet mb-1">Avg Cost — Before → After</p>
-            <p class="tnum font-semibold text-sm" id="dryAvgBeforeAfter">—</p>
-          </div>
-          <div class="bg-panel2 rounded-xl p-3">
-            <p class="text-xs text-mutet mb-1">Total Invested — Before → After</p>
-            <p class="tnum font-semibold text-sm" id="dryInvestedBeforeAfter">—</p>
-          </div>
-        </div>
-        <p class="text-xs text-mutet" id="dryNote">—</p>
-      </div>
-
       <div class="flex items-center justify-between mb-3">
         <h2 class="font-semibold">Transactions &amp; average-price impact</h2>
         <button id="addCoin2" class="text-sm font-semibold bg-panel2 hover:bg-line border border-line rounded-lg px-3 py-1.5 transition">+ Add coin</button>
@@ -1481,7 +1482,7 @@ function miniSpark(cv,a){const sd=sparkSeries(a);const data=sd.data;if(!data.len
           callback:v=>symC()+Number(v).toLocaleString('en-US',{maximumFractionDigits:pdc(v)})}}}}});}
 
 /* ---- renders ---- */
-function render(){renderHeader();renderChips();renderRange();renderPerf();renderAlloc();renderCards();renderTx();renderTxDbCount();renderBottomSignal();renderDashboardSummary();if(state.view==='dashboard')renderDcaDonuts();if(state.view==='dca')renderDcaAvgTable();if(state.view==='scenario')renderScenario();if(state.view==='capital')renderCapital();
+function render(){renderHeader();renderChips();renderRange();renderPerf();renderAlloc();renderCards();renderTx();renderTxDbCount();renderBottomSignal();renderDashboardSummary();if(state.view==='dca')renderDcaDonuts();if(state.view==='dca')renderDcaAvgTable();if(state.view==='scenario')renderScenario();if(state.view==='capital')renderCapital();
   $('#fxVal').textContent=(state.fx||FX0).toFixed(4);$('#interestVal').textContent=moneyIn(interestEUR(),'EUR');}
 
 function renderHeader(){const t=totals();const up=t.pnl>=0;
@@ -1801,8 +1802,8 @@ function wireModal(){
 function setView(v){state.view=v;['dashboard','mycrypto','dca','transactions','scenario','cycles','capital','radar','sentiment','traderanalysis','settings'].forEach(x=>$('#v-'+x).classList.toggle('hidden',x!==v));
   $$('#nav .navitem,#navMobile .navitem').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
   $('#viewTitle').textContent={dashboard:'Dashboard',mycrypto:'My Crypto',dca:'DCA',transactions:'Transactions',scenario:'Scenarios',cycles:'Cycles',capital:'Capital',radar:'Radar',sentiment:'Sentiment',traderanalysis:'Trader Analysis',settings:'Settings'}[v];
-  if(v==='dca'){fillAssets();$('#d_date').value=NOW();renderDcaAvgTable();}
-  if(v==='dashboard'){renderPerf();renderAlloc();renderDcaDonuts();}
+  if(v==='dca'){fillAssets();$('#d_date').value=NOW();renderDcaAvgTable();renderDcaDonuts();}
+  if(v==='dashboard'){renderPerf();renderAlloc();}
   if(v==='mycrypto'){renderCards();}
   if(v==='scenario'){renderScenario();}
   if(v==='cycles'){renderCyclesTab();}
