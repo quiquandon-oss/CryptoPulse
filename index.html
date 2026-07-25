@@ -689,7 +689,6 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             </button>
           </div>
         </div>
-        <p class="text-xs text-mutet mb-3">Estimated liquidation prices at standard Hyperliquid leverage tiers, assuming a position opened at each day's own price — a model based on real mark price and funding data, not measured real positions (no public source gives that). Standalone info only — not yet feeding Sentiment, the Regime Scorecard, or Trader Analysis.</p>
         <div id="liqAnalysisBody" class="text-xs text-mutet mb-3 pb-3 border-b border-line/50">Loading plain-language summary…</div>
         <div id="liqSummaryRows" class="space-y-1.5 mb-3 text-xs">Loading…</div>
         <div class="flex gap-1.5 mb-2" id="liqRangeTabs">
@@ -5119,6 +5118,26 @@ async function renderLiquidationTile(){
         asset:liqState.asset,range:liqState.range,livePrice:livePx,
         nextClusterAbove:nextCluster.above,nextClusterBelow:nextCluster.below,
       };
+      // ---- Probability of "eating" each nearby cluster within the current
+      // horizon, reusing the SAME model already trusted elsewhere in the app
+      // (priceProba — the Break-even Probability table's methodology), not a
+      // new invented formula. Logged with a throttle, then checked against
+      // real embedded price history once the horizon elapses, so the
+      // calibration check below is built on genuine resolved outcomes, not
+      // an assumption of its own accuracy. ----
+      const horizonDays=liqState.range==='day'?1:liqState.range==='week'?7:30;
+      if(nextCluster.above!=null){
+        const p=priceProba('BTC',nextCluster.above,horizonDays/365);
+        chartContext.probAbove=p;
+        logLiqClusterPrediction(liqState.range,'above',nextCluster.above,p,horizonDays);
+        chartContext.calibrationAbove=computeLiqProbCalibration(p);
+      }
+      if(nextCluster.below!=null){
+        const p=1-priceProba('BTC',nextCluster.below,horizonDays/365);
+        chartContext.probBelow=p;
+        logLiqClusterPrediction(liqState.range,'below',nextCluster.below,p,horizonDays);
+        chartContext.calibrationBelow=computeLiqProbCalibration(p);
+      }
     }
     fetch(`${PULSE_WORKER_URL}/liquidation-analysis`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({assets:perAsset,focus:liqState.asset,chartContext})})
       .then(r=>r.json())
@@ -5128,6 +5147,60 @@ async function renderLiquidationTile(){
       })
       .catch(err=>{analysisEl.textContent='Could not load summary: '+(err&&err.message?err.message:String(err));});
   }
+}
+// ═══ Cluster-eating probability: history + calibration ═══
+const LIQ_PROB_STORAGE_KEY='cp2_liq_cluster_predictions';
+const LIQ_PROB_MAX_AGE_DAYS=90;
+const LIQ_PROB_LOG_THROTTLE_MS=20*60000; // don't log a near-duplicate prediction more often than every 20min for the same range+direction
+function loadLiqProbPredictions(){
+  try{return JSON.parse(localStorage.getItem(LIQ_PROB_STORAGE_KEY)||'[]');}catch(e){return[];}
+}
+function saveLiqProbPredictions(list){
+  try{localStorage.setItem(LIQ_PROB_STORAGE_KEY,JSON.stringify(list));}catch(e){/* storage full/unavailable — non-critical */}
+}
+function logLiqClusterPrediction(range,direction,clusterPrice,theoreticalProb,horizonDays){
+  const list=loadLiqProbPredictions();
+  const recentSame=list.filter(e=>e.range===range&&e.direction===direction).sort((a,b)=>b.ts-a.ts)[0];
+  if(recentSame&&Date.now()-recentSame.ts<LIQ_PROB_LOG_THROTTLE_MS)return; // throttled — too soon since the last one for this exact range+direction
+  list.push({ts:Date.now(),range,direction,clusterPrice,theoreticalProb,horizonDays,resolveAt:Date.now()+horizonDays*86400000,resolved:false,hit:null,unresolvable:false});
+  const cutoff=Date.now()-LIQ_PROB_MAX_AGE_DAYS*86400000;
+  saveLiqProbPredictions(list.filter(e=>e.ts>=cutoff));
+}
+// Checks past logged predictions whose horizon has now elapsed against real
+// embedded BTC price history — day-horizon ones are marked unresolvable since
+// intraday data isn't persisted once the session that fetched it ends; only
+// week/month predictions can be genuinely checked this way.
+function resolveLiqClusterPredictions(){
+  const list=loadLiqProbPredictions();
+  let changed=false;
+  const now=Date.now();
+  list.forEach(entry=>{
+    if(entry.resolved)return;
+    if(now<entry.resolveAt)return;
+    if(entry.range==='day'){entry.resolved=true;entry.unresolvable=true;changed=true;return;}
+    const h=PRICE_HISTORY.BTC||{};
+    const startDate=new Date(entry.ts).toISOString().slice(0,10);
+    const endDate=new Date(entry.resolveAt).toISOString().slice(0,10);
+    const pricesInRange=Object.keys(h).filter(d=>d>=startDate&&d<=endDate).map(d=>h[d]);
+    if(!pricesInRange.length)return; // embedded history hasn't caught up to this window yet — leave unresolved, check again later
+    entry.hit=entry.direction==='above'?pricesInRange.some(p=>p>=entry.clusterPrice):pricesInRange.some(p=>p<=entry.clusterPrice);
+    entry.resolved=true;changed=true;
+  });
+  if(changed)saveLiqProbPredictions(list);
+  return list;
+}
+// Empirical calibration: among past RESOLVED predictions whose theoretical
+// probability was similar to this one (+-15 percentage points), what
+// fraction actually hit? Requires a minimum sample size before returning
+// anything, matching the honesty standard used for every other small-sample
+// feature this session — returns null (not a guess) if there's not enough yet.
+function computeLiqProbCalibration(theoreticalProb){
+  const list=resolveLiqClusterPredictions();
+  const resolved=list.filter(e=>e.resolved&&!e.unresolvable&&e.hit!=null);
+  if(resolved.length<5)return null;
+  const bucket=resolved.filter(e=>Math.abs(e.theoreticalProb-theoreticalProb)<=0.15);
+  if(bucket.length<3)return null;
+  return{empiricalRate:bucket.filter(e=>e.hit).length/bucket.length,count:bucket.length,totalResolved:resolved.length};
 }
 function renderCyclesTab(){
   renderWhaleTile();
