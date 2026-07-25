@@ -705,7 +705,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <button data-liq-range="month" class="liq-range-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">Month</button>
         </div>
         <div class="h-[220px]"><canvas id="liqChart"></canvas></div>
-        <p class="text-[10px] text-mutet mt-2">Density heatmap using Glassnode's actual color scale (purple/blue = thin, teal/green = moderate, yellow/orange/red = densest cluster) — computed from a fine leverage grid (every 1x), so real clusters show through instead of a few coarse bands. Zoomed to ±20% around live price, the range that's actually actionable. Faint background wash = which side (longs/shorts) is currently more crowded. Space after "now" is projected forward with no price data, so you can watch price approach the clusters.</p>
+        <p class="text-[10px] text-mutet mt-2">Density heatmap using Glassnode's actual color scale (purple/blue = thin, teal/green = moderate, yellow/orange/red = densest cluster) — computed from a fine leverage grid (every 1x), so real clusters show through instead of a few coarse bands. Grey/flat = already crossed by price (consumed), stays that way into the future too. Full color = still fresh, including the projected space after "now" so you can watch price approach it. Yellow ↑/↓ prices on the left axis mark the nearest un-eaten significant cluster above and below current price.</p>
       </div>
 
       <!-- Fullscreen liquidation chart overlay: own Chart.js instance,
@@ -4820,7 +4820,7 @@ function liqHeatColor(t,alpha){
 // naturally bunches tightly close to price (high leverage) and spreads out
 // far away (low leverage) with NO invented weighting, just the real formula
 // sampled properly instead of 4 coarse discrete lines. ----
-function computeLiqDensityBins(livePrice,minLev,maxLev,rangePct,binCount){
+function computeLiqDensityBins(livePrice,minLev,maxLev,rangePct,binCount,realPricePts){
   const yMin=livePrice*(1-rangePct),yMax=livePrice*(1+rangePct);
   const counts=new Array(binCount).fill(0);
   const binSize=(yMax-yMin)/binCount;
@@ -4831,12 +4831,39 @@ function computeLiqDensityBins(livePrice,minLev,maxLev,rangePct,binCount){
     });
   }
   const maxCount=Math.max(...counts,1);
-  return{yMin,yMax,bins:counts.map((c,i)=>({yLow:yMin+i*binSize,yHigh:yMin+(i+1)*binSize,intensity:c/maxCount}))};
+  // ---- Eaten tracking: has the REAL historical price ever crossed into this
+  // bin's range? If yes, the leveraged positions that would liquidate there
+  // are already gone — that status applies EVERYWHERE for this bin, past AND
+  // future (consumed liquidity doesn't regenerate), which is what actually
+  // creates the past-vs-future visual difference. A bin below live price is
+  // eaten if price ever dropped to/through its top edge; a bin above is eaten
+  // if price ever rose to/through its bottom edge.
+  const bins=counts.map((c,i)=>{
+    const yLow=yMin+i*binSize,yHigh=yMin+(i+1)*binSize;
+    const isBelowPrice=yHigh<=livePrice;
+    const eaten=isBelowPrice?realPricePts.some(p=>p<=yHigh):realPricePts.some(p=>p>=yLow);
+    return{yLow,yHigh,intensity:c/maxCount,eaten};
+  });
+  return{yMin,yMax,bins};
+}
+// ---- Nearest FRESH (not-yet-eaten) significant cluster above and below live
+// price — an already-eaten nearby zone isn't meaningfully "next" since it's
+// already consumed. Feeds the y-axis highlighted labels below. ----
+function findNearestFreshClusters(density,livePrice,threshold){
+  let below=null,above=null;
+  density.bins.forEach(bin=>{
+    if(bin.eaten||bin.intensity<threshold)return;
+    if(bin.yHigh<=livePrice&&(!below||bin.yHigh>below.yHigh))below=bin;
+    if(bin.yLow>=livePrice&&(!above||bin.yLow<above.yLow))above=bin;
+  });
+  return{below:below?below.yHigh:null,above:above?above.yLow:null};
 }
 // ---- Canvas-drawn heatmap plugin: paints the density bins as filled rects
 // BEHIND the price line (beforeDatasetsDraw), using the chart's own y-scale
 // for accurate placement — this is what actually gives pixel-level
-// resolution instead of a handful of discrete band datasets. ----
+// resolution instead of a handful of discrete band datasets. Eaten bins are
+// capped at a low, flat, grey-tinted alpha regardless of intensity, so a
+// once-dense-but-consumed zone reads as visually "spent". ----
 const liqHeatmapPlugin={id:'liqHeatmap',beforeDatasetsDraw(chart){
   const opt=chart.options.plugins?.liqHeatmap;
   if(!opt||!opt.density)return;
@@ -4847,7 +4874,11 @@ const liqHeatmapPlugin={id:'liqHeatmap',beforeDatasetsDraw(chart){
   ctx.save();
   opt.density.bins.forEach(bin=>{
     const yTop=yScale.getPixelForValue(bin.yHigh),yBot=yScale.getPixelForValue(bin.yLow);
-    ctx.fillStyle=liqHeatColor(bin.intensity,0.12+0.55*bin.intensity);
+    if(bin.eaten){
+      ctx.fillStyle='rgba(120,120,130,0.05)';
+    }else{
+      ctx.fillStyle=liqHeatColor(bin.intensity,0.12+0.55*bin.intensity);
+    }
     ctx.fillRect(left,yTop,right-left,yBot-yTop);
   });
   ctx.restore();
@@ -4870,10 +4901,12 @@ function extendFutureLabels(range,ipts,dayLabels){
   return out;
 }
 const LIQ_HEATMAP_RANGE_PCT=0.20; // zoomed to the +-20% band that's actually actionable, not the full 2x-50x theoretical range
+const LIQ_CLUSTER_THRESHOLD=0.5; // "significant" cluster for the y-axis next-cluster labels — at or above half the densest bin in view
 function buildLiqChartConfig(allLabels,allPricePts,realPricePts,tiersAsc,color,crowdedSide){
   const livePrice=realPricePts[realPricePts.length-1];
   const minLev=Math.min(...tiersAsc),maxLev=Math.max(...tiersAsc);
-  const density=computeLiqDensityBins(livePrice,minLev,maxLev,LIQ_HEATMAP_RANGE_PCT,70);
+  const density=computeLiqDensityBins(livePrice,minLev,maxLev,LIQ_HEATMAP_RANGE_PCT,70,realPricePts);
+  const nextCluster=findNearestFreshClusters(density,livePrice,LIQ_CLUSTER_THRESHOLD);
   const datasets=[{data:allPricePts,borderColor:color,backgroundColor:'transparent',borderWidth:2,fill:false,tension:.25,pointRadius:0,pointHoverRadius:4,pointHoverBackgroundColor:color,label:'Price',spanGaps:false}];
   return{type:'line',data:{labels:allLabels,datasets},options:{responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},
     animation:{duration:400,easing:'easeOutQuart'},
@@ -4881,7 +4914,23 @@ function buildLiqChartConfig(allLabels,allPricePts,realPricePts,tiersAsc,color,c
       liqDirectionTint:{side:crowdedSide},liqHeatmap:{density},
       tooltip:{filter:it=>it.datasetIndex===0,callbacks:{label:c=>c.raw==null?'':'Price: '+money(c.raw,pdec(c.raw))}}},
     scales:{x:{grid:{display:false},ticks:{color:'#7A8499',font:{size:9},maxTicksLimit:8}},
-      y:{min:density.yMin,max:density.yMax,grid:{color:'rgba(255,255,255,.06)'},ticks:{color:'#7A8499',font:{size:9},callback:v=>symC()+Number(v).toLocaleString('en-US',{maximumFractionDigits:0})}}}
+      y:{min:density.yMin,max:density.yMax,grid:{color:'rgba(255,255,255,.06)'},
+        // Inject the nearest-fresh-cluster prices as extra highlighted ticks
+        // on top of the normal auto-generated ones — same technique already
+        // used for the fan chart's custom Now/6M/2Y/5Y ticks.
+        afterBuildTicks:axis=>{
+          const extra=[];
+          if(nextCluster.above!=null)extra.push({value:nextCluster.above,liqCluster:'above'});
+          if(nextCluster.below!=null)extra.push({value:nextCluster.below,liqCluster:'below'});
+          axis.ticks=[...axis.ticks,...extra].sort((a,b)=>a.value-b.value);
+        },
+        ticks:{color:ctx=>ctx.tick.liqCluster?'#FFD23F':'#7A8499',
+          font:ctx=>ctx.tick.liqCluster?{size:9,weight:'700'}:{size:9},
+          callback:function(v,idx){
+            const tick=this.chart.scales.y.ticks[idx];
+            const prefix=tick&&tick.liqCluster==='above'?'↑ ':tick&&tick.liqCluster==='below'?'↓ ':'';
+            return prefix+symC()+Number(v).toLocaleString('en-US',{maximumFractionDigits:0});
+          }}}}
   }};
 }
 async function renderLiquidationChart(){
