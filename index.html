@@ -4827,11 +4827,29 @@ function computeLiqDensityBins(livePrice,minLev,maxLev,rangePct,binCount,realPri
   const yMin=livePrice*(1-rangePct),yMax=livePrice*(1+rangePct);
   const counts=new Array(binCount).fill(0);
   const binSize=(yMax-yMin)/binCount;
+  // ---- Smoothing: discrete integer leverage steps are naturally SPARSE at
+  // the low-leverage (far-from-price) end — e.g. 5x vs 6x for BTC at $65K are
+  // genuinely ~$2,167 apart, wider than several bin-widths, so a hard
+  // point-count left real dead "no cluster" zones between them even though
+  // nothing is actually wrong with the model, just the discrete step size.
+  // A triangular kernel spreads each level's contribution across its
+  // neighboring bins too, which removes the artificial hard gaps while still
+  // preserving the real shape (denser near price, sparser further out). ----
+  const kernelRadius=3;
+  const addWeighted=lvl=>{
+    const idxF=(lvl-yMin)/binSize;
+    const centerIdx=Math.floor(idxF);
+    for(let k=-kernelRadius;k<=kernelRadius;k++){
+      const idx=centerIdx+k;
+      if(idx<0||idx>=binCount)continue;
+      const dist=Math.abs(idxF-idx);
+      const weight=Math.max(0,1-dist/(kernelRadius+1));
+      counts[idx]+=weight;
+    }
+  };
   for(let lev=minLev;lev<=maxLev;lev++){
-    [livePrice*(1-1/lev),livePrice*(1+1/lev)].forEach(lvl=>{
-      const idx=Math.floor((lvl-yMin)/binSize);
-      if(idx>=0&&idx<binCount)counts[idx]++;
-    });
+    addWeighted(livePrice*(1-1/lev));
+    addWeighted(livePrice*(1+1/lev));
   }
   const maxCount=Math.max(...counts,1);
   // ---- Eaten tracking: has the REAL historical price ever crossed into this
