@@ -705,7 +705,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <button data-liq-range="month" class="liq-range-tab text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">Month</button>
         </div>
         <div class="h-[220px]"><canvas id="liqChart"></canvas></div>
-        <p class="text-[10px] text-mutet mt-2">Shaded bands = modeled clusters, using one intensity scale on both sides (dim indigo/teal = lower leverage/thinner, bright yellow-gold = higher leverage/denser — same convention CoinGlass and Glassnode use, not a directional color). Grey dotted bands = a level already crossed by price this window. Faint background wash = which side (longs/shorts) is currently more crowded. Space after "now" is projected forward with no price data, so you can watch price approach the fixed shelves.</p>
+        <p class="text-[10px] text-mutet mt-2">Density heatmap using Glassnode's actual color scale (purple/blue = thin, teal/green = moderate, yellow/orange/red = densest cluster) — computed from a fine leverage grid (every 1x), so real clusters show through instead of a few coarse bands. Zoomed to ±20% around live price, the range that's actually actionable. Faint background wash = which side (longs/shorts) is currently more crowded. Space after "now" is projected forward with no price data, so you can watch price approach the clusters.</p>
       </div>
 
       <!-- Fullscreen liquidation chart overlay: own Chart.js instance,
@@ -4799,25 +4799,63 @@ function liqTabsSetActive(){
 // Also flags each point as "tested" if a LATER point's price already crossed
 // that level, since a level price has already broken through with no
 // remaining position there reads differently than one still ahead of price. ----
-// ---- Color: single heat-intensity scale, Glassnode/CoinGlass-style — dim
-// (thin/low-leverage) to bright (dense/high-leverage), the SAME scale applied
-// above AND below price. Direction (which side is crowded) is a separate
-// piece of information, conveyed by the background tint, not by band color —
-// conflating the two into a red/green split was the mistake in the first version. ----
+// ---- Color: Glassnode's actual density scale, matched from their real Cost
+// Basis Distribution Heatmap (purple/background -> blue -> teal -> green ->
+// yellow -> orange -> red = densest), not a guessed palette. Direction (which
+// side is crowded) stays a separate signal via the background tint, not baked
+// into this scale — that was the mistake in the first version. ----
 function hexToRgbObj(hex){const h=hex.replace('#','');return{r:parseInt(h.substring(0,2),16),g:parseInt(h.substring(2,4),16),b:parseInt(h.substring(4,6),16)};}
 function mixRgb(a,b,t){return{r:Math.round(a.r+(b.r-a.r)*t),g:Math.round(a.g+(b.g-a.g)*t),b:Math.round(a.b+(b.b-a.b)*t)};}
 function rgbaStr(o,a){return`rgba(${o.r},${o.g},${o.b},${a})`;}
-const LIQ_COLOR_SCALE=['#241B4E','#1B6E8C','#2FA88E','#B7D74B','#FFD23F'].map(hexToRgbObj); // dark indigo -> teal -> green -> yellow-green -> bright gold
-function liqIntensityRgb(i,n){
-  const t=n<=1?1:i/(n-1);
-  const idx=t*(LIQ_COLOR_SCALE.length-1);
-  const lo=Math.floor(idx),hi=Math.min(Math.ceil(idx),LIQ_COLOR_SCALE.length-1);
-  return mixRgb(LIQ_COLOR_SCALE[lo],LIQ_COLOR_SCALE[hi],idx-lo);
+const LIQ_HEAT_STOPS=['#6A5ACD','#3D6EA5','#2FA0A0','#5FB35A','#D9D94A','#F2994A','#E0483C'].map(hexToRgbObj);
+function liqHeatColor(t,alpha){
+  t=Math.max(0,Math.min(1,t));
+  const idx=t*(LIQ_HEAT_STOPS.length-1);
+  const lo=Math.floor(idx),hi=Math.min(Math.ceil(idx),LIQ_HEAT_STOPS.length-1);
+  return rgbaStr(mixRgb(LIQ_HEAT_STOPS[lo],LIQ_HEAT_STOPS[hi],idx-lo),alpha);
 }
+// ---- Fine leverage grid instead of 4 arbitrary tiers: every 1x from the
+// lowest tier already used up to the asset's real max. Liquidation price =
+// price*(1-1/L), and 1/L shrinks non-linearly as L grows — so a fine grid
+// naturally bunches tightly close to price (high leverage) and spreads out
+// far away (low leverage) with NO invented weighting, just the real formula
+// sampled properly instead of 4 coarse discrete lines. ----
+function computeLiqDensityBins(livePrice,minLev,maxLev,rangePct,binCount){
+  const yMin=livePrice*(1-rangePct),yMax=livePrice*(1+rangePct);
+  const counts=new Array(binCount).fill(0);
+  const binSize=(yMax-yMin)/binCount;
+  for(let lev=minLev;lev<=maxLev;lev++){
+    [livePrice*(1-1/lev),livePrice*(1+1/lev)].forEach(lvl=>{
+      const idx=Math.floor((lvl-yMin)/binSize);
+      if(idx>=0&&idx<binCount)counts[idx]++;
+    });
+  }
+  const maxCount=Math.max(...counts,1);
+  return{yMin,yMax,bins:counts.map((c,i)=>({yLow:yMin+i*binSize,yHigh:yMin+(i+1)*binSize,intensity:c/maxCount}))};
+}
+// ---- Canvas-drawn heatmap plugin: paints the density bins as filled rects
+// BEHIND the price line (beforeDatasetsDraw), using the chart's own y-scale
+// for accurate placement — this is what actually gives pixel-level
+// resolution instead of a handful of discrete band datasets. ----
+const liqHeatmapPlugin={id:'liqHeatmap',beforeDatasetsDraw(chart){
+  const opt=chart.options.plugins?.liqHeatmap;
+  if(!opt||!opt.density)return;
+  const{ctx,chartArea,scales}=chart;
+  if(!chartArea)return;
+  const{left,right}=chartArea;
+  const yScale=scales.y;
+  ctx.save();
+  opt.density.bins.forEach(bin=>{
+    const yTop=yScale.getPixelForValue(bin.yHigh),yBot=yScale.getPixelForValue(bin.yLow);
+    ctx.fillStyle=liqHeatColor(bin.intensity,0.12+0.55*bin.intensity);
+    ctx.fillRect(left,yTop,right-left,yBot-yTop);
+  });
+  ctx.restore();
+}};
+Chart.register(liqHeatmapPlugin);
 // ---- Extend the visible window with real future time/date labels (no price
-// data — that's the point) so the fixed shelves have visible room ahead of
-// price to watch it approach, instead of stopping dead at "now" like the
-// first version did. ----
+// data — that's the point) so the fixed heatmap has visible room ahead of
+// price to watch it approach, instead of stopping dead at "now". ----
 function extendFutureLabels(range,ipts,dayLabels){
   const extra=range==='day'?Math.max(6,Math.round((ipts?.length||24)*0.25)):Math.max(3,Math.round((range==='week'?7:30)*0.25));
   const out=[];
@@ -4831,44 +4869,19 @@ function extendFutureLabels(range,ipts,dayLabels){
   }
   return out;
 }
+const LIQ_HEATMAP_RANGE_PCT=0.20; // zoomed to the +-20% band that's actually actionable, not the full 2x-50x theoretical range
 function buildLiqChartConfig(allLabels,allPricePts,realPricePts,tiersAsc,color,crowdedSide){
-  const n=tiersAsc.length;
   const livePrice=realPricePts[realPricePts.length-1];
-  const total=allLabels.length;
-  const datasets=[];
-  // LONG side (below price): ascending leverage (farthest/dimmest first) so
-  // fill:'-1' chains outward-to-inward toward the brightest band nearest price.
-  tiersAsc.forEach((lev,i)=>{
-    const lvl=livePrice*(1-1/lev);
-    const everCrossed=realPricePts.some(p=>p<=lvl);
-    const rgb=liqIntensityRgb(i,n);
-    datasets.push({data:new Array(total).fill(lvl),
-      borderColor:everCrossed?'rgba(140,140,150,0.4)':rgbaStr(rgb,0.9),
-      backgroundColor:everCrossed?'rgba(120,120,130,0.05)':rgbaStr(rgb,0.14+0.06*i),
-      borderWidth:1,borderDash:everCrossed?[1,3]:[3,3],pointRadius:0,tension:0,fill:i===0?false:'-1',
-      label:lev+'x long liq'+(everCrossed?' (already tested this window)':'')});
-  });
-  datasets.push({data:allPricePts,borderColor:color,backgroundColor:'transparent',borderWidth:2,fill:false,tension:.25,pointRadius:0,pointHoverRadius:4,pointHoverBackgroundColor:color,label:'Price',spanGaps:false});
-  const priceIndex=n;
-  // SHORT side (above price): descending leverage (closest to price first).
-  for(let i=n-1;i>=0;i--){
-    const lev=tiersAsc[i];
-    const lvl=livePrice*(1+1/lev);
-    const everCrossed=realPricePts.some(p=>p>=lvl);
-    const rgb=liqIntensityRgb(i,n);
-    datasets.push({data:new Array(total).fill(lvl),
-      borderColor:everCrossed?'rgba(140,140,150,0.4)':rgbaStr(rgb,0.9),
-      backgroundColor:everCrossed?'rgba(120,120,130,0.05)':rgbaStr(rgb,0.14+0.06*i),
-      borderWidth:1,borderDash:everCrossed?[1,3]:[3,3],pointRadius:0,tension:0,fill:i===n-1?false:'-1',
-      label:lev+'x short liq'+(everCrossed?' (already tested this window)':'')});
-  }
+  const minLev=Math.min(...tiersAsc),maxLev=Math.max(...tiersAsc);
+  const density=computeLiqDensityBins(livePrice,minLev,maxLev,LIQ_HEATMAP_RANGE_PCT,70);
+  const datasets=[{data:allPricePts,borderColor:color,backgroundColor:'transparent',borderWidth:2,fill:false,tension:.25,pointRadius:0,pointHoverRadius:4,pointHoverBackgroundColor:color,label:'Price',spanGaps:false}];
   return{type:'line',data:{labels:allLabels,datasets},options:{responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},
     animation:{duration:400,easing:'easeOutQuart'},
-    plugins:{legend:{display:false},crosshair:{enabled:true,datasetIndex:priceIndex},
-      liqDirectionTint:{side:crowdedSide},
-      tooltip:{filter:it=>it.datasetIndex===priceIndex,callbacks:{label:c=>c.raw==null?'':'Price: '+money(c.raw,pdec(c.raw))}}},
+    plugins:{legend:{display:false},crosshair:{enabled:true,datasetIndex:0},
+      liqDirectionTint:{side:crowdedSide},liqHeatmap:{density},
+      tooltip:{filter:it=>it.datasetIndex===0,callbacks:{label:c=>c.raw==null?'':'Price: '+money(c.raw,pdec(c.raw))}}},
     scales:{x:{grid:{display:false},ticks:{color:'#7A8499',font:{size:9},maxTicksLimit:8}},
-      y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#7A8499',font:{size:9},callback:v=>symC()+Number(v).toLocaleString('en-US',{maximumFractionDigits:0})}}}
+      y:{min:density.yMin,max:density.yMax,grid:{color:'rgba(255,255,255,.06)'},ticks:{color:'#7A8499',font:{size:9},callback:v=>symC()+Number(v).toLocaleString('en-US',{maximumFractionDigits:0})}}}
   }};
 }
 async function renderLiquidationChart(){
