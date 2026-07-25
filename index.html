@@ -260,10 +260,36 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
 
     <!-- =============== DASHBOARD =============== -->
     <section id="v-dashboard">
-      <!-- Market Snapshot — Bottom Signal + Cycle Scorecard + Sentiment, one glance at the top of the Dashboard -->
+      <!-- Market Snapshot — conclusion strip, then Sentiment/Technical/Combined,
+           then Bottom Signal/Cycle Scorecard, then a 24h-ago comparison row.
+           All populated by renderDashboardSummary(). -->
       <div class="rounded-2xl border border-line bg-panel p-4 mb-4">
         <h3 class="font-semibold text-sm mb-3">Market Snapshot</h3>
-        <div class="grid grid-cols-3 gap-2">
+        <!-- Conclusion: a plain descriptive lean, not an instruction — see
+             computeDashboardConclusion(). Traceable back to the 5 tiles below,
+             not a new hidden number. -->
+        <div id="dashConclusion" class="rounded-xl p-3 mb-3 flex items-center justify-center gap-2 border-2 border-line/60">
+          <span id="dashConclusionDot" class="text-xl leading-none">⚪</span>
+          <span id="dashConclusionLabel" class="font-bold text-sm">Loading…</span>
+        </div>
+        <div class="grid grid-cols-3 gap-2 mb-2">
+          <div class="rounded-xl bg-panel2 p-3 text-center">
+            <p class="text-[10px] text-mutet mb-1">Sentiment</p>
+            <p id="dashSentScore" class="grot font-bold tnum text-lg">—</p>
+            <p id="dashSentLabel" class="text-[10px] font-medium mt-1 leading-tight">Loading…</p>
+          </div>
+          <div class="rounded-xl bg-panel2 p-3 text-center">
+            <p class="text-[10px] text-mutet mb-1">Technical</p>
+            <p id="dashTechScore" class="grot font-bold tnum text-lg">—</p>
+            <p id="dashTechLabel" class="text-[10px] font-medium mt-1 leading-tight">Loading…</p>
+          </div>
+          <div id="dashCombinedCard" class="rounded-xl bg-panel2 p-3 text-center border-2 border-line/60">
+            <p class="text-[10px] text-mutet mb-1">Combined</p>
+            <p id="dashCombinedScore" class="grot font-bold tnum text-lg">—</p>
+            <p id="dashCombinedLabel" class="text-[10px] font-medium mt-1 leading-tight">Loading…</p>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2 mb-3">
           <div class="rounded-xl bg-panel2 p-3 text-center">
             <p class="text-[10px] text-mutet mb-1">Market Bottom</p>
             <p class="grot font-bold tnum text-lg js-bScore">—</p>
@@ -278,10 +304,15 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             <p id="dashScorecardLabel" class="text-[10px] font-medium mt-1 leading-tight">Loading…</p>
             <p id="dashScorecardConviction" class="text-[9px] text-mutet mt-0.5">&nbsp;</p>
           </div>
-          <div id="dashSentCard" class="rounded-xl bg-panel2 p-3 text-center border-2 border-line/60">
-            <p class="text-[10px] text-mutet mb-1">Sentiment</p>
-            <p id="dashSentScore" class="grot font-bold tnum text-lg">—</p>
-            <p id="dashSentLabel" class="text-[10px] font-medium mt-1 leading-tight">Loading…</p>
+        </div>
+        <div class="border-t border-line/50 pt-2">
+          <p class="text-[9px] uppercase tracking-wide text-mutet mb-1.5">vs. 24h ago</p>
+          <div class="grid grid-cols-5 gap-1 text-center">
+            <div><p class="text-[9px] text-mutet">Sent.</p><p id="dash24hSent" class="text-[10px] font-semibold tnum">—</p></div>
+            <div><p class="text-[9px] text-mutet">Tech.</p><p id="dash24hTech" class="text-[10px] font-semibold tnum">—</p></div>
+            <div><p class="text-[9px] text-mutet">Comb.</p><p id="dash24hCombined" class="text-[10px] font-semibold tnum">—</p></div>
+            <div><p class="text-[9px] text-mutet">Bottom</p><p id="dash24hBottom" class="text-[10px] font-semibold tnum">—</p></div>
+            <div><p class="text-[9px] text-mutet">Cycle</p><p id="dash24hScorecard" class="text-[10px] font-semibold tnum">—</p></div>
           </div>
         </div>
       </div>
@@ -3147,7 +3178,7 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
         // straight from state.prices bypasses that fallback chain entirely
         // — genuinely missing this cycle now writes null (filterable),
         // never a stale guess dressed up as real.
-        body:JSON.stringify({score:composite,technicalScore:typeof technicalScore==='number'?technicalScore:null,btcPrice:state.prices.BTC?.usd||null,sources:sourcesSnapshot,goldRegime:window.__lastGoldRegime||null,regimeMag:window.__lastRegimeScorecard?.overallMag??null})
+        body:JSON.stringify({score:composite,technicalScore:typeof technicalScore==='number'?technicalScore:null,btcPrice:state.prices.BTC?.usd||null,sources:sourcesSnapshot,goldRegime:window.__lastGoldRegime||null,regimeMag:window.__lastRegimeScorecard?.overallMag??null,bottomScore:calcBottomScore(false).score})
       });
     }catch(e){console.warn('Failed to POST composite score to /history:',e.message);}
   }
@@ -5480,6 +5511,7 @@ function renderCyclesTab(){
       <div class="bg-panel2 rounded-lg px-3 py-2"><p class="text-mutet text-[10px]">Combined</p><p class="font-bold tnum">${combined??'—'}</p></div>
       <div class="bg-panel2 rounded-lg px-3 py-2"><p class="text-mutet text-[10px]">Gold regime</p><p class="font-bold text-xs">${latest.goldRegime||'—'}</p></div>`;
     window.__lastLiveConditions={score:latest.score,technicalScore:latest.technicalScore,combined,goldRegime:latest.goldRegime}; // exposed for the Trader Analysis payload
+    window.__lastHistoryFull=history; // same array already fetched above — reused for Dashboard's 24h-ago comparisons, no new fetch
 
     if(!scoreEl)return;
     // ETF flow trend: latest etfflows score vs whatever reading sits closest to
@@ -6340,20 +6372,84 @@ function renderBottomSignal(){
     }else{banner.classList.add('hidden');}
   }
 }
-// ---- Dashboard's compact 3-card Market Snapshot: Cycle Scorecard + Sentiment
-// tiles here. Bottom Signal isn't handled in this function at all — it
-// already fans out to any element carrying the js-bScore/js-bLabel/js-bBar
-// classes (see renderBottomSignal above), so the new tile just needed those
-// same classes in its HTML, no new wiring. Reads window.__lastRegimeScorecard
-// and window.__lastLiveConditions — both are warmed at boot by
-// renderCyclesTab() regardless of which tab is active (see init()), so this
-// populates within a few seconds even if the user never visits Cycles or
-// Sentiment directly. Shows "Loading…" gracefully until then, same honesty
-// pattern as every other cross-tab-optional signal in this app. ----
+// ---- Dashboard's Market Snapshot: conclusion strip + 5 tiles (Sentiment/
+// Technical/Combined/Market Bottom/Cycle Scorecard) + 24h-ago comparison row.
+// Bottom Signal's score/label/bar are NOT set here — those elements carry the
+// js-bScore/js-bLabel/js-bBar classes and already get updated by
+// renderBottomSignal() above; this function only reads calcBottomScore(false)
+// directly (same cheap pure computation, no fetch) where the NUMBER is needed
+// for the conclusion vote and the 24h delta. Reads window.__lastRegimeScorecard,
+// window.__lastLiveConditions and window.__lastHistoryFull — all warmed at
+// boot by renderCyclesTab() regardless of active tab (see init()), so this
+// populates within a few seconds even if Cycles/Sentiment are never visited
+// directly. Shows "Loading…" gracefully until then. ----
+function findClosestHistoryPoint(history,targetTs){
+  let closest=null,closestDiff=Infinity;
+  history.forEach(p=>{const diff=Math.abs(p.ts-targetTs);if(diff<closestDiff){closestDiff=diff;closest=p;}});
+  return closest;
+}
+// Delta formatting: up is always shown green / down always red, matching
+// this app's own established convention that a higher number = a greener
+// state on every one of these 5 tiles (including Market Bottom, where a
+// higher score means closer to a capitulation low — read here as
+// "opportunity", the same positive framing the Bottom Signal card itself
+// already uses). Not a claim that "up" is objectively good in every sense,
+// just consistent with how every other number on this dashboard is colored.
+function fmtDashDelta(curr,past,decimals){
+  if(curr==null||past==null)return{text:'—',color:'#94A3B8'};
+  const d=curr-past;
+  const rounded=decimals?Math.round(d*100)/100:Math.round(d);
+  if(rounded===0)return{text:'→ 0',color:'#94A3B8'};
+  const val=decimals?Math.abs(rounded).toFixed(2):Math.abs(rounded);
+  return{text:(rounded>0?'↑ +':'↓ -')+val,color:rounded>0?'#3BF38B':'#FF5C72'};
+}
+// Conclusion: a plain descriptive lean built ENTIRELY from the 5 tiles
+// already on screen — never a new hidden number. Deliberately "Bullish/
+// Bearish lean", not "Buy/Sell": nothing this session has found (r=-0.20
+// predictive correlation, 18 days of real samples) supports implying a
+// trading instruction that confident. Same vote-count style and +-2
+// threshold as the Regime Scorecard's own overall label, for consistency.
+// Market Bottom only ever contributes a BULLISH vote (score>=50), never a
+// bearish one — a low score just means "no bottom signal detected", which
+// is genuinely uninformative, not a bearish confirmation.
+function computeDashboardConclusion(sentiment,technical,combined,scOverallLabel,bottomScore){
+  let bull=0,bear=0;
+  const vote=v=>{if(v==null)return; if(v>=60)bull++; else if(v<=40)bear++;};
+  vote(sentiment);vote(technical);vote(combined);
+  if(scOverallLabel==='Leaning bullish')bull++;else if(scOverallLabel==='Leaning bearish')bear++;
+  if(bottomScore!=null&&bottomScore>=50)bull++;
+  const net=bull-bear;
+  if(net>=2)return{label:'Bullish lean',dot:'🟢',color:'#3BF38B'};
+  if(net<=-2)return{label:'Bearish lean',dot:'🔴',color:'#FF2D55'};
+  return{label:'Mixed \u2014 no clear read',dot:'⚪',color:'#F5B843'};
+}
 function renderDashboardSummary(){
+  const lc=window.__lastLiveConditions;
+  const sc=window.__lastRegimeScorecard;
+  const bottomNow=calcBottomScore(false).score;
+
+  const tiles=[
+    ['dashSentScore','dashSentLabel',lc?lc.score:null],
+    ['dashTechScore','dashTechLabel',lc?lc.technicalScore:null],
+    ['dashCombinedScore','dashCombinedLabel',lc?lc.combined:null],
+  ];
+  tiles.forEach(([scoreId,labelId,val])=>{
+    const scoreEl=$('#'+scoreId),labelEl=$('#'+labelId);
+    if(!scoreEl||!labelEl)return;
+    if(val!=null){
+      const{text,color}=pulseLabelFor(val);
+      scoreEl.textContent=val;scoreEl.style.color=color;
+      labelEl.textContent=text;labelEl.style.color=color;
+    }else{
+      scoreEl.textContent='—';scoreEl.style.color='';
+      labelEl.textContent='Loading…';labelEl.style.color='';
+    }
+  });
+  const combinedCard=$('#dashCombinedCard');
+  if(combinedCard)combinedCard.style.borderColor=(lc&&lc.combined!=null)?pulseLabelFor(lc.combined).color:'';
+
   const scDotEl=$('#dashScorecardDot'),scLabelEl=$('#dashScorecardLabel'),scConvEl=$('#dashScorecardConviction');
   if(scDotEl&&scLabelEl){
-    const sc=window.__lastRegimeScorecard;
     if(sc){
       const isBull=sc.overallLabel==='Leaning bullish',isBear=sc.overallLabel==='Leaning bearish';
       const color=isBull?'#3BF38B':isBear?'#FF2D55':'#F5B843';
@@ -6365,21 +6461,36 @@ function renderDashboardSummary(){
       if(scConvEl)scConvEl.textContent='\u00A0';
     }
   }
-  const sentScoreEl=$('#dashSentScore'),sentLabelEl=$('#dashSentLabel'),sentCardEl=$('#dashSentCard');
-  if(sentScoreEl&&sentLabelEl){
-    const lc=window.__lastLiveConditions;
-    if(lc&&lc.combined!=null){
-      const{text,color}=pulseLabelFor(lc.combined);
-      sentScoreEl.textContent=lc.combined;sentScoreEl.style.color=color;
-      sentLabelEl.textContent=text;sentLabelEl.style.color=color;
-      if(sentCardEl)sentCardEl.style.borderColor=color;
+
+  const conclEl=$('#dashConclusion'),conclDotEl=$('#dashConclusionDot'),conclLabelEl=$('#dashConclusionLabel');
+  if(conclEl&&conclDotEl&&conclLabelEl){
+    if(lc||sc){
+      const concl=computeDashboardConclusion(lc?lc.score:null,lc?lc.technicalScore:null,lc?lc.combined:null,sc?sc.overallLabel:null,bottomNow);
+      conclDotEl.textContent=concl.dot;conclLabelEl.textContent=concl.label;
+      conclLabelEl.style.color=concl.color;conclEl.style.borderColor=concl.color;
     }else{
-      sentScoreEl.textContent='—';sentScoreEl.style.color='';
-      sentLabelEl.textContent='Loading…';sentLabelEl.style.color='';
-      if(sentCardEl)sentCardEl.style.borderColor='';
+      conclDotEl.textContent='⚪';conclLabelEl.textContent='Loading…';
+      conclLabelEl.style.color='';conclEl.style.borderColor='';
     }
   }
+
+  const history=window.__lastHistoryFull;
+  const dayAgoTs=Date.now()-24*3600*1000;
+  const past=(history&&history.length)?findClosestHistoryPoint(history,dayAgoTs):null;
+  const pastValid=past&&Math.abs(past.ts-dayAgoTs)<6*3600*1000;
+  const p=pastValid?past:null;
+  const setDelta=(id,curr,pastVal,decimals)=>{
+    const el=$('#'+id);if(!el)return;
+    const{text,color}=fmtDashDelta(curr,pastVal,decimals);
+    el.textContent=text;el.style.color=color;
+  };
+  setDelta('dash24hSent',lc?lc.score:null,p?p.score:null,false);
+  setDelta('dash24hTech',lc?lc.technicalScore:null,p?p.technicalScore:null,false);
+  setDelta('dash24hCombined',lc?lc.combined:null,p?p.combined:null,false);
+  setDelta('dash24hBottom',bottomNow,p?p.bottomScore:null,false);
+  setDelta('dash24hScorecard',sc?sc.overallMag:null,p?p.regimeMag:null,true);
 }
+
 
 // Backfills any gap between the last captured daily price and today with REAL
 // CoinGecko historical prices, instead of leaving histPx() to flat-fill the gap
