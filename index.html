@@ -4911,7 +4911,7 @@ Chart.register(liqHeatmapPlugin);
 // data — that's the point) so the fixed heatmap has visible room ahead of
 // price to watch it approach, instead of stopping dead at "now". ----
 function extendFutureLabels(range,ipts,dayLabels){
-  const extra=range==='day'?Math.max(6,Math.round((ipts?.length||24)*0.25)):Math.max(3,Math.round((range==='week'?7:30)*0.25));
+  const extra=range==='day'?Math.max(8,Math.round((ipts?.length||24)*0.4)):Math.max(5,Math.round((range==='week'?7:30)*0.4));
   const out=[];
   if(range==='day'){
     const interval=ipts&&ipts.length>1?(ipts[ipts.length-1].t-ipts[ipts.length-2].t):5*60000;
@@ -4936,7 +4936,12 @@ function buildLiqChartConfig(allLabels,allPricePts,realPricePts,tiersAsc,color,c
     plugins:{legend:{display:false},crosshair:{enabled:true,datasetIndex:0},
       liqDirectionTint:{side:crowdedSide},liqHeatmap:{density},
       tooltip:{filter:it=>it.datasetIndex===0,callbacks:{label:c=>c.raw==null?'':'Price: '+money(c.raw,pdec(c.raw))}}},
-    scales:{x:{grid:{display:false},ticks:{color:'#7A8499',font:{size:9},maxTicksLimit:8}},
+    scales:{x:{grid:{display:false},
+      afterBuildTicks:axis=>{
+        const lastIdx=allLabels.length-1;
+        if(!axis.ticks.some(t=>t.value===lastIdx))axis.ticks.push({value:lastIdx});
+      },
+      ticks:{color:'#7A8499',font:{size:9},maxTicksLimit:8}},
       y:{min:density.yMin,max:density.yMax,grid:{color:'rgba(255,255,255,.06)'},
         // Label EVERY classic tier boundary with its real price (not just
         // round numbers) — this is what actually answers "what price do I
