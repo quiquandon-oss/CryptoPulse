@@ -661,6 +661,24 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <p id="cycMcapNote" class="text-xs text-mutet mt-2">—</p>
       </div>
 
+      <!-- ═══ BTC Market Cap (12mo) — deliberately a SEPARATE tile from Total
+           Crypto Market Cap above, not merged into the same chart. This is
+           Bitcoin's own market cap specifically (price x circulating supply),
+           not the total crypto market — different scale, different number.
+           Real, accurate, free: CoinGecko's /coins/{id}/market_chart endpoint
+           allows up to 365 days on the free tier for individual coins (unlike
+           /global, which has zero free historical access). ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+        <h2 class="font-semibold mb-1">BTC Market Cap <span class="text-mutet font-normal text-sm">(12mo)</span></h2>
+        <p class="text-xs text-mutet mb-2">Bitcoin's own market cap specifically — not the total crypto market above.</p>
+        <div class="flex items-baseline gap-3 mb-3">
+          <p id="cycBtcMcapValue" class="grot font-bold text-2xl tnum">—</p>
+          <span id="cycBtcMcapChange" class="text-xs font-semibold px-2 py-1 rounded-lg tnum"></span>
+        </div>
+        <div class="h-40"><canvas id="cycBtcMcapChart"></canvas></div>
+        <p id="cycBtcMcapNote" class="text-xs text-mutet mt-2">—</p>
+      </div>
+
       <!-- ═══ Hero row: phase icon (color-tinted), circular cycle dial, ATH
            drawdown gauge — replaces the old plain stat-card grid. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5" id="cycHeroCard">
@@ -1673,6 +1691,7 @@ function updateModalHeaderScrub(price,label,changePct){
 }
 function closeChartModal(){document.getElementById('chartModal').style.display='none';if(modalChartInstance){modalChartInstance.destroy();modalChartInstance=null;}}
 const INTRADAY={}; // 5-min cache of CoinGecko intraday series
+let BTC_MCAP_365=null; // {t:cachedAt, points:[{ts,mcap}]} — 6h cache, real 365-day free-tier data
 async function fetchIntraday(coin){
   const id=META[coin]?.id;if(!id)return null;
   const c=INTRADAY[coin];if(c&&Date.now()-c.t<5*60*1000)return c.pts;
@@ -5577,6 +5596,7 @@ function renderCyclesTab(){
     window.__lastLiveConditions={score:latest.score,technicalScore:latest.technicalScore,combined,goldRegime:latest.goldRegime}; // exposed for the Trader Analysis payload
     window.__lastHistoryFull=history; // same array already fetched above — reused for Dashboard's 24h-ago comparisons, no new fetch
     renderGlobalMcapTile();
+    renderBtcMcapTile();
 
     if(!scoreEl)return;
     // ETF flow trend: latest etfflows score vs whatever reading sits closest to
@@ -6576,6 +6596,65 @@ function renderGlobalMcapTile(){
   };
   if(cycMcapChartInst){cycMcapChartInst.data=cfg.data;cycMcapChartInst.options=cfg.options;cycMcapChartInst.update();}
   else cycMcapChartInst=new Chart(cv,cfg);
+}
+// ---- BTC Market Cap (12mo) tile — a DELIBERATELY SEPARATE tile/chart from
+// Total Crypto Market Cap above, never merged into the same line. This is
+// Bitcoin's own market cap (real price x real circulating supply), not the
+// total crypto market — different scale, different meaning. Real, accurate,
+// free: CoinGecko's /coins/{id}/market_chart allows up to 365 days on the
+// free tier for individual coins (confirmed — unlike /global's aggregate
+// endpoint, which has zero free historical access at any depth). Cached 6h
+// since this is a large daily-resolution pull that doesn't need refreshing
+// every cycle. ----
+async function fetchBtcMcap365(){
+  if(BTC_MCAP_365&&Date.now()-BTC_MCAP_365.t<6*3600*1000)return BTC_MCAP_365.points;
+  try{
+    const r=await fetch(`${CG}/coins/bitcoin/market_chart?vs_currency=usd&days=365&interval=daily`);
+    if(!r.ok)throw new Error('CoinGecko market_chart '+r.status);
+    const j=await r.json();
+    const points=(j.market_caps||[]).map(p=>({ts:p[0],mcap:p[1]})).filter(p=>p.mcap>0);
+    if(!points.length)return null;
+    BTC_MCAP_365={t:Date.now(),points};
+    return points;
+  }catch(e){console.warn('fetchBtcMcap365 failed:',e.message);return null;}
+}
+let cycBtcMcapChartInst=null;
+async function renderBtcMcapTile(){
+  const valEl=$('#cycBtcMcapValue'),chgEl=$('#cycBtcMcapChange'),cv=$('#cycBtcMcapChart'),noteEl=$('#cycBtcMcapNote');
+  if(!valEl||!cv)return;
+  const points=await fetchBtcMcap365();
+  if(!points||points.length<2){
+    valEl.textContent='—';chgEl.textContent='';chgEl.className='text-xs font-semibold px-2 py-1 rounded-lg tnum';
+    noteEl.textContent="Couldn't load BTC market cap history right now \u2014 will retry next refresh.";
+    return;
+  }
+  const last=points[points.length-1].mcap,first=points[0].mcap;
+  const changePct=((last-first)/first)*100;
+  const up=changePct>=0;
+  valEl.textContent=fmtMcap(last);
+  chgEl.textContent=(up?'\u25b2 ':'\u25bc ')+Math.abs(changePct).toFixed(1)+'% (12mo)';
+  chgEl.className='text-xs font-semibold px-2 py-1 rounded-lg tnum '+(up?'bg-up/15 text-up':'bg-down/15 text-down');
+  noteEl.textContent=points.length+' real daily point(s) \u2014 CoinGecko free tier, last 365 days.';
+  const now=new Date();
+  const labels=points.map(p=>{
+    const d=new Date(p.ts);
+    return d.toLocaleDateString([],{month:'short',day:'numeric'})+(d.getFullYear()!==now.getFullYear()?" '"+String(d.getFullYear()).slice(2):'');
+  });
+  const data=points.map(p=>p.mcap);
+  const col=up?'#3BF38B':'#FF5C72';
+  const cfg={
+    type:'line',
+    data:{labels,datasets:[{data,borderColor:col,backgroundColor:col+'22',borderWidth:1.6,fill:true,tension:.25,pointRadius:0,pointHoverRadius:3,pointHoverBackgroundColor:col}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      scales:{
+        x:{grid:{display:false},ticks:{color:'#94A3B8',maxTicksLimit:6,autoSkip:true}},
+        y:{grid:{color:'#ffffff0d'},ticks:{color:'#94A3B8',callback:v=>fmtMcap(v)}}
+      },
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>fmtMcap(ctx.parsed.y)}}}
+    }
+  };
+  if(cycBtcMcapChartInst){cycBtcMcapChartInst.data=cfg.data;cycBtcMcapChartInst.options=cfg.options;cycBtcMcapChartInst.update();}
+  else cycBtcMcapChartInst=new Chart(cv,cfg);
 }
 function renderDashboardSummary(){
   const lc=window.__lastLiveConditions;
