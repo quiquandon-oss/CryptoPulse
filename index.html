@@ -679,6 +679,27 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <p id="cycBtcMcapNote" class="text-xs text-mutet mt-2">—</p>
       </div>
 
+      <!-- ═══ Market Cap Comparison — BTC/ETH/SOL/LINK/HYPE on one chart, same
+           per-coin colors used everywhere else in the app (META[coin].c).
+           Log-scale y-axis so smaller-cap coins stay visible next to BTC
+           rather than flattening to zero on a linear scale. All 5 ranges
+           (4h/1d/7d/30d/1y) are real CoinGecko free-tier data, no synthetic
+           fill-in — 4h/1d share one fetch, 7d/30d/1y are separate fetches
+           per coin, all cached client-side. ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+        <h2 class="font-semibold mb-1">Market Cap Comparison</h2>
+        <p class="text-xs text-mutet mb-2">BTC · ETH · SOL · LINK · HYPE — log scale so smaller caps stay visible next to BTC.</p>
+        <div class="flex gap-1.5 mb-3 flex-wrap" id="mcapCompareRangeTabs">
+          <button data-range="4h" class="mcapRangeBtn text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">4H</button>
+          <button data-range="1d" class="mcapRangeBtn text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">1D</button>
+          <button data-range="7d" class="mcapRangeBtn text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">7D</button>
+          <button data-range="30d" class="mcapRangeBtn text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">30D</button>
+          <button data-range="1y" class="mcapRangeBtn text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">1Y</button>
+        </div>
+        <div class="h-48"><canvas id="mcapCompareChart"></canvas></div>
+        <p id="mcapCompareNote" class="text-xs text-mutet mt-2">—</p>
+      </div>
+
       <!-- ═══ Hero row: phase icon (color-tinted), circular cycle dial, ATH
            drawdown gauge — replaces the old plain stat-card grid. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5" id="cycHeroCard">
@@ -1692,6 +1713,9 @@ function updateModalHeaderScrub(price,label,changePct){
 function closeChartModal(){document.getElementById('chartModal').style.display='none';if(modalChartInstance){modalChartInstance.destroy();modalChartInstance=null;}}
 const INTRADAY={}; // 5-min cache of CoinGecko intraday series
 let BTC_MCAP_365=null; // {t:cachedAt, points:[{ts,mcap}]} — 6h cache, real 365-day free-tier data
+const MCAP_COMPARE_COINS=['BTC','ETH','SOL','LINK','HYPE'];
+let mcapCompareRange='30d'; // '4h'|'1d'|'7d'|'30d'|'1y'
+const MCAP_COMPARE_CACHE={}; // keyed `${coin}_${range}` -> {t,points}
 async function fetchIntraday(coin){
   const id=META[coin]?.id;if(!id)return null;
   const c=INTRADAY[coin];if(c&&Date.now()-c.t<5*60*1000)return c.pts;
@@ -5597,6 +5621,7 @@ function renderCyclesTab(){
     window.__lastHistoryFull=history; // same array already fetched above — reused for Dashboard's 24h-ago comparisons, no new fetch
     renderGlobalMcapTile();
     renderBtcMcapTile();
+    renderMcapCompareChart();
 
     if(!scoreEl)return;
     // ETF flow trend: latest etfflows score vs whatever reading sits closest to
@@ -6655,6 +6680,91 @@ async function renderBtcMcapTile(){
   };
   if(cycBtcMcapChartInst){cycBtcMcapChartInst.data=cfg.data;cycBtcMcapChartInst.options=cfg.options;cycBtcMcapChartInst.update();}
   else cycBtcMcapChartInst=new Chart(cv,cfg);
+}
+// ---- Market Cap Comparison (BTC/ETH/SOL/LINK/HYPE, one chart). Same free
+// CoinGecko per-coin market_chart endpoint as the BTC tile above, generalized
+// across coins and ranges. 4h reuses the 1d fetch (CoinGecko gives 5-min
+// granularity for days=1, so 4h is just the tail end of that same call — no
+// extra request). 7d is hourly (CoinGecko's auto granularity for 2-90 day
+// windows). 30d/1y are explicitly daily to keep payload size sane. Log-scale
+// y-axis so LINK/HYPE don't flatten to zero next to BTC's much larger cap.
+// Lines are index-aligned across coins, not timestamp-matched — reasonable
+// since all 5 are fetched with identical days/interval params moments apart,
+// but not claiming perfect per-point time sync (no date-scale plugin loaded
+// in this app, consistent with every other chart here). ----
+async function fetchCoinMcapRange(coin,range){
+  const id=META[coin]?.id;if(!id)return null;
+  const key=coin+'_'+range;
+  const cacheMs=(range==='4h'||range==='1d')?5*60*1000:(range==='7d'||range==='30d')?30*60*1000:6*3600*1000;
+  const c=MCAP_COMPARE_CACHE[key];
+  if(c&&Date.now()-c.t<cacheMs)return c.points;
+  let daysParam,intervalParam='';
+  if(range==='4h'||range==='1d')daysParam=1;
+  else if(range==='7d')daysParam=7;
+  else if(range==='30d'){daysParam=30;intervalParam='&interval=daily';}
+  else{daysParam=365;intervalParam='&interval=daily';}
+  try{
+    const r=await fetch(`${CG}/coins/${id}/market_chart?vs_currency=usd&days=${daysParam}${intervalParam}`);
+    if(!r.ok)throw new Error('CoinGecko market_chart '+r.status);
+    const j=await r.json();
+    let points=(j.market_caps||[]).map(p=>({ts:p[0],mcap:p[1]})).filter(p=>p.mcap>0);
+    if(range==='4h'){const cutoff=Date.now()-4*3600*1000;points=points.filter(p=>p.ts>=cutoff);}
+    if(!points.length)return null;
+    MCAP_COMPARE_CACHE[key]={t:Date.now(),points};
+    return points;
+  }catch(e){console.warn('fetchCoinMcapRange failed for',coin,range,':',e.message);return null;}
+}
+let mcapCompareChartInst=null;
+async function renderMcapCompareChart(){
+  const cv=$('#mcapCompareChart'),noteEl=$('#mcapCompareNote');
+  if(!cv)return;
+  $$('.mcapRangeBtn').forEach(b=>{
+    b.onclick=()=>{mcapCompareRange=b.dataset.range;renderMcapCompareChart();};
+    const on=b.dataset.range===mcapCompareRange;
+    b.classList.toggle('bg-neon',on);b.classList.toggle('text-ink',on);b.classList.toggle('border-neon',on);
+    b.classList.toggle('text-mutet',!on);
+  });
+  const results=await Promise.all(MCAP_COMPARE_COINS.map(coin=>fetchCoinMcapRange(coin,mcapCompareRange)));
+  const perCoin={};
+  MCAP_COMPARE_COINS.forEach((coin,i)=>{perCoin[coin]=results[i];});
+  const available=MCAP_COMPARE_COINS.filter(c=>perCoin[c]&&perCoin[c].length>1);
+  if(!available.length){
+    noteEl.textContent="Couldn't load market cap data right now \u2014 will retry next refresh.";
+    return;
+  }
+  const ref=available.reduce((a,b)=>perCoin[a].length>=perCoin[b].length?a:b);
+  const refPoints=perCoin[ref];
+  const now=new Date();
+  const isIntraday=(mcapCompareRange==='4h'||mcapCompareRange==='1d');
+  const labels=refPoints.map(p=>{
+    const d=new Date(p.ts);
+    if(isIntraday)return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    return d.toLocaleDateString([],{month:'short',day:'numeric'})+(d.getFullYear()!==now.getFullYear()?" '"+String(d.getFullYear()).slice(2):'');
+  });
+  const datasets=available.map(coin=>{
+    const pts=perCoin[coin];
+    const data=refPoints.map((_,i)=>pts[i]?pts[i].mcap:(pts[pts.length-1]?pts[pts.length-1].mcap:null));
+    const col=META[coin].c;
+    return{label:coin,data,borderColor:col,borderWidth:1.8,fill:false,tension:.25,pointRadius:0,pointHoverRadius:3,pointHoverBackgroundColor:col};
+  });
+  const cfg={
+    type:'line',
+    data:{labels,datasets},
+    options:{responsive:true,maintainAspectRatio:false,
+      scales:{
+        x:{grid:{display:false},ticks:{color:'#94A3B8',maxTicksLimit:6,autoSkip:true}},
+        y:{type:'logarithmic',grid:{color:'#ffffff0d'},ticks:{color:'#94A3B8',callback:v=>fmtMcap(v)}}
+      },
+      plugins:{
+        legend:{display:true,position:'bottom',labels:{color:'#94A3B8',boxWidth:10,font:{size:10}}},
+        tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+fmtMcap(ctx.parsed.y)}}
+      }
+    }
+  };
+  if(mcapCompareChartInst){mcapCompareChartInst.data=cfg.data;mcapCompareChartInst.options=cfg.options;mcapCompareChartInst.update();}
+  else mcapCompareChartInst=new Chart(cv,cfg);
+  const missing=MCAP_COMPARE_COINS.filter(c=>!available.includes(c));
+  noteEl.textContent=missing.length?`Showing ${available.join(', ')} \u2014 ${missing.join(', ')} unavailable right now.`:`Real CoinGecko data \u2014 ${mcapCompareRange} range.`;
 }
 function renderDashboardSummary(){
   const lc=window.__lastLiveConditions;
