@@ -652,7 +652,10 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            actual historical total-market-cap endpoint is Pro-API-only, so
            there's no way to backfill real history before today. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
-        <h2 class="font-semibold mb-1">Total Crypto Market Cap</h2>
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold">Total Crypto Market Cap</h2>
+          <button onclick="openMcapFullscreen('total')" class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1">⤢ Fullscreen</button>
+        </div>
         <div class="flex items-baseline gap-3 mb-3 mt-2">
           <p id="cycMcapValue" class="grot font-bold text-2xl tnum">—</p>
           <span id="cycMcapChange" class="text-xs font-semibold px-2 py-1 rounded-lg tnum"></span>
@@ -669,7 +672,10 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            allows up to 365 days on the free tier for individual coins (unlike
            /global, which has zero free historical access). ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
-        <h2 class="font-semibold mb-1">BTC Market Cap <span class="text-mutet font-normal text-sm">(12mo)</span></h2>
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold">BTC Market Cap <span class="text-mutet font-normal text-sm">(12mo)</span></h2>
+          <button onclick="openMcapFullscreen('btc')" class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1">⤢ Fullscreen</button>
+        </div>
         <p class="text-xs text-mutet mb-2">Bitcoin's own market cap specifically — not the total crypto market above.</p>
         <div class="flex items-baseline gap-3 mb-3">
           <p id="cycBtcMcapValue" class="grot font-bold text-2xl tnum">—</p>
@@ -687,7 +693,10 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            fill-in — 4h/1d share one fetch, 7d/30d/1y are separate fetches
            per coin, all cached client-side. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
-        <h2 class="font-semibold mb-1">Market Cap Comparison</h2>
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold">Market Cap Comparison</h2>
+          <button onclick="openMcapFullscreen('compare')" class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1">⤢ Fullscreen</button>
+        </div>
         <p class="text-xs text-mutet mb-2">BTC · ETH · SOL · LINK · HYPE — log scale so smaller caps stay visible next to BTC.</p>
         <div class="flex gap-1.5 mb-3 flex-wrap" id="mcapCompareRangeTabs">
           <button data-range="4h" class="mcapRangeBtn text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">4H</button>
@@ -698,6 +707,17 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         </div>
         <div class="h-48"><canvas id="mcapCompareChart"></canvas></div>
         <p id="mcapCompareNote" class="text-xs text-mutet mt-2">—</p>
+      </div>
+
+      <!-- Shared fullscreen modal for all 3 market cap tiles above — one
+           overlay, told which chart to build via openMcapFullscreen(which). -->
+      <div id="mcapFullscreen" class="hidden fixed inset-0 z-50 bg-panel p-4 flex flex-col">
+        <div class="flex items-center justify-between mb-2">
+          <h3 id="mcapFullscreenTitle" class="text-sm font-semibold">—</h3>
+          <button class="px-2.5 py-1.5 rounded-md text-xs bg-panel2 hover:text-white border border-line" onclick="closeMcapFullscreen()">✕ Close</button>
+        </div>
+        <p id="mcapFullscreenNote" class="text-[10px] text-mutet mb-2">—</p>
+        <div class="flex-1"><canvas id="mcapFullscreenChart"></canvas></div>
       </div>
 
       <!-- ═══ Hero row: phase icon (color-tinted), circular cycle dial, ATH
@@ -6576,6 +6596,35 @@ function fmtMcap(usd){
   if(usd>=1e9)return'$'+(usd/1e9).toFixed(2)+'B';
   return'$'+Math.round(usd).toLocaleString();
 }
+// Shared single-series market cap chart builder — used by Total Crypto
+// Market Cap and BTC Market Cap tiles, AND by their fullscreen views. One
+// config builder means the small tile and the fullscreen modal can never
+// visually diverge from each other.
+function buildSingleMcapChartConfig(points,opts={}){
+  const now=new Date();
+  const labels=points.map(p=>{
+    const d=new Date(p.ts);
+    if(opts.intraday){
+      const sameDay=d.toDateString()===now.toDateString();
+      return sameDay?d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString([],{month:'short',day:'numeric'});
+    }
+    return d.toLocaleDateString([],{month:'short',day:'numeric'})+(d.getFullYear()!==now.getFullYear()?" '"+String(d.getFullYear()).slice(2):'');
+  });
+  const data=points.map(p=>p.mcap);
+  const up=data[data.length-1]>=data[0];
+  const col=up?'#3BF38B':'#FF5C72';
+  return{
+    type:'line',
+    data:{labels,datasets:[{data,borderColor:col,backgroundColor:col+'22',borderWidth:1.8,fill:true,tension:.3,pointRadius:0,pointHoverRadius:3,pointHoverBackgroundColor:col}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      scales:{
+        x:{grid:{display:false},ticks:{color:'#94A3B8',maxTicksLimit:opts.maxTicks||6,autoSkip:true}},
+        y:{grid:{color:'#ffffff0d'},ticks:{color:'#94A3B8',callback:v=>fmtMcap(v)}}
+      },
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>fmtMcap(ctx.parsed.y)}}}
+    }
+  };
+}
 function renderGlobalMcapTile(){
   const valEl=$('#cycMcapValue'),chgEl=$('#cycMcapChange'),noteEl=$('#cycMcapNote'),cv=$('#cycMcapChart');
   if(!valEl||!cv)return;
@@ -6599,26 +6648,7 @@ function renderGlobalMcapTile(){
   }
   canvasWrap.style.display='';
   noteEl.textContent=hist.length+' point(s) logged since tracking started — growing every composite cycle.';
-  const now=new Date();
-  const labels=hist.map(p=>{
-    const d=new Date(p.ts);
-    const sameDay=d.toDateString()===now.toDateString();
-    return sameDay?d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString([],{month:'short',day:'numeric'});
-  });
-  const data=hist.map(p=>p.globalMcap);
-  const up=data[data.length-1]>=data[0];
-  const col=up?'#3BF38B':'#FF5C72';
-  const cfg={
-    type:'line',
-    data:{labels,datasets:[{data,borderColor:col,backgroundColor:col+'22',borderWidth:1.8,fill:true,tension:.3,pointRadius:0,pointHoverRadius:3,pointHoverBackgroundColor:col}]},
-    options:{responsive:true,maintainAspectRatio:false,
-      scales:{
-        x:{grid:{display:false},ticks:{color:'#94A3B8',maxTicksLimit:6,autoSkip:true}},
-        y:{grid:{color:'#ffffff0d'},ticks:{color:'#94A3B8',callback:v=>fmtMcap(v)}}
-      },
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>fmtMcap(ctx.parsed.y)}}}
-    }
-  };
+  const cfg=buildSingleMcapChartConfig(hist.map(p=>({ts:p.ts,mcap:p.globalMcap})),{intraday:true});
   if(cycMcapChartInst){cycMcapChartInst.data=cfg.data;cycMcapChartInst.options=cfg.options;cycMcapChartInst.update();}
   else cycMcapChartInst=new Chart(cv,cfg);
 }
@@ -6660,24 +6690,7 @@ async function renderBtcMcapTile(){
   chgEl.textContent=(up?'\u25b2 ':'\u25bc ')+Math.abs(changePct).toFixed(1)+'% (12mo)';
   chgEl.className='text-xs font-semibold px-2 py-1 rounded-lg tnum '+(up?'bg-up/15 text-up':'bg-down/15 text-down');
   noteEl.textContent=points.length+' real daily point(s) \u2014 CoinGecko free tier, last 365 days.';
-  const now=new Date();
-  const labels=points.map(p=>{
-    const d=new Date(p.ts);
-    return d.toLocaleDateString([],{month:'short',day:'numeric'})+(d.getFullYear()!==now.getFullYear()?" '"+String(d.getFullYear()).slice(2):'');
-  });
-  const data=points.map(p=>p.mcap);
-  const col=up?'#3BF38B':'#FF5C72';
-  const cfg={
-    type:'line',
-    data:{labels,datasets:[{data,borderColor:col,backgroundColor:col+'22',borderWidth:1.6,fill:true,tension:.25,pointRadius:0,pointHoverRadius:3,pointHoverBackgroundColor:col}]},
-    options:{responsive:true,maintainAspectRatio:false,
-      scales:{
-        x:{grid:{display:false},ticks:{color:'#94A3B8',maxTicksLimit:6,autoSkip:true}},
-        y:{grid:{color:'#ffffff0d'},ticks:{color:'#94A3B8',callback:v=>fmtMcap(v)}}
-      },
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>fmtMcap(ctx.parsed.y)}}}
-    }
-  };
+  const cfg=buildSingleMcapChartConfig(points,{intraday:false});
   if(cycBtcMcapChartInst){cycBtcMcapChartInst.data=cfg.data;cycBtcMcapChartInst.options=cfg.options;cycBtcMcapChartInst.update();}
   else cycBtcMcapChartInst=new Chart(cv,cfg);
 }
@@ -6686,12 +6699,24 @@ async function renderBtcMcapTile(){
 // across coins and ranges. 4h reuses the 1d fetch (CoinGecko gives 5-min
 // granularity for days=1, so 4h is just the tail end of that same call — no
 // extra request). 7d is hourly (CoinGecko's auto granularity for 2-90 day
-// windows). 30d/1y are explicitly daily to keep payload size sane. Log-scale
-// y-axis so LINK/HYPE don't flatten to zero next to BTC's much larger cap.
+// windows). 30d/1y are explicitly daily to keep payload size sane.
+//
+// FIX: this used to plot raw $ market cap on a log y-axis. That looked
+// completely flat for every coin at short ranges (4h/1d) — not a data bug,
+// but a real visualization failure: BTC (~$1.2T) to HYPE (~$5B) span more
+// than two orders of magnitude, so a normal few-percent intraday move is
+// visually swallowed by the axis range needed to fit both on one log scale.
+// Now plots % change from the START OF EACH COIN'S OWN SERIES instead of
+// raw dollars — the standard way to compare differently-sized assets'
+// relative movement (same idea as TradingView's "% chg" comparison mode).
+// This also removes any need for a log scale, since percentages for all 5
+// coins land in a similar range regardless of absolute market cap size.
 // Lines are index-aligned across coins, not timestamp-matched — reasonable
 // since all 5 are fetched with identical days/interval params moments apart,
 // but not claiming perfect per-point time sync (no date-scale plugin loaded
-// in this app, consistent with every other chart here). ----
+// in this app — Chart.js itself is inlined offline here, not CDN-loaded, so
+// adding an external date-adapter library would reintroduce exactly the
+// kind of outside dependency that inlining was presumably meant to avoid). ----
 async function fetchCoinMcapRange(coin,range){
   const id=META[coin]?.id;if(!id)return null;
   const key=coin+'_'+range;
@@ -6714,6 +6739,43 @@ async function fetchCoinMcapRange(coin,range){
     return points;
   }catch(e){console.warn('fetchCoinMcapRange failed for',coin,range,':',e.message);return null;}
 }
+function buildMcapCompareChartConfig(perCoin,available,range){
+  const ref=available.reduce((a,b)=>perCoin[a].length>=perCoin[b].length?a:b);
+  const refPoints=perCoin[ref];
+  const now=new Date();
+  const isIntraday=(range==='4h'||range==='1d');
+  const labels=refPoints.map(p=>{
+    const d=new Date(p.ts);
+    if(isIntraday)return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    return d.toLocaleDateString([],{month:'short',day:'numeric'})+(d.getFullYear()!==now.getFullYear()?" '"+String(d.getFullYear()).slice(2):'');
+  });
+  const datasets=available.map(coin=>{
+    const pts=perCoin[coin];
+    const base=pts[0].mcap;
+    // % change from THIS coin's own first point — each line shows "how has
+    // this coin moved", independent of which coin happens to be the ref.
+    const series=refPoints.map((_,i)=>{
+      const p=pts[i]||pts[pts.length-1];
+      return p?((p.mcap-base)/base)*100:null;
+    });
+    const col=META[coin].c;
+    return{label:coin,data:series,borderColor:col,borderWidth:1.8,fill:false,tension:.25,pointRadius:0,pointHoverRadius:3,pointHoverBackgroundColor:col};
+  });
+  return{
+    type:'line',
+    data:{labels,datasets},
+    options:{responsive:true,maintainAspectRatio:false,
+      scales:{
+        x:{grid:{display:false},ticks:{color:'#94A3B8',maxTicksLimit:6,autoSkip:true}},
+        y:{grid:{color:'#ffffff0d'},ticks:{color:'#94A3B8',callback:v=>(v>=0?'+':'')+v.toFixed(0)+'%'}}
+      },
+      plugins:{
+        legend:{display:true,position:'bottom',labels:{color:'#94A3B8',boxWidth:10,font:{size:10}}},
+        tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+(ctx.parsed.y>=0?'+':'')+ctx.parsed.y.toFixed(2)+'%'}}
+      }
+    }
+  };
+}
 let mcapCompareChartInst=null;
 async function renderMcapCompareChart(){
   const cv=$('#mcapCompareChart'),noteEl=$('#mcapCompareNote');
@@ -6732,40 +6794,56 @@ async function renderMcapCompareChart(){
     noteEl.textContent="Couldn't load market cap data right now \u2014 will retry next refresh.";
     return;
   }
-  const ref=available.reduce((a,b)=>perCoin[a].length>=perCoin[b].length?a:b);
-  const refPoints=perCoin[ref];
-  const now=new Date();
-  const isIntraday=(mcapCompareRange==='4h'||mcapCompareRange==='1d');
-  const labels=refPoints.map(p=>{
-    const d=new Date(p.ts);
-    if(isIntraday)return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-    return d.toLocaleDateString([],{month:'short',day:'numeric'})+(d.getFullYear()!==now.getFullYear()?" '"+String(d.getFullYear()).slice(2):'');
-  });
-  const datasets=available.map(coin=>{
-    const pts=perCoin[coin];
-    const data=refPoints.map((_,i)=>pts[i]?pts[i].mcap:(pts[pts.length-1]?pts[pts.length-1].mcap:null));
-    const col=META[coin].c;
-    return{label:coin,data,borderColor:col,borderWidth:1.8,fill:false,tension:.25,pointRadius:0,pointHoverRadius:3,pointHoverBackgroundColor:col};
-  });
-  const cfg={
-    type:'line',
-    data:{labels,datasets},
-    options:{responsive:true,maintainAspectRatio:false,
-      scales:{
-        x:{grid:{display:false},ticks:{color:'#94A3B8',maxTicksLimit:6,autoSkip:true}},
-        y:{type:'logarithmic',grid:{color:'#ffffff0d'},ticks:{color:'#94A3B8',callback:v=>fmtMcap(v)}}
-      },
-      plugins:{
-        legend:{display:true,position:'bottom',labels:{color:'#94A3B8',boxWidth:10,font:{size:10}}},
-        tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+fmtMcap(ctx.parsed.y)}}
-      }
-    }
-  };
+  const cfg=buildMcapCompareChartConfig(perCoin,available,mcapCompareRange);
   if(mcapCompareChartInst){mcapCompareChartInst.data=cfg.data;mcapCompareChartInst.options=cfg.options;mcapCompareChartInst.update();}
   else mcapCompareChartInst=new Chart(cv,cfg);
   const missing=MCAP_COMPARE_COINS.filter(c=>!available.includes(c));
-  noteEl.textContent=missing.length?`Showing ${available.join(', ')} \u2014 ${missing.join(', ')} unavailable right now.`:`Real CoinGecko data \u2014 ${mcapCompareRange} range.`;
+  noteEl.textContent=(missing.length?`Showing ${available.join(', ')} \u2014 ${missing.join(', ')} unavailable right now. `:'')+`% change from start of range \u2014 real CoinGecko data, ${mcapCompareRange} range.`;
 }
+// ---- Shared fullscreen modal for all 3 market cap tiles — reuses the same
+// config builders above, so the fullscreen view can never visually diverge
+// from the small tile it expanded from. ----
+let mcapFullscreenChartInst=null;
+function openMcapFullscreen(which){
+  const modal=$('#mcapFullscreen');if(!modal)return;
+  modal.classList.remove('hidden');
+  modal.dataset.which=which;
+  const titles={total:'Total Crypto Market Cap',btc:'BTC Market Cap (12mo)',compare:'Market Cap Comparison'};
+  $('#mcapFullscreenTitle').textContent=titles[which]||'Market Cap';
+  renderMcapFullscreenChart();
+}
+function closeMcapFullscreen(){
+  const modal=$('#mcapFullscreen');if(modal)modal.classList.add('hidden');
+  if(mcapFullscreenChartInst){mcapFullscreenChartInst.destroy();mcapFullscreenChartInst=null;}
+}
+async function renderMcapFullscreenChart(){
+  const modal=$('#mcapFullscreen');const which=modal?modal.dataset.which:null;
+  const cv=$('#mcapFullscreenChart'),noteEl=$('#mcapFullscreenNote');
+  if(!cv||!which)return;
+  let cfg=null;
+  if(which==='total'){
+    const hist=(window.__lastHistoryFull||[]).filter(p=>p.globalMcap!=null).sort((a,b)=>a.ts-b.ts);
+    if(hist.length<2){noteEl.textContent='Still building history \u2014 not enough real points logged yet.';return;}
+    cfg=buildSingleMcapChartConfig(hist.map(p=>({ts:p.ts,mcap:p.globalMcap})),{intraday:true,maxTicks:10});
+    noteEl.textContent=hist.length+' real point(s) logged since tracking started.';
+  }else if(which==='btc'){
+    const points=await fetchBtcMcap365();
+    if(!points||points.length<2){noteEl.textContent="Couldn't load BTC market cap history right now.";return;}
+    cfg=buildSingleMcapChartConfig(points,{intraday:false,maxTicks:10});
+    noteEl.textContent=points.length+' real daily point(s) \u2014 CoinGecko free tier, last 365 days.';
+  }else if(which==='compare'){
+    const results=await Promise.all(MCAP_COMPARE_COINS.map(coin=>fetchCoinMcapRange(coin,mcapCompareRange)));
+    const perCoin={};MCAP_COMPARE_COINS.forEach((coin,i)=>{perCoin[coin]=results[i];});
+    const available=MCAP_COMPARE_COINS.filter(c=>perCoin[c]&&perCoin[c].length>1);
+    if(!available.length){noteEl.textContent="Couldn't load market cap data right now.";return;}
+    cfg=buildMcapCompareChartConfig(perCoin,available,mcapCompareRange);
+    noteEl.textContent='% change from start of range \u2014 '+mcapCompareRange+' range, real CoinGecko data.';
+  }
+  if(!cfg)return;
+  if(mcapFullscreenChartInst){mcapFullscreenChartInst.data=cfg.data;mcapFullscreenChartInst.options=cfg.options;mcapFullscreenChartInst.update();}
+  else mcapFullscreenChartInst=new Chart(cv,cfg);
+}
+
 function renderDashboardSummary(){
   const lc=window.__lastLiveConditions;
   const sc=window.__lastRegimeScorecard;
