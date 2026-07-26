@@ -2569,7 +2569,7 @@ function togglePulseAnalysisExpand(bodyId){
 // one row per source (current score + correlation + mini bar), collapsed to
 // the top 6 strongest correlations by default since that's most of what
 // anyone actually needs from a list already sorted by strength.
-function renderPulseAnalysis(a,statusId,bodyId){
+function renderPulseAnalysis(a,statusId,bodyId,latestSourcesOverride){
   statusId=statusId||'pulseAnalysisStatus';bodyId=bodyId||'pulseCorrelationBody';
   const host=$('#'+bodyId);const status=$('#'+statusId);
   if(!host||!status)return;
@@ -2594,15 +2594,13 @@ function renderPulseAnalysis(a,statusId,bodyId){
   }else{
     h+='<div class="mb-3 pb-3 border-b border-line/50"></div>';
   }
-  // Current per-source scores, from the same latest D1 row the Sentiment
-  // Engine tile's own chart/meta line already reads — reused, not refetched.
-  let latestSources={};
-  try{
-    if(pulseLastHistory&&pulseLastHistory.length){
-      const latestRow=pulseLastHistory[pulseLastHistory.length-1];
-      latestSources=latestRow.sources_json?JSON.parse(latestRow.sources_json):{};
-    }
-  }catch(e){}
+  // FIX: was re-deriving this from pulseLastHistory inside this function,
+  // which returned empty for every source ("Now" showing "—" across the
+  // board) — something about reading that global from here wasn't
+  // resolving correctly. latestSourcesForTrader in initSentimentTab is set
+  // synchronously moments before this function is even called, so passing
+  // it explicitly removes any ambiguity about scope or timing entirely.
+  const latestSources=latestSourcesOverride||{};
   const perSrc=Object.entries(a.perSourceCorrelation||{}).sort((x,y)=>Math.abs(y[1].correlation||0)-Math.abs(x[1].correlation||0));
   const rowHtml=([name,d],idx)=>{
     const c=d.correlation==null?'#94A3B8':Math.abs(d.correlation)>=0.3?(d.correlation>0?'#3BF38B':'#F5606C'):'#94A3B8';
@@ -2610,22 +2608,26 @@ function renderPulseAnalysis(a,statusId,bodyId){
     const scoreColor=curScore!=null?pulseLabelFor(curScore).color:'#94A3B8';
     const markerX=d.correlation!=null?2+((Math.max(-1,Math.min(1,d.correlation))+1)/2)*96:50;
     const gradId='corrGrad_'+bodyId+'_'+idx;
-    return `<div class="flex items-center gap-2 py-1.5 text-xs border-t border-line/30 first:border-t-0">
-      <span class="text-mutet w-20 shrink-0 truncate">${name}</span>
-      <span class="tnum font-semibold w-8 shrink-0 text-right" style="color:${scoreColor}">${curScore!=null?curScore:'—'}</span>
-      <svg viewBox="0 0 100 10" class="w-12 shrink-0">
+    // FIX: the SVG's Tailwind width class wasn't reliably constraining it,
+    // letting the bar (and everything after it) overflow off-screen.
+    // Explicit width/height ATTRIBUTES on the svg tag itself take priority
+    // in SVG's own sizing algorithm, unlike a CSS class that can apparently
+    // be overridden by the element's intrinsic/viewBox-derived size here.
+    return `<div class="flex items-center gap-1.5 py-1.5 text-xs border-t border-line/30 first:border-t-0">
+      <span class="text-mutet w-16 shrink-0 truncate">${name}</span>
+      <span class="tnum font-semibold w-7 shrink-0 text-right" style="color:${scoreColor}">${curScore!=null?curScore:'—'}</span>
+      <svg viewBox="0 0 100 10" width="70" height="10" class="shrink-0" style="width:70px;height:10px">
         <defs><linearGradient id="${gradId}" x1="0%" y1="0%" x2="100%" y2="0%">
           <stop offset="0%" stop-color="#F5606C"/><stop offset="50%" stop-color="#5B6472"/><stop offset="100%" stop-color="#3BF38B"/>
         </linearGradient></defs>
         <rect x="2" y="3" width="96" height="4" rx="2" fill="url(#${gradId})"/>
         <polygon points="-3,0 3,0 0,4" fill="#E5E7EB" transform="translate(${markerX},3)"/>
       </svg>
-      <span class="tnum font-semibold w-12 shrink-0 text-right" style="color:${c}">${fmt(d.correlation)}</span>
-      <span class="text-[9px] text-mutet w-9 shrink-0 text-right">(${d.samples})</span>
+      <span class="tnum font-semibold w-11 shrink-0 text-right" style="color:${c}">${fmt(d.correlation)}</span>
     </div>`;
   };
   const TOP_N=6;
-  h+=`<div class="flex items-center gap-2 pb-1 text-[9px] text-mutet uppercase tracking-wide"><span class="w-20 shrink-0">Source</span><span class="w-8 shrink-0 text-right">Now</span><span class="w-12 shrink-0"></span><span class="w-12 shrink-0 text-right">Corr</span><span class="w-9 shrink-0"></span></div>`;
+  h+=`<div class="flex items-center gap-1.5 pb-1 text-[9px] text-mutet uppercase tracking-wide"><span class="w-16 shrink-0">Source</span><span class="w-7 shrink-0 text-right">Now</span><span class="w-[70px] shrink-0"></span><span class="w-11 shrink-0 text-right">Corr</span></div>`;
   h+=perSrc.slice(0,TOP_N).map((e,i)=>rowHtml(e,i)).join('');
   const rest=perSrc.slice(TOP_N);
   if(rest.length){
@@ -2642,7 +2644,14 @@ async function runCustomCorrelationAnalysis(){
   btn.disabled=true;btn.textContent='Running…';
   try{
     const analysis=await fetchPulseAnalysis(parseInt(lagSel.value,10));
-    renderPulseAnalysis(analysis,'settingsAnalysisStatus','settingsAnalysisResult');
+    let latestSrc={};
+    try{
+      if(pulseLastHistory&&pulseLastHistory.length){
+        const lr=pulseLastHistory[pulseLastHistory.length-1];
+        latestSrc=lr.sources_json?JSON.parse(lr.sources_json):{};
+      }
+    }catch(e){}
+    renderPulseAnalysis(analysis,'settingsAnalysisStatus','settingsAnalysisResult',latestSrc);
   }catch(err){
     console.error('Error running custom correlation analysis:',err);
     $('#settingsAnalysisResult').innerHTML='<p class="text-xs text-mutet">Technical error: '+(err&&err.message?err.message:String(err))+'</p>';
@@ -3871,7 +3880,7 @@ async function _initSentimentTabImpl(){
   // ---- Sentiment/price correlation ----
   try{
     const analysis=await fetchPulseAnalysis();
-    renderPulseAnalysis(analysis);
+    renderPulseAnalysis(analysis,undefined,undefined,latestSourcesForTrader);
     if(!analysis.insufficientData)correlationsForTrader={compositeCorrelation:analysis.compositeCorrelation,perSource:Object.fromEntries(Object.entries(analysis.perSourceCorrelation||{}).map(([k,v])=>[k,v.correlation]))};
   }catch(err){
     console.error('Error fetching Pulse analysis:',err);
