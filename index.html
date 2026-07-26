@@ -522,7 +522,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <div id="scenReviewBanner"></div>
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-start justify-between mb-4">
-          <div><h2 class="font-semibold">Portfolio Scenarios</h2><p class="text-xs text-mutet mt-0.5">2019–2024 market cycles · not financial advice</p></div>
+          <div><h2 class="font-semibold flex items-center gap-2">Portfolio Scenarios <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'scenGrowthNote')">ⓘ Info</button></h2><p class="text-xs text-mutet mt-0.5">2019–2024 market cycles · not financial advice</p></div>
           <div class="flex items-start gap-2">
             <div class="text-right shrink-0 ml-3">
               <p class="text-[10px] uppercase tracking-wide text-mutet">Break-even</p>
@@ -578,7 +578,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             <p class="text-[10px] text-mutet mt-1" id="sc_bull_at_date_pct">—</p>
           </div>
         </div>
-        <p class="text-[10px] text-mutet mt-3">Between your 6M/2Y/5Y checkpoints, values assume a constant growth rate within each segment. Beyond 5Y, the last segment's rate is extended forward — a judgment call, not a calibrated forecast.</p>
+        <p class="hidden text-[10px] text-mutet mt-3" id="scenGrowthNote">Between your 6M/2Y/5Y checkpoints, values assume a constant growth rate within each segment. Beyond 5Y, the last segment's rate is extended forward — a judgment call, not a calibrated forecast.</p>
         <p class="text-[10px] mt-1" id="scenTacticalTilt"></p>
       </div>
 
@@ -586,8 +586,11 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            happened, once a baseline exists — flags it if reality has drifted
            toward one edge instead of Base. -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
-        <h2 class="font-semibold text-sm mb-1">Scenario tracking vs. reality</h2>
-        <p class="text-xs text-mutet mb-3">Baseline is your actual portfolio value on your first recorded transaction — not a re-forecast, an honesty check on the assumptions above using real history.</p>
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold text-sm">Scenario tracking vs. reality</h2>
+          <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'scenTrackNote')">ⓘ Info</button>
+        </div>
+        <p class="hidden text-xs text-mutet mb-3" id="scenTrackNote">Baseline is your actual portfolio value on your first recorded transaction — not a re-forecast, an honesty check on the assumptions above using real history.</p>
         <div id="scenTrackingPanel" class="text-xs text-mutet">—</div>
       </div>
 
@@ -682,9 +685,12 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-center justify-between mb-1">
           <h2 class="font-semibold">BTC Market Cap <span class="text-mutet font-normal text-sm">(12mo)</span></h2>
-          <button onclick="openMcapFullscreen('btc')" class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1">⤢ Fullscreen</button>
+          <div class="flex items-center gap-2">
+            <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'btcMcapNote')">ⓘ Info</button>
+            <button onclick="openMcapFullscreen('btc')" class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1">⤢ Fullscreen</button>
+          </div>
         </div>
-        <p class="text-xs text-mutet mb-2">Bitcoin's own market cap specifically — not the total crypto market above.</p>
+        <p class="hidden text-xs text-mutet mb-2" id="btcMcapNote">Bitcoin's own market cap specifically — not the total crypto market above.</p>
         <div class="flex items-baseline gap-3 mb-3">
           <p id="cycBtcMcapValue" class="grot font-bold text-2xl tnum">—</p>
           <span id="cycBtcMcapChange" class="text-xs font-semibold px-2 py-1 rounded-lg tnum"></span>
@@ -766,39 +772,54 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <!-- Historical cycle overlay — the single highest-value addition per the
            brainstorm: see all 4 cycles on the same "days since halving" axis. -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
-        <h2 class="font-semibold mb-1">This cycle vs. the last three</h2>
-        <p class="text-xs text-mutet mb-3">BTC price indexed to 100 on halving day, log scale. Connects sourced checkpoints (halving → peak → bottom) for each past cycle, not continuous daily data — CryptoPulse doesn't have dense price history back to 2012 embedded. Current cycle's "now" point uses live price.</p>
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold">This cycle vs. the last three</h2>
+          <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'cycOverlayNote')">ⓘ Info</button>
+        </div>
+        <p class="hidden text-xs text-mutet mb-3" id="cycOverlayNote">BTC price indexed to 100 on halving day, log scale. Connects sourced checkpoints (halving → peak → bottom) for each past cycle, not continuous daily data — CryptoPulse doesn't have dense price history back to 2012 embedded. Current cycle's "now" point uses live price.</p>
         <div class="h-[220px]"><canvas id="cycOverlayChart"></canvas></div>
       </div>
 
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
-        <h2 class="font-semibold mb-1">Diminishing returns, cycle over cycle</h2>
-        <p class="text-xs text-mutet mb-3">Documented pattern: each cycle's peak % gain has been smaller than the last — not because BTC is weakening, but because a larger market cap needs proportionally more capital to move the same percentage.</p>
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold">Diminishing returns, cycle over cycle</h2>
+          <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'cycDiminishingNote')">ⓘ Info</button>
+        </div>
+        <p class="hidden text-xs text-mutet mb-3" id="cycDiminishingNote">Documented pattern: each cycle's peak % gain has been smaller than the last — not because BTC is weakening, but because a larger market cap needs proportionally more capital to move the same percentage.</p>
         <div class="h-[160px]"><canvas id="cycDiminishingChart"></canvas></div>
         <div class="space-y-2 mt-3" id="cycDiminishingTable"></div>
-        <p class="text-[10px] text-mutet mt-2">Portfolio-adjusted Bull case discount factor is a judgment call (0.65x on the gain portion only), not a calibrated model.</p>
+        <p class="hidden text-[10px] text-mutet mt-2" id="cycDiminishingNote2">Portfolio-adjusted Bull case discount factor is a judgment call (0.65x on the gain portion only), not a calibrated model.</p>
       </div>
 
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
-        <h2 class="font-semibold mb-1">Live conditions right now</h2>
-        <p class="text-xs text-mutet mb-3">What the Sentiment tab's own engine currently reads — shown here for context, not fed into the scenario math above.</p>
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold">Live conditions right now</h2>
+          <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'cycLiveNote')">ⓘ Info</button>
+        </div>
+        <p class="hidden text-xs text-mutet mb-3" id="cycLiveNote">What the Sentiment tab's own engine currently reads — shown here for context, not fed into the scenario math above.</p>
         <div id="cycLiveConditions" class="grid grid-cols-2 gap-3 text-xs">Loading…</div>
       </div>
 
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
-        <h2 class="font-semibold mb-1">Per-coin distance from ATH</h2>
-        <p class="text-xs text-mutet mb-3">Altcoins historically lag/overshoot BTC's cycle timing (dominance rotation) — each coin can genuinely be in a different phase of its own.</p>
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold">Per-coin distance from ATH</h2>
+          <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'cycAthNote')">ⓘ Info</button>
+        </div>
+        <p class="hidden text-xs text-mutet mb-3" id="cycAthNote">Altcoins historically lag/overshoot BTC's cycle timing (dominance rotation) — each coin can genuinely be in a different phase of its own.</p>
         <div id="cycPerCoinAth" class="space-y-3 text-xs"></div>
       </div>
 
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-center justify-between mb-1">
           <h2 class="font-semibold">Portfolio fan chart (±1σ band)</h2>
-          <button id="cycFanExpandBtn" class="px-2 py-1 rounded-md text-mutet hover:text-white" title="Fullscreen" onclick="openCycFanFullscreen()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
-          </button>
+          <div class="flex items-center gap-2">
+            <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'cycFanNote')">ⓘ Info</button>
+            <button id="cycFanExpandBtn" class="px-2 py-1 rounded-md text-mutet hover:text-white" title="Fullscreen" onclick="openCycFanFullscreen()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
+            </button>
+          </div>
         </div>
-        <p class="text-xs text-mutet mb-3">Base case ± one annualized standard deviation (same live/static volatility source as the Break-even Probability table), instead of three discrete lines implying more precision than a cyclical asset really has.</p>
+        <p class="hidden text-xs text-mutet mb-3" id="cycFanNote">Base case ± one annualized standard deviation (same live/static volatility source as the Break-even Probability table), instead of three discrete lines implying more precision than a cyclical asset really has.</p>
         <div class="h-[240px]"><canvas id="cycFanChart"></canvas></div>
         <p id="cycFanAssumptions" class="text-[10px] text-mutet mt-2 leading-snug"></p>
       </div>
@@ -912,8 +933,8 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <div class="rounded-2xl border border-line bg-panel p-5 space-y-4">
         <div class="flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h2 class="font-semibold mb-1">Buy-Window Radar</h2>
-            <p class="text-xs text-mutet max-w-md">Uses a 90-day hourly heatmap to find which day/hour this coin has historically traded cheapest. Refreshes hourly. A pattern-recognition tool, not financial advice.</p>
+            <h2 class="font-semibold mb-1 flex items-center gap-2">Buy-Window Radar <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'radarNote')">ⓘ Info</button></h2>
+            <p class="hidden text-xs text-mutet max-w-md" id="radarNote">Uses a 90-day hourly heatmap to find which day/hour this coin has historically traded cheapest. Refreshes hourly. A pattern-recognition tool, not financial advice.</p>
           </div>
           <div class="flex items-center gap-2">
             <div id="radarBadge" class="h-10 w-10 rounded-lg flex items-center justify-center grot font-bold text-sm">?</div>
@@ -968,8 +989,11 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <div id="radarHeatmap" class="overflow-x-auto"></div>
         </div>
         <div class="border-t border-line pt-4">
-          <h3 class="text-sm font-semibold mb-3">Alerts for this coin</h3>
-          <p class="text-xs text-mutet mb-3">Discount %, price target, and cheap-window alerts are now managed in one place — <strong>Settings → Alerts</strong> — and delivered via Telegram instead of browser notifications (which only fired while this tab was open). Go there to set one up for <span id="radarAlertCoinName">this coin</span>.</p>
+          <div class="flex items-center justify-between mb-1">
+            <h3 class="text-sm font-semibold">Alerts for this coin</h3>
+            <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'radarAlertNote')">ⓘ Info</button>
+          </div>
+          <p class="hidden text-xs text-mutet mb-3" id="radarAlertNote">Discount %, price target, and cheap-window alerts are now managed in one place — <strong>Settings → Alerts</strong> — and delivered via Telegram instead of browser notifications (which only fired while this tab was open). Go there to set one up for <span id="radarAlertCoinName">this coin</span>.</p>
           <button class="w-full text-sm font-medium bg-panel2 hover:bg-line border border-line rounded-lg px-3 py-2.5 transition" onclick="setView('settings')">Go to Settings → Alerts</button>
         </div>
       </div>
@@ -1171,16 +1195,22 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            as more real days accumulate, since it's recomputed fresh each time,
            not a fitted/cached model. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-5">
-        <h2 class="font-semibold mb-1">Probability Model (BTC)</h2>
-        <p class="text-xs text-mutet mb-3">Historical frequency: of past days with a similar composite sentiment score, what fraction saw BTC higher 7 days later? Decay-weighted (recent matches count more) — not an AI guess.</p>
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold">Probability Model (BTC)</h2>
+          <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'probModelNote')">ⓘ Info</button>
+        </div>
+        <p class="hidden text-xs text-mutet mb-3" id="probModelNote">Historical frequency: of past days with a similar composite sentiment score, what fraction saw BTC higher 7 days later? Decay-weighted (recent matches count more) — not an AI guess.</p>
         <div id="probModelBody"></div>
       </div>
 
       <!-- ═══ Buy the News vs. Priced In — two independent mechanisms, both
            grounded in real historical comparison, not LLM narration. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-5">
-        <h2 class="font-semibold mb-1">Buy the News vs. Priced In</h2>
-        <p class="text-xs text-mutet mb-3">Has price already caught up to what recent sentiment shifts imply, or is there room left? Two independent reads below.</p>
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold">Buy the News vs. Priced In</h2>
+          <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'buyNewsNote')">ⓘ Info</button>
+        </div>
+        <p class="hidden text-xs text-mutet mb-3" id="buyNewsNote">Has price already caught up to what recent sentiment shifts imply, or is there room left? Two independent reads below.</p>
         <div id="buyNewsBody"></div>
       </div>
     </section>
@@ -1243,8 +1273,8 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
     <!-- =============== SETTINGS =============== -->
     <section id="v-settings" class="hidden max-w-xl space-y-3">
       <div class="rounded-2xl border border-line bg-panel p-5 space-y-4">
-        <div><h2 class="font-semibold mb-1">Settings</h2>
-          <p class="text-xs text-mutet">Daily prices since 11 Apr are embedded from your Revolut &amp; statement files, so the chart reflects real history offline. Live prices &amp; ECB FX refresh on top.</p></div>
+        <div><h2 class="font-semibold mb-1 flex items-center gap-2">Settings <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'settingsHeaderNote')">ⓘ Info</button></h2>
+          <p class="hidden text-xs text-mutet" id="settingsHeaderNote">Daily prices since 11 Apr are embedded from your Revolut &amp; statement files, so the chart reflects real history offline. Live prices &amp; ECB FX refresh on top.</p></div>
         <div class="flex items-center justify-between bg-panel2 rounded-xl px-4 py-3">
           <div><p class="text-sm font-medium">EUR / USD rate</p><p class="text-xs text-mutet">ECB · Frankfurter</p></div>
           <span id="fxVal" class="grot tnum">—</span>
@@ -1257,8 +1287,11 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         </div>
         <!-- CSV Import -->
         <div class="border-t border-line pt-4">
-          <h3 class="text-sm font-semibold mb-1">Import Transactions</h3>
-          <p class="text-xs text-mutet mb-3">Supports Revolut CSV and Neverless CSV. Duplicates are skipped automatically — importing the same file twice is always safe.</p>
+          <div class="flex items-center justify-between mb-1">
+            <h3 class="text-sm font-semibold">Import Transactions</h3>
+            <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'importNote')">ⓘ Info</button>
+          </div>
+          <p class="hidden text-xs text-mutet mb-3" id="importNote">Supports Revolut CSV and Neverless CSV. Duplicates are skipped automatically — importing the same file twice is always safe.</p>
           <div class="flex items-center justify-between bg-panel2 rounded-xl px-3 py-2 mb-3">
             <span class="text-xs text-mutet">Transactions in this browser</span>
             <span id="txDbCount" class="grot tnum font-bold text-sm">—</span>
@@ -1284,8 +1317,8 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            version resets them every time — this is an improvement, not a port). -->
       <div class="rounded-2xl border border-line bg-panel p-5 space-y-4">
         <div>
-          <h2 class="font-semibold mb-1">Sentiment Engine — Source Weights</h2>
-          <p class="text-xs text-mutet">Adjust each source's relative importance in the composite score. Auto-renormalized to 100% under the hood — these are relative weights, not literal percentages. Changes apply on the next Sentiment tab refresh.</p>
+          <h2 class="font-semibold mb-1 flex items-center gap-2">Sentiment Engine — Source Weights <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'weightsNote')">ⓘ Info</button></h2>
+          <p class="hidden text-xs text-mutet" id="weightsNote">Adjust each source's relative importance in the composite score. Auto-renormalized to 100% under the hood — these are relative weights, not literal percentages. Changes apply on the next Sentiment tab refresh.</p>
         </div>
         <div id="sentWeightControls" class="space-y-3"></div>
       </div>
@@ -1296,15 +1329,18 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            unlike the previous hardcoded-token version this replaces). ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-5 space-y-4">
         <div>
-          <h2 class="font-semibold mb-1">Alerts</h2>
-          <p class="text-xs text-mutet">Checked every 15 minutes on the server side and sent via Telegram — works even when this app is fully closed.</p>
+          <h2 class="font-semibold mb-1 flex items-center gap-2">Alerts <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'alertsNote')">ⓘ Info</button></h2>
+          <p class="hidden text-xs text-mutet" id="alertsNote">Checked every 15 minutes on the server side and sent via Telegram — works even when this app is fully closed.</p>
         </div>
         <div>
           <button class="px-3 py-1.5 rounded-md text-xs bg-panel2 border border-line hover:text-white" onclick="sendTestTelegram()">Send test Telegram message</button>
           <p class="text-[10px] text-mutet mt-1" id="testTelegramStatus"></p>
         </div>
         <div class="border-t border-line/50 pt-3">
-          <h3 class="text-sm font-semibold mb-2">New alert</h3>
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-semibold">New alert</h3>
+            <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'newAlertNote')">ⓘ Info</button>
+          </div>
           <select id="alertTypeSelect" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm mb-2" onchange="renderAlertFormFields(this.value)">
             <option value="price">Price crosses threshold</option>
             <option value="radar_discount">Discount vs 7-day average</option>
@@ -1315,7 +1351,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             <option value="combo">Combo — price AND score, both true at once</option>
           </select>
           <div id="alertFormFields" class="space-y-2"></div>
-          <p class="text-[10px] text-mutet mt-2">Sends once when triggered, one follow-up 4h later if still true, then disables itself automatically — re-enable it below for another cycle.</p>
+          <p class="hidden text-[10px] text-mutet mt-2" id="newAlertNote">Sends once when triggered, one follow-up 4h later if still true, then disables itself automatically — re-enable it below for another cycle.</p>
           <button class="w-full mt-3 text-sm font-medium bg-neon/15 hover:bg-neon/25 text-neon border border-neon/30 rounded-lg px-3 py-2.5 transition" onclick="createAlertFromForm()">+ Add alert</button>
           <p class="text-[10px] text-mutet mt-1" id="alertCreateStatus"></p>
         </div>
@@ -1349,8 +1385,8 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            computed weighted average, persisted, never an LLM guess. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-5 space-y-3">
         <div>
-          <h2 class="font-semibold mb-1">Combined Score Weight</h2>
-          <p class="text-xs text-mutet">How much Sentiment vs. Technical counts toward the "Combined" indicator. Default 50/50.</p>
+          <h2 class="font-semibold mb-1 flex items-center gap-2">Combined Score Weight <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'combWeightNote')">ⓘ Info</button></h2>
+          <p class="hidden text-xs text-mutet" id="combWeightNote">How much Sentiment vs. Technical counts toward the "Combined" indicator. Default 50/50.</p>
         </div>
         <div class="flex items-center gap-3">
           <span class="text-xs text-mutet w-20 shrink-0">Sentiment</span>
@@ -1362,8 +1398,8 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
 
       <div class="rounded-2xl border border-line bg-panel p-5 space-y-3">
         <div>
-          <h2 class="font-semibold mb-1">Sentiment → BTC Correlation Explorer</h2>
-          <p class="text-xs text-mutet">Test different time lags to find which one shows the strongest correlation between sentiment and BTC's future price move. Needs several days of accumulated history to be reliable.</p>
+          <h2 class="font-semibold mb-1 flex items-center gap-2">Sentiment → BTC Correlation Explorer <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'corrExplorerNote')">ⓘ Info</button></h2>
+          <p class="hidden text-xs text-mutet" id="corrExplorerNote">Test different time lags to find which one shows the strongest correlation between sentiment and BTC's future price move. Needs several days of accumulated history to be reliable.</p>
         </div>
         <div class="flex gap-2 items-center">
           <label class="text-xs text-mutet">Lag:</label>
