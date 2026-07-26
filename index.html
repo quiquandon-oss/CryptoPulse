@@ -364,20 +364,19 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-4">
         <!-- value + performance -->
         <div class="xl:col-span-2 glow rounded-2xl border border-line bg-panel p-5 sm:p-6">
-          <div class="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p class="text-sm text-mutet">Total Portfolio Value</p>
-              <div class="grot text-4xl sm:text-5xl font-bold tracking-tight tnum mt-1" id="totalMain">$0.00</div>
-              <p class="text-sm text-mutet mt-1 tnum" id="totalAlt">€0.00</p>
-            </div>
-            <span id="totalPill" class="inline-flex items-center gap-1 rounded-lg bg-up/15 text-up px-3 py-1.5 text-sm font-bold tnum">+$0.00 (0.00%)</span>
+          <p class="text-sm text-mutet">Total Portfolio Value</p>
+          <div class="flex flex-wrap items-baseline gap-2 mt-1">
+            <div class="grot text-4xl sm:text-5xl font-bold tracking-tight tnum" id="totalMain">$0.00</div>
+            <span id="totalPill" class="inline-flex items-center gap-1 rounded-lg bg-up/15 text-up px-2.5 py-1 text-xs font-bold tnum">+$0.00 (0.00%)</span>
           </div>
+          <p class="text-sm text-mutet mt-1 tnum" id="totalAlt">€0.00</p>
           <div class="mt-5 pt-4 border-t border-line">
-            <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-              <p class="text-sm font-semibold">Performance <span class="text-mutet font-normal" id="perfSub">· All · since 11/04/2026</span></p>
-              <div id="rangeTabs" class="flex gap-1 text-xs"></div>
+            <p class="text-[10px] text-mutet mb-2" id="perfSub">· All · since 11/04/2026</p>
+            <div class="flex items-center gap-2 mb-3 overflow-x-auto">
+              <div id="rangeTabs" class="flex gap-1 text-xs shrink-0"></div>
+              <div class="w-px h-4 bg-line shrink-0"></div>
+              <div id="coinChips" class="flex gap-1.5 shrink-0"></div>
             </div>
-            <div id="coinChips" class="flex flex-wrap gap-1.5 mb-3"></div>
             <div class="h-[240px] sm:h-[300px]"><canvas id="perfChart"></canvas></div>
           </div>
         </div>
@@ -1528,8 +1527,8 @@ function lineChart(cv,old,series,color,axes){const ctx=cv.getContext('2d');const
           $('#totalMain').textContent=money(val);
           $('#totalAlt').textContent=fmtDate(series[idx].x);
           const pill=$('#totalPill');
-          pill.className=`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-bold tnum ${chgAbs>=0?'bg-up/15 text-up':'bg-down/15 text-down'}`;
-          pill.textContent=`${chgAbs>=0?'▲':'▼'} ${money(Math.abs(chgAbs))} (${pctS(Math.abs(chgPct))}) since range start`;
+          pill.className=`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold tnum ${chgAbs>=0?'bg-up/15 text-up':'bg-down/15 text-down'}`;
+          pill.textContent=`${chgAbs>=0?'▲':'▼'} ${money(Math.abs(chgAbs))} (${pctS(Math.abs(chgPct))}) vs start`;
         }else{
           renderHeader(); // revert to live total/24h-pnl the moment the touch/hover leaves
         }
@@ -1562,7 +1561,7 @@ function render(){renderHeader();renderChips();renderRange();renderPerf();render
 function renderHeader(){const t=totals();const up=t.pnl>=0;
   $('#totalMain').textContent=money(t.val);
   $('#totalAlt').textContent=state.ccy==='USD'?moneyIn(t.val/(state.fx||FX0),'EUR'):moneyIn(t.val*(state.fx||FX0),'USD');
-  const pill=$('#totalPill');pill.className=`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-bold tnum ${up?'bg-up/15 text-up':'bg-down/15 text-down'}`;
+  const pill=$('#totalPill');pill.className=`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold tnum ${up?'bg-up/15 text-up':'bg-down/15 text-down'}`;
   pill.textContent=`${up?'▲':'▼'} ${money(Math.abs(t.pnl))} (${pctS(t.pp)})`;}
 
 function renderChips(){const list=['ALL',...syms().filter(a=>qtyOf(a)>1e-12)];const host=$('#coinChips');host.innerHTML='';
