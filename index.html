@@ -1390,6 +1390,13 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
    CryptoPulse — anchored to embedded real daily data; live refresh on top.
    ============================================================================ */
 const CG='https://api.coingecko.com/api/v3', FXAPI='https://api.frankfurter.app';
+// CoinGecko Demo API key — same precedent as the SoSoValue/FRED keys already
+// intentionally hardcoded in this public repo (quota-only, no financial
+// account access, same class of key). Raises the rate limit from 5-15/min
+// (keyless public tier) to a stable 30/min, which is what was actually
+// causing the Market Cap Composition chart's rate-limit failures.
+const CG_API_KEY='CG-htHPdmQD85sPMPRFBrqPVYXA';
+function cgFetch(url){return fetch(url,{headers:{'x-cg-demo-api-key':CG_API_KEY}});}
 const START='2026-04-11', TODAY='2026-06-26';
 const META={BTC:{id:'bitcoin',name:'Bitcoin',c:'#F7931A'},ETH:{id:'ethereum',name:'Ethereum',c:'#C8CDD6'},
   SOL:{id:'solana',name:'Solana',c:'#14F195'},LINK:{id:'chainlink',name:'Chainlink',c:'#2A5ADA'},
@@ -1740,7 +1747,7 @@ async function fetchIntraday(coin){
   const id=META[coin]?.id;if(!id)return null;
   const c=INTRADAY[coin];if(c&&Date.now()-c.t<5*60*1000)return c.pts;
   try{
-    const r=await fetch(`${CG}/coins/${id}/market_chart?vs_currency=usd&days=1`);
+    const r=await cgFetch(`${CG}/coins/${id}/market_chart?vs_currency=usd&days=1`);
     const j=await r.json();
     const pts=(j.prices||[]).map(pr=>({t:pr[0],y:pr[1]}));
     if(!pts.length)return null;
@@ -1904,7 +1911,7 @@ async function getFx(force){
   }
 }
 async function getPrices(){const ids=syms().map(s=>META[s]?.id).filter(Boolean);if(!ids.length)return;
-  try{const r=await fetch(`${CG}/simple/price?ids=${ids.join(',')}&vs_currencies=usd,eur&include_24hr_change=true`);const j=await r.json();
+  try{const r=await cgFetch(`${CG}/simple/price?ids=${ids.join(',')}&vs_currencies=usd,eur&include_24hr_change=true`);const j=await r.json();
     const fetchedAt=Date.now();
     syms().forEach(s=>{const id=META[s]?.id;if(j[id])state.prices[s]={usd:j[id].usd,eur:j[id].eur,chg:j[id].usd_24h_change,fetchedAt};});
     // push live price into today's slot of PRICE_HISTORY (in memory) → RSI / trend / sparklines are live
@@ -2006,7 +2013,7 @@ async function ensureRadarData(sym,token){
   if(token===radarToken)$('#radarWindow').textContent='Analyzing…';
   const id=META[sym]?.id;if(!id)return;
   try{
-    const weekRes=await fetch(`${CG}/coins/${id}/market_chart?vs_currency=usd&days=90`);
+    const weekRes=await cgFetch(`${CG}/coins/${id}/market_chart?vs_currency=usd&days=90`);
     if(weekRes.status===429)throw new Error('CoinGecko rate limit reached — retrying next hour.');
     if(!weekRes.ok)throw new Error('Weekly-history API responded '+weekRes.status);
     const weekJson=await weekRes.json();
@@ -2168,7 +2175,7 @@ async function updateRadarLive(token){
   token=token??radarToken;
   const sym=state.radar.coin,id=META[sym]?.id;if(!id)return;
   try{
-    const r=await fetch(`${CG}/simple/price?ids=${id}&vs_currencies=usd&include_24hr_change=true`);
+    const r=await cgFetch(`${CG}/simple/price?ids=${id}&vs_currencies=usd&include_24hr_change=true`);
     const j=await r.json();const usd=j[id]?.usd;if(usd==null)return;
     // if the user picked a different coin while this request was in flight, drop the result —
     // otherwise a slow response for the OLD coin can land after the new one and overwrite it
@@ -2676,7 +2683,7 @@ function techRsiDivergence(closes,lastIndex,lookbackDays){
 }
 
 async function fetchBtcTechnicals(){
-  const res=await fetch(`${CG}/coins/bitcoin/market_chart?vs_currency=usd&days=365`);
+  const res=await cgFetch(`${CG}/coins/bitcoin/market_chart?vs_currency=usd&days=365`);
   if(!res.ok)throw new Error('CoinGecko market_chart responded '+res.status);
   const json=await res.json();
   const closes=(json.prices||[]).map(p=>p[1]);
@@ -2985,7 +2992,7 @@ async function srcLongShort(){
   return{score:to0_100(satur(Math.log(ratio),0.6))};
 }
 async function srcGlobalMcap(){
-  const res=await fetch(`${CG}/global`);
+  const res=await cgFetch(`${CG}/global`);
   if(!res.ok)throw new Error('CoinGecko global '+res.status);
   const json=await res.json();
   const change=json.data.market_cap_change_percentage_24h_usd;
@@ -6226,7 +6233,7 @@ function computeEma(values,period){
 }
 async function fetchLongTermEma(){
   if(longTermEmaCache&&Date.now()-longTermEmaCacheAt<LONG_TERM_EMA_CACHE_MS)return longTermEmaCache;
-  const res=await fetch(`${CG}/coins/bitcoin/market_chart?vs_currency=usd&days=365&interval=daily`);
+  const res=await cgFetch(`${CG}/coins/bitcoin/market_chart?vs_currency=usd&days=365&interval=daily`);
   if(!res.ok)throw new Error('CoinGecko market_chart(365) '+res.status);
   const json=await res.json();
   const prices=json.prices||[];
@@ -6664,7 +6671,7 @@ function renderGlobalMcapTile(){
 async function fetchBtcMcap365(){
   if(BTC_MCAP_365&&Date.now()-BTC_MCAP_365.t<6*3600*1000)return BTC_MCAP_365.points;
   try{
-    const r=await fetch(`${CG}/coins/bitcoin/market_chart?vs_currency=usd&days=365&interval=daily`);
+    const r=await cgFetch(`${CG}/coins/bitcoin/market_chart?vs_currency=usd&days=365&interval=daily`);
     if(!r.ok)throw new Error('CoinGecko market_chart '+r.status);
     const j=await r.json();
     const points=(j.market_caps||[]).map(p=>({ts:p[0],mcap:p[1]})).filter(p=>p.mcap>0);
@@ -6729,20 +6736,17 @@ async function fetchCoinMcapRange(coin,range,attempt=0){
   else if(range==='30d'){daysParam=30;intervalParam='&interval=daily';}
   else{daysParam=365;intervalParam='&interval=daily';}
   try{
-    const r=await fetch(`${CG}/coins/${id}/market_chart?vs_currency=usd&days=${daysParam}${intervalParam}`);
+    const r=await cgFetch(`${CG}/coins/${id}/market_chart?vs_currency=usd&days=${daysParam}${intervalParam}`);
     if(r.status===429){
-      // FIX: the earlier 400ms stagger only addressed burst collision within
-      // the same instant — it did nothing about the ACTUAL constraint, which
-      // is a per-MINUTE quota (5-15 req/min on CoinGecko's keyless tier, no
-      // API key configured anywhere in this app). 5 requests spaced 400ms
-      // apart still all land inside the same 1-minute window as every other
-      // CoinGecko call this app makes during the same render. Retry with
-      // real backoff (3s, then 6s) before giving up — up to 2 retries.
+      // UPDATE: this used to be a 3s/6s backoff, load-bearing against the
+      // keyless tier's 5-15 req/min ceiling. Now that CG_API_KEY is
+      // configured (30 req/min, stable), a 429 here should be rare — this
+      // retry is a safety net, not the primary defense, so shorter delays.
       if(attempt<2){
-        await new Promise(res=>setTimeout(res,3000*(attempt+1)));
+        await new Promise(res=>setTimeout(res,1000*(attempt+1)));
         return fetchCoinMcapRange(coin,range,attempt+1);
       }
-      throw new Error('rate-limited (429) after '+(attempt+1)+' attempts — CoinGecko keyless tier, 5-15 req/min');
+      throw new Error('rate-limited (429) after '+(attempt+1)+' attempts — unexpected with CG_API_KEY configured');
     }
     if(!r.ok)throw new Error('CoinGecko market_chart '+r.status);
     const j=await r.json();
@@ -6764,21 +6768,19 @@ async function fetchCoinMcapRange(coin,range,attempt=0){
 // combined total at that exact point — Chart.js's parsed.y for a stacked
 // dataset is still the individual (non-cumulative) value, so this is a
 // straightforward sum-and-divide, not fighting the stacking math.
-// Sequential, staggered fetch — NOT Promise.all. Every CoinGecko call in this
-// app hits the fully public, keyless tier (5-15 req/min, no API key
-// configured anywhere in this codebase). FIX: the original 400ms stagger
-// only prevented an instantaneous burst — it didn't meaningfully respect a
-// PER-MINUTE quota, since 5 requests spaced 400ms apart still all land in
-// the same ~1-2 second window, well within the same rolling minute as
-// everything else this app calls CoinGecko for. Now spaced 2.5s apart
-// (~10-13s total to populate all 5 coins) plus retry-with-backoff inside
-// fetchCoinMcapRange itself — slower, but should actually hold up against
-// the real constraint instead of just the appearance of one.
+// Sequential fetch, lightly staggered. UPDATE: this used to need 2.5s
+// between requests plus retry-with-backoff to survive the keyless tier's
+// 5-15 req/min ceiling. Now that a real CoinGecko Demo API key is configured
+// (see CG_API_KEY/cgFetch above), the limit is a stable 30 req/min, which
+// comfortably covers 5 sequential coin requests plus everything else this
+// app calls CoinGecko for. Kept a short 200ms gap for politeness/ordering
+// rather than reverting to a bare Promise.all, but the heavy delay and
+// aggressive backoff that were load-bearing on the keyless tier are gone.
 async function fetchAllCoinsMcap(coins,range){
   const results=[];
   for(let i=0;i<coins.length;i++){
     results.push(await fetchCoinMcapRange(coins[i],range));
-    if(i<coins.length-1)await new Promise(r=>setTimeout(r,2500));
+    if(i<coins.length-1)await new Promise(r=>setTimeout(r,200));
   }
   return results;
 }
@@ -6850,7 +6852,7 @@ async function renderMcapCompareChart(){
   const cacheDur=(mcapCompareRange==='4h'||mcapCompareRange==='1d')?5*60*1000:(mcapCompareRange==='7d'||mcapCompareRange==='30d')?30*60*1000:6*3600*1000;
   const firstCacheKey=MCAP_COMPARE_COINS[0]+'_'+mcapCompareRange;
   const alreadyCached=MCAP_COMPARE_CACHE[firstCacheKey]&&Date.now()-MCAP_COMPARE_CACHE[firstCacheKey].t<cacheDur;
-  if(!alreadyCached)noteEl.textContent='Loading all 5 coins \u2014 spaced out to respect the free API\u2019s rate limit, can take up to ~15 seconds.';
+  if(!alreadyCached)noteEl.textContent='Loading all 5 coins\u2026';
   const results=await fetchAllCoinsMcap(MCAP_COMPARE_COINS,mcapCompareRange);
   const perCoin={};
   MCAP_COMPARE_COINS.forEach((coin,i)=>{perCoin[coin]=results[i];});
@@ -7041,7 +7043,7 @@ async function backfillPriceHistoryGaps(){
     if(!missing.length){results.push(`${s}: no gaps`);continue;}
     await new Promise(r=>setTimeout(r,400)); // small stagger — reduces risk of hitting CoinGecko right after getPrices()
     try{
-      const res=await fetch(`${CG}/coins/${id}/market_chart?vs_currency=usd&days=32`);
+      const res=await cgFetch(`${CG}/coins/${id}/market_chart?vs_currency=usd&days=32`);
       if(!res.ok){results.push(`${s}: HTTP ${res.status}`);continue;}
       const json=await res.json();
       const prices=json.prices||[];
