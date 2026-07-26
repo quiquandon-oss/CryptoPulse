@@ -6730,6 +6730,7 @@ async function fetchCoinMcapRange(coin,range){
   else{daysParam=365;intervalParam='&interval=daily';}
   try{
     const r=await fetch(`${CG}/coins/${id}/market_chart?vs_currency=usd&days=${daysParam}${intervalParam}`);
+    if(r.status===429)throw new Error('rate-limited (429) — CoinGecko keyless tier, 5-15 req/min');
     if(!r.ok)throw new Error('CoinGecko market_chart '+r.status);
     const j=await r.json();
     let points=(j.market_caps||[]).map(p=>({ts:p[0],mcap:p[1]})).filter(p=>p.mcap>0);
@@ -6750,6 +6751,23 @@ async function fetchCoinMcapRange(coin,range){
 // combined total at that exact point — Chart.js's parsed.y for a stacked
 // dataset is still the individual (non-cumulative) value, so this is a
 // straightforward sum-and-divide, not fighting the stacking math.
+// Sequential, staggered fetch — NOT Promise.all. Every CoinGecko call in this
+// app hits the fully public, keyless tier (5-15 req/min, no API key
+// configured anywhere in this codebase) — firing all 5 coins simultaneously
+// collided with whatever else was already hitting CoinGecko during the same
+// Cycles render (the BTC 365-day fetch, Whale/Liquidation tile calls) and
+// blew through that ceiling. BTC won the race by being first in the array;
+// the other 4 got silently rate-limited. A small delay between each request
+// keeps this comfortably under the keyless limit at the cost of ~2 seconds
+// total instead of near-instant.
+async function fetchAllCoinsMcap(coins,range){
+  const results=[];
+  for(let i=0;i<coins.length;i++){
+    results.push(await fetchCoinMcapRange(coins[i],range));
+    if(i<coins.length-1)await new Promise(r=>setTimeout(r,400));
+  }
+  return results;
+}
 function buildMcapCompareChartConfig(perCoin,available,range){
   const ref=available.reduce((a,b)=>perCoin[a].length>=perCoin[b].length?a:b);
   const refPoints=perCoin[ref];
@@ -6815,7 +6833,7 @@ async function renderMcapCompareChart(){
     b.classList.toggle('bg-neon',on);b.classList.toggle('text-ink',on);b.classList.toggle('border-neon',on);
     b.classList.toggle('text-mutet',!on);
   });
-  const results=await Promise.all(MCAP_COMPARE_COINS.map(coin=>fetchCoinMcapRange(coin,mcapCompareRange)));
+  const results=await fetchAllCoinsMcap(MCAP_COMPARE_COINS,mcapCompareRange);
   const perCoin={};
   MCAP_COMPARE_COINS.forEach((coin,i)=>{perCoin[coin]=results[i];});
   const available=MCAP_COMPARE_COINS.filter(c=>perCoin[c]&&perCoin[c].length>1);
@@ -6861,7 +6879,7 @@ async function renderMcapFullscreenChart(){
     cfg=buildSingleMcapChartConfig(points,{intraday:false,maxTicks:10});
     noteEl.textContent=points.length+' real daily point(s) \u2014 CoinGecko free tier, last 365 days.';
   }else if(which==='compare'){
-    const results=await Promise.all(MCAP_COMPARE_COINS.map(coin=>fetchCoinMcapRange(coin,mcapCompareRange)));
+    const results=await fetchAllCoinsMcap(MCAP_COMPARE_COINS,mcapCompareRange);
     const perCoin={};MCAP_COMPARE_COINS.forEach((coin,i)=>{perCoin[coin]=results[i];});
     const available=MCAP_COMPARE_COINS.filter(c=>perCoin[c]&&perCoin[c].length>1);
     if(!available.length){noteEl.textContent="Couldn't load market cap data right now.";return;}
