@@ -202,9 +202,6 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <button data-view="dca" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg> Average Cost
       </button>
-      <button data-view="capital" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg> Capital
-      </button>
       <button data-view="radar" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M12 12L20 7M4 19l5-8"/><circle cx="12" cy="12" r="9"/></svg> Radar
       </button>
@@ -217,6 +214,9 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       </button>
       <button data-view="sentiment" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg> Sentiment
+      </button>
+      <button data-view="capital" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg> Capital
       </button>
       <div class="border-t border-line mt-2 pt-2">
         <button data-view="settings" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition w-full">
@@ -3991,8 +3991,8 @@ function initAlertsSection(){
 /* ---- wire ---- */
 function buildMobileNav(){const host=$('#navMobile');
   const groups=[
-    [['dashboard','Dashboard'],['traderanalysis','Trader Analysis'],['mycrypto','My Crypto'],['dca','Average Cost'],['capital','Capital'],['radar','Radar']],
-    [['scenario','Scenarios'],['cycles','Cycles'],['sentiment','Sentiment']],
+    [['dashboard','Dashboard'],['traderanalysis','Trader Analysis'],['mycrypto','My Crypto'],['dca','Average Cost'],['radar','Radar']],
+    [['scenario','Scenarios'],['cycles','Cycles'],['sentiment','Sentiment'],['capital','Capital']],
     [['settings','Settings']],
   ];
   groups.forEach((group,gi)=>{
@@ -6945,7 +6945,7 @@ window.loadHypeFunding=loadHypeFunding;
 // not change tabs), or inside the fullscreen chart modal. Also requires a
 // clearly horizontal gesture (bigger than vertical movement) past a real
 // distance threshold, so normal vertical page-scrolling never triggers it.
-const TAB_ORDER=['dashboard','mycrypto','dca','capital','radar','scenario','cycles','sentiment','traderanalysis','settings'];
+const TAB_ORDER=['dashboard','mycrypto','dca','radar','scenario','cycles','sentiment','traderanalysis','capital','settings'];
 function wireSwipeNav(){
   const main=document.querySelector('main');
   if(!main)return;
