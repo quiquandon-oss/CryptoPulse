@@ -365,13 +365,20 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <!-- value + performance -->
         <div class="xl:col-span-2 glow rounded-2xl border border-line bg-panel p-5 sm:p-6">
           <p class="text-sm text-mutet">Total Portfolio Value</p>
-          <div class="flex flex-wrap items-baseline gap-2 mt-1">
+          <!-- min-h reserves space for the 2-line case (number + pill
+               wrapped) so scrubbing the chart — which swaps the pill's text
+               between the short default and the longer "vs start" variant —
+               never visibly shifts the card's height, whether or not it
+               actually wraps at a given moment. -->
+          <div class="flex flex-wrap items-baseline gap-2 mt-1 min-h-[52px] sm:min-h-[64px]">
             <div class="grot text-4xl sm:text-5xl font-bold tracking-tight tnum" id="totalMain">$0.00</div>
             <span id="totalPill" class="inline-flex items-center gap-1 rounded-lg bg-up/15 text-up px-2.5 py-1 text-xs font-bold tnum">+$0.00 (0.00%)</span>
           </div>
-          <p class="text-sm text-mutet mt-1 tnum" id="totalAlt">€0.00</p>
+          <p class="text-sm text-mutet mt-1 tnum flex items-center gap-1.5 flex-wrap">
+            <span id="totalAlt">€0.00</span>
+            <span class="text-[10px]" id="perfSub">· All · since 11/04/2026</span>
+          </p>
           <div class="mt-5 pt-4 border-t border-line">
-            <p class="text-[10px] text-mutet mb-2" id="perfSub">· All · since 11/04/2026</p>
             <div class="flex items-center gap-2 mb-3 overflow-x-auto">
               <div id="rangeTabs" class="flex gap-1 text-xs shrink-0"></div>
               <div class="w-px h-4 bg-line shrink-0"></div>
@@ -1575,8 +1582,13 @@ function renderRange(){const host=$('#rangeTabs');host.innerHTML='';[['ALL','All
   b.textContent=l;b.onclick=()=>{state.range=k;renderRange();renderPerf();};host.appendChild(b);});}
 
 function renderPerf(){const coin=state.coin,color=coin==='ALL'?'#3BF38B':(META[coin]?.c||'#3BF38B');
-  $('#perfSub').textContent=`· ${coin==='ALL'?'All':coin} · since 11/04/2026`;
-  perfC=lineChart($('#perfChart'),perfC,clipRange(seriesCcy(coin)),color,true);}
+  const clipped=clipRange(seriesCcy(coin));
+  // FIX: this used to be a hardcoded literal '11/04/2026' regardless of which
+  // range was selected — 1W/1M/3M/YTD all incorrectly showed the same date as
+  // All. Now derived from the actual first point of the clipped series.
+  const startDate=clipped[0]?fmtDate(clipped[0].x):'—';
+  $('#perfSub').textContent=`· ${coin==='ALL'?'All':coin} · since ${startDate}`;
+  perfC=lineChart($('#perfChart'),perfC,clipped,color,true);}
 
 function renderAlloc(){const data=syms().filter(a=>qtyOf(a)>1e-12).map(a=>({a,v:statOf(a).val,c:META[a]?.c||'#888'})).sort((x,y)=>y.v-x.v);
   const total=data.reduce((s,d)=>s+d.v,0)||1;$('#allocCount').textContent=data.length;
