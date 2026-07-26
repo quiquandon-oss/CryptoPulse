@@ -257,25 +257,28 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
 
     <!-- =============== DASHBOARD =============== -->
     <section id="v-dashboard">
-      <!-- Market Snapshot — conclusion strip, then gauge-dial Sentiment/
-           Technical/Combined, then SVG bar-gauges for Bottom Signal + Cycle
-           Scorecard. Each card carries its own 24h-ago delta line at the
-           bottom. All populated by renderDashboardSummary(). -->
-      <div class="rounded-2xl border border-line bg-panel p-4 mb-4">
-        <h3 class="font-semibold text-sm mb-3">Market Snapshot</h3>
-        <!-- Conclusion: a plain descriptive lean, not an instruction — see
-             computeDashboardConclusion(). Traceable back to the 5 tiles below,
-             not a new hidden number. Glowing pill badge with an icon, styled
-             after the reference mockup (colored glow border + soft radial
-             background tint + icon+text) — built with CSS shadows/gradients
-             rather than custom artwork, since no image-gen tool is available
-             in this environment. -->
-        <div class="flex justify-center mb-3">
-          <div id="dashConclusion" class="rounded-full px-5 py-2.5 flex items-center gap-3 border-2">
-            <span id="dashConclusionIcon" class="text-2xl leading-none">⏳</span>
-            <span id="dashConclusionLabel" class="font-extrabold text-base whitespace-nowrap">Loading…</span>
-          </div>
+      <!-- Conclusion strip — sits directly under the tab bar, no card wrapper
+           or "Market Snapshot" label around it, per option C: reads as the
+           state of the page itself rather than a boxed widget. A plain
+           descriptive lean, not an instruction — see
+           computeDashboardConclusion(). Traceable back to the 5 tiles below,
+           not a new hidden number. Glowing pill badge with an icon, styled
+           after the reference mockup (colored glow border + soft radial
+           background tint + icon+text) — built with CSS shadows/gradients
+           rather than custom artwork, since no image-gen tool is available
+           in this environment. -->
+      <div class="flex justify-center mb-4">
+        <div id="dashConclusion" class="rounded-full px-5 py-2.5 flex items-center gap-3 border-2">
+          <span id="dashConclusionIcon" class="text-2xl leading-none">⏳</span>
+          <span id="dashConclusionLabel" class="font-extrabold text-base whitespace-nowrap">Loading…</span>
         </div>
+      </div>
+      <!-- Gauge-dial Sentiment/Technical/Combined, then SVG bar-gauges for
+           Bottom Signal + Cycle Scorecard, now in their own card since the
+           conclusion strip above no longer shares one with them. Each card
+           carries its own 24h-ago delta line at the bottom. All populated by
+           renderDashboardSummary(). -->
+      <div class="rounded-2xl border border-line bg-panel p-4 mb-4">
         <div class="grid grid-cols-3 gap-2 mb-2">
           <div class="rounded-xl bg-panel2 p-3 text-center">
             <p class="text-[10px] text-mutet mb-1">Sentiment</p>
