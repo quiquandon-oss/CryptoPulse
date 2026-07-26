@@ -1091,9 +1091,6 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         </div>
       </div>
 
-      <!-- Per-source breakdown of the LATEST reading (fng/funding/longshort/etc.) -->
-      <div class="grid grid-cols-3 sm:grid-cols-5 gap-2" id="pulseSourceRow"></div>
-
       <!-- SoSoValue ETF net-inflow — aggregate daily flow across all US spot ETFs
            per coin. HYPE has no ETF aggregate history on this endpoint yet.
            Restored — this is independent of the Gemini/SoSoValue-News purge, a
@@ -2393,16 +2390,6 @@ function renderPulseSentiment(history){
   const ageMin=Math.round((Date.now()-latest.ts)/60000);
   const ageTxt=ageMin<60?`${ageMin}m ago`:`${(ageMin/60).toFixed(1)}h ago`;
   $('#pulseMeta').textContent=`${history.length} point(s) in history · last updated ${ageTxt}`+(latest.btc?` · BTC $${Math.round(latest.btc).toLocaleString('en-US')} at that time`:'');
-
-  // Per-source breakdown of the latest reading
-  let sources={};
-  try{sources=latest.sources_json?JSON.parse(latest.sources_json):{};}catch(e){}
-  const srcHost=$('#pulseSourceRow');
-  const entries=Object.entries(sources);
-  srcHost.innerHTML=entries.length?entries.map(([k,v])=>{
-    const{color:c}=pulseLabelFor(v);
-    return`<div class="bg-panel2 border border-line rounded-xl p-2.5 text-center"><p class="text-[10px] text-mutet mb-1">${k}</p><p class="tnum font-bold text-sm" style="color:${c}">${v}</p></div>`;
-  }).join(''):'<p class="text-xs text-mutet col-span-3">No per-source breakdown on the latest point.</p>';
 }
 // Buckets Pulse's raw (irregularly-timed) history points down to one-per-
 // calendar-date (last point of each day wins) — needed to align with the
@@ -2565,6 +2552,23 @@ function closeHistoryChartFullscreen(){
 function resetHistoryChartZoom(inst){if(inst&&inst.resetZoom)inst.resetZoom();}
 function resetMainChartZoom(){resetHistoryChartZoom(pulseHistoryChartInst);}
 function resetFullscreenChartZoom(){resetHistoryChartZoom(pulseHistoryChartFullInst);}
+// Tracks "show all sources" expand state per host element (bodyId), since
+// this function serves two different UI locations (main Sentiment tab tile,
+// Settings' correlation lag explorer) that should expand independently.
+const pulseAnalysisExpanded={};
+function togglePulseAnalysisExpand(bodyId){
+  pulseAnalysisExpanded[bodyId]=!pulseAnalysisExpanded[bodyId];
+  const extra=$('#'+bodyId+'_extra'),btn=$('#'+bodyId+'_toggleBtn');
+  if(extra)extra.classList.toggle('hidden');
+  if(btn)btn.textContent=pulseAnalysisExpanded[bodyId]?'Show top correlations only':('Show all '+btn.dataset.total+' sources');
+}
+// FIX (merge per request): this used to be a standalone correlation list,
+// separate from the per-source CURRENT-score grid that lived in the
+// Sentiment Engine tile above (#pulseSourceRow, now removed). Both listed
+// the exact same ~18 sources, just showing different metrics — merged into
+// one row per source (current score + correlation + mini bar), collapsed to
+// the top 6 strongest correlations by default since that's most of what
+// anyone actually needs from a list already sorted by strength.
 function renderPulseAnalysis(a,statusId,bodyId){
   statusId=statusId||'pulseAnalysisStatus';bodyId=bodyId||'pulseCorrelationBody';
   const host=$('#'+bodyId);const status=$('#'+statusId);
@@ -2581,9 +2585,6 @@ function renderPulseAnalysis(a,statusId,bodyId){
     <span class="text-sm font-semibold">Composite (Sentiment)</span>
     <span class="tnum font-bold text-lg" style="color:${compColor}">${fmt(a.compositeCorrelation)}</span>
   </div>`;
-  // Technical score's own correlation — only meaningful once technicalScore
-  // has actually been saved to enough /history points (see initSentimentTab,
-  // which now posts it alongside the sentiment composite).
   if(a.technicalSamples!=null){
     const techColor=a.technicalCorrelation==null?'#94A3B8':Math.abs(a.technicalCorrelation)>=0.3?(a.technicalCorrelation>0?'#3BF38B':'#F5606C'):'#94A3B8';
     h+=`<div class="flex items-center justify-between mb-3 pb-3 border-b border-line/50">
@@ -2593,11 +2594,45 @@ function renderPulseAnalysis(a,statusId,bodyId){
   }else{
     h+='<div class="mb-3 pb-3 border-b border-line/50"></div>';
   }
+  // Current per-source scores, from the same latest D1 row the Sentiment
+  // Engine tile's own chart/meta line already reads — reused, not refetched.
+  let latestSources={};
+  try{
+    if(pulseLastHistory&&pulseLastHistory.length){
+      const latestRow=pulseLastHistory[pulseLastHistory.length-1];
+      latestSources=latestRow.sources_json?JSON.parse(latestRow.sources_json):{};
+    }
+  }catch(e){}
   const perSrc=Object.entries(a.perSourceCorrelation||{}).sort((x,y)=>Math.abs(y[1].correlation||0)-Math.abs(x[1].correlation||0));
-  h+=perSrc.map(([name,d])=>{
+  const rowHtml=([name,d],idx)=>{
     const c=d.correlation==null?'#94A3B8':Math.abs(d.correlation)>=0.3?(d.correlation>0?'#3BF38B':'#F5606C'):'#94A3B8';
-    return`<div class="flex items-center justify-between py-1 text-xs"><span class="text-mutet">${name} <span class="text-[10px]">(${d.samples})</span></span><span class="tnum font-semibold" style="color:${c}">${fmt(d.correlation)}</span></div>`;
-  }).join('');
+    const curScore=latestSources[name];
+    const scoreColor=curScore!=null?pulseLabelFor(curScore).color:'#94A3B8';
+    const markerX=d.correlation!=null?2+((Math.max(-1,Math.min(1,d.correlation))+1)/2)*96:50;
+    const gradId='corrGrad_'+bodyId+'_'+idx;
+    return `<div class="flex items-center gap-2 py-1.5 text-xs border-t border-line/30 first:border-t-0">
+      <span class="text-mutet w-20 shrink-0 truncate">${name}</span>
+      <span class="tnum font-semibold w-8 shrink-0 text-right" style="color:${scoreColor}">${curScore!=null?curScore:'—'}</span>
+      <svg viewBox="0 0 100 10" class="w-12 shrink-0">
+        <defs><linearGradient id="${gradId}" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#F5606C"/><stop offset="50%" stop-color="#5B6472"/><stop offset="100%" stop-color="#3BF38B"/>
+        </linearGradient></defs>
+        <rect x="2" y="3" width="96" height="4" rx="2" fill="url(#${gradId})"/>
+        <polygon points="-3,0 3,0 0,4" fill="#E5E7EB" transform="translate(${markerX},3)"/>
+      </svg>
+      <span class="tnum font-semibold w-12 shrink-0 text-right" style="color:${c}">${fmt(d.correlation)}</span>
+      <span class="text-[9px] text-mutet w-9 shrink-0 text-right">(${d.samples})</span>
+    </div>`;
+  };
+  const TOP_N=6;
+  h+=`<div class="flex items-center gap-2 pb-1 text-[9px] text-mutet uppercase tracking-wide"><span class="w-20 shrink-0">Source</span><span class="w-8 shrink-0 text-right">Now</span><span class="w-12 shrink-0"></span><span class="w-12 shrink-0 text-right">Corr</span><span class="w-9 shrink-0"></span></div>`;
+  h+=perSrc.slice(0,TOP_N).map((e,i)=>rowHtml(e,i)).join('');
+  const rest=perSrc.slice(TOP_N);
+  if(rest.length){
+    const isOpen=!!pulseAnalysisExpanded[bodyId];
+    h+=`<div id="${bodyId}_extra" class="${isOpen?'':'hidden'}">${rest.map((e,i)=>rowHtml(e,i+TOP_N)).join('')}</div>`;
+    h+=`<button id="${bodyId}_toggleBtn" data-total="${perSrc.length}" class="w-full text-center text-[10px] text-neon hover:underline mt-2 pt-1" onclick="togglePulseAnalysisExpand('${bodyId}')">${isOpen?'Show top correlations only':'Show all '+perSrc.length+' sources'}</button>`;
+  }
   h+=`<p class="text-[10px] text-mutet mt-3 pt-2 border-t border-line/50">${a.interpretation}</p>`;
   host.innerHTML=h;
 }
