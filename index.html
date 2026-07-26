@@ -267,8 +267,9 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            background tint + icon+text) — built with CSS shadows/gradients
            rather than custom artwork, since no image-gen tool is available
            in this environment. -->
-      <div class="flex justify-center mb-4">
-        <div id="dashConclusion" class="rounded-full px-5 py-2.5 flex items-center gap-3 border-2">
+      <div class="relative flex justify-center mb-4 -mx-4 px-4 overflow-hidden">
+        <div id="dashConclusionGlow" class="absolute inset-0 pointer-events-none" style="background:radial-gradient(ellipse 70% 120% at center,transparent,transparent)"></div>
+        <div id="dashConclusion" class="relative rounded-full px-5 py-2.5 flex items-center gap-3 border-2">
           <span id="dashConclusionIcon" class="text-2xl leading-none">⏳</span>
           <span id="dashConclusionLabel" class="font-extrabold text-base whitespace-nowrap">Loading…</span>
         </div>
@@ -7016,7 +7017,7 @@ function renderDashboardSummary(){
   // Conclusion strip — glowing pill badge with icon, styled after the
   // reference mockup: colored glow border + soft radial background tint +
   // text-shadow/drop-shadow glow on the icon and label.
-  const conclEl=$('#dashConclusion'),conclLabelEl=$('#dashConclusionLabel'),conclIconEl=$('#dashConclusionIcon');
+  const conclEl=$('#dashConclusion'),conclLabelEl=$('#dashConclusionLabel'),conclIconEl=$('#dashConclusionIcon'),conclGlowEl=$('#dashConclusionGlow');
   if(conclEl&&conclLabelEl&&conclIconEl){
     if(lc||sc){
       const concl=computeDashboardConclusion(lc?lc.score:null,lc?lc.technicalScore:null,lc?lc.combined:null,sc?sc.overallLabel:null,bottomNow);
@@ -7029,11 +7030,13 @@ function renderDashboardSummary(){
       conclEl.style.borderColor=concl.color;
       conclEl.style.background='radial-gradient(ellipse at center,'+concl.color+'26,transparent 70%)';
       conclEl.style.boxShadow='0 0 22px '+concl.color+'4D';
+      if(conclGlowEl)conclGlowEl.style.background='radial-gradient(ellipse 70% 120% at center,'+concl.color+'40,transparent 75%)';
     }else{
       conclIconEl.textContent='⏳';conclIconEl.style.filter='';conclIconEl.style.display='';
       conclLabelEl.textContent='Loading…';
       conclLabelEl.style.color='';conclLabelEl.style.textShadow='';
       conclEl.style.borderColor='';conclEl.style.background='';conclEl.style.boxShadow='';
+      if(conclGlowEl)conclGlowEl.style.background='radial-gradient(ellipse 70% 120% at center,transparent,transparent)';
     }
   }
 
