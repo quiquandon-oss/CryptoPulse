@@ -2931,6 +2931,12 @@ async function srcGlobalMcap(){
   // keeping the absolute dollar figure that was being discarded before.
   window.__lastGlobalMcapUsd=json.data.total_market_cap?.usd??null;
   window.__lastGlobalMcapChangePct=change;
+  // FIX: without this, the tile only ever refreshed when renderCyclesTab()
+  // happened to re-run — if this fetch resolved AFTER the last Cycles
+  // render (very possible, since this runs as part of the Sentiment
+  // composite cycle, a separate timing path), the live value stayed stuck
+  // on "Loading…" indefinitely even though the data was actually available.
+  if(typeof renderGlobalMcapTile==='function')renderGlobalMcapTile();
   return{score:to0_100(satur(change,5))};
 }
 async function srcOnChain(){
