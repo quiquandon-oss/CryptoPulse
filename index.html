@@ -1048,7 +1048,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <div class="flex items-center gap-4">
           <p id="pulseScore" class="grot font-bold tnum text-4xl">—</p>
           <div class="flex-1">
-            <svg viewBox="0 0 200 20" class="w-full">
+            <svg viewBox="0 0 200 20" width="100%" height="20" class="w-full" style="width:100%;height:20px">
               <defs><linearGradient id="pulseGaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
                 <stop offset="0%" stop-color="#F5606C"/><stop offset="35%" stop-color="#F5B843"/>
                 <stop offset="65%" stop-color="#FFD93D"/><stop offset="100%" stop-color="#3BF38B"/>
@@ -7503,7 +7503,7 @@ function loadHypeFunding(){
         <button class="w-full flex items-center gap-2 text-left" onclick="toggleHlAssetDetail('${sym}')">
           <span class="inline-block w-2.5 h-2.5 rounded-full shrink-0" style="background:${dotColor}"></span>
           <span class="text-xs font-semibold shrink-0">${sym}${compositeTag}</span>
-          <svg viewBox="0 0 200 14" class="flex-1 mx-1" style="min-width:60px">
+          <svg viewBox="0 0 200 14" width="100%" height="14" class="flex-1 mx-1" style="min-width:60px;width:100%;height:14px">
             <defs><linearGradient id="hlGaugeGrad${sym}" x1="0%" y1="0%" x2="100%" y2="0%">
               <stop offset="0%" stop-color="#F5606C"/><stop offset="35%" stop-color="#F5B843"/>
               <stop offset="65%" stop-color="#FFD93D"/><stop offset="100%" stop-color="#3BF38B"/>
