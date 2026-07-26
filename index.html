@@ -647,7 +647,6 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            aligned at once is the actual signal. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <h2 class="font-semibold mb-1">Regime Scorecard</h2>
-        <p class="text-xs text-mutet mb-3">Grouped by how far out each signal actually speaks to — short-term positioning, medium-term trend confirmation, long-term structure — instead of blending everything into one number. A factor with no data this cycle shows why (grayed out) and is excluded from the ratio, not counted as a silent neutral vote.</p>
         <div id="cycRegimeScorecard">Loading…</div>
       </div>
 
@@ -706,7 +705,6 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <h2 class="font-semibold">Market Cap Composition</h2>
           <button onclick="openMcapFullscreen('compare')" class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1">⤢ Fullscreen</button>
         </div>
-        <p class="text-xs text-mutet mb-2">BTC · ETH · SOL · LINK · HYPE stacked, plus "Other" (rest of the total crypto market) where real total data overlaps. BTC anchors the base, smaller layers stack on top. Tap/hold a point to see each coin's $ value and % of the combined total.</p>
         <div class="flex gap-1.5 mb-3 flex-wrap" id="mcapCompareRangeTabs">
           <button data-range="4h" class="mcapRangeBtn text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">4H</button>
           <button data-range="1d" class="mcapRangeBtn text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">1D</button>
@@ -763,12 +761,6 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           </div>
         </div>
         <p class="text-[10px] text-mutet" id="cycPhaseDetail">—</p>
-        <div class="bg-panel2 rounded-xl p-3 mt-3">
-          <p class="text-[10px] text-mutet leading-snug" id="cycPatternFit">—</p>
-        </div>
-        <div class="bg-panel2 rounded-xl p-3 mt-3">
-          <p class="text-[10px] text-mutet leading-snug">⚠ Honest caveat: this cycle already broke the classic pattern — BTC consolidated for 5 months right after the April 2024 halving instead of rallying immediately, unlike 2012/2016/2020. Whether the 4-year cycle model still holds given ETFs and institutional treasuries is a genuine, unresolved debate — treat the phase label above as a historical prior, not a forecast.</p>
-        </div>
       </div>
 
       <!-- Historical cycle overlay — the single highest-value addition per the
@@ -823,7 +815,6 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v6h-6"/></svg>
           </button>
         </div>
-        <p class="text-xs text-mutet mb-3">Recent BTC/ETH/SOL/LINK transfers involving a named exchange, via Whale Alert's public Telegram feed, with a plain-language AI summary. Standalone info only — not yet feeding Sentiment, the Regime Scorecard, or Trader Analysis.</p>
         <div id="whaleTileBody">Loading…</div>
       </div>
 
@@ -5555,12 +5546,12 @@ function renderCyclesTab(){
   // once we're past its historical bottom timing (no post-bottom recovery
   // checkpoints are stored, so extrapolating further decline past that point
   // would be wrong). ----
-  const fitEl=$('#cycPatternFit');
-  if(fitEl&&dd!=null){
+  // Note display removed per request — this computation still runs
+  // regardless (no longer gated behind a display element existing), since
+  // window.__lastPatternFit feeds the Regime Scorecard's long-term bucket.
+  if(dd!=null){
     const daysSincePeak=Math.floor((now-CYCLE_ATH.date)/86400000);
-    if(daysSincePeak<=0){
-      fitEl.textContent='Pattern-fit check activates once we\u2019re past this cycle\u2019s own peak.';
-    }else{
+    if(daysSincePeak>0){
       const histDrawdowns=HALVING_HISTORY.map(c=>{
         const peakIdx=100*c.peakPrice/c.startPrice,bottomIdx=100*c.bottomPrice/c.startPrice;
         const bottomOffset=c.bottomDay-c.peakDay;
@@ -5571,16 +5562,10 @@ function renderCyclesTab(){
       });
       const avgHist=histDrawdowns.reduce((s,h)=>s+h.dd,0)/histDrawdowns.length;
       const gap=dd-avgHist; // positive = shallower (less negative) than history
-      const monthsIn=(daysSincePeak/30.44).toFixed(1);
-      const perCycle=histDrawdowns.map(h=>h.label+': '+h.dd.toFixed(0)+'%'+(h.pastBottom?' (already past its bottom by this point)':'')).join(' · ');
-      fitEl.innerHTML='<b>Pattern fit:</b> this cycle is '+Math.abs(gap).toFixed(0)+' points '+(gap>0?'shallower':'deeper')+
-        ' than the 2012/2016/2020 average ('+dd.toFixed(0)+'% vs '+avgHist.toFixed(0)+'% average) at the same '+monthsIn+' months past peak. '+
-        (gap>0?'Historically, corrections at this stage still had further to fall before bottoming — or ETF/institutional demand this cycle may be structurally cushioning the drop. Genuinely unresolved which.':'This cycle has already fallen further than history at this stage.')+
-        '<br><span class="opacity-70">'+perCycle+'</span>';
       // Exposed for the Regime Scorecard's long-term bucket. Deliberately NOT
       // tagged bullish when shallower — that reading is genuinely ambiguous
-      // (resilience vs. hasn't-bottomed-yet, per the caption above), so only
-      // "deeper than history" gets a directional (bearish) tag there.
+      // (resilience vs. hasn't-bottomed-yet), so only "deeper than history"
+      // gets a directional (bearish) tag there.
       window.__lastPatternFit={gap,dd,avgHist};
     }
   }
@@ -5929,7 +5914,7 @@ function renderCyclesTab(){
       </div>
       <div class="mb-3 pb-3 border-b border-line/50">
         ${magBar(overallMag)}
-        <p class="text-[9px] text-mutet mt-1">overall conviction ${overallMag>=0?'+':''}${overallMag.toFixed(2)} — magnitude-weighted, not just a vote count above</p>
+        <p class="text-[9px] text-mutet mt-0.5">overall conviction ${overallMag>=0?'+':''}${overallMag.toFixed(2)}</p>
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
         ${renderColumn('Short-term (days)',shortTerm,shortMag)}
