@@ -2991,8 +2991,18 @@ async function srcLongShort(){
   const ratio=parseFloat(json[0].longShortRatio);
   return{score:to0_100(satur(Math.log(ratio),0.6))};
 }
-async function srcGlobalMcap(){
+async function srcGlobalMcap(attempt=0){
   const res=await cgFetch(`${CG}/global`);
+  // FIX: this had NO retry logic, unlike fetchCoinMcapRange which already
+  // handles 429s. A single rate-limited response here permanently killed
+  // global_mcap logging for that whole cycle with zero recovery — confirmed
+  // in D1: 3 successful writes right after the API key was added, then
+  // silence for 2.5+ hours while every OTHER composite field kept updating
+  // normally. Same retry-with-backoff pattern as fetchCoinMcapRange now.
+  if(res.status===429&&attempt<2){
+    await new Promise(r=>setTimeout(r,1000*(attempt+1)));
+    return srcGlobalMcap(attempt+1);
+  }
   if(!res.ok)throw new Error('CoinGecko global '+res.status);
   const json=await res.json();
   const change=json.data.market_cap_change_percentage_24h_usd;
