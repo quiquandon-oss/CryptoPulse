@@ -7422,7 +7422,19 @@ async function init(){LS.load();buildMobileNav();wire();paintNav();wireSwipeNav(
   renderCyclesTab();
   initSentimentTab().catch(err=>console.error('Background sentiment prefetch failed:',err));
   loadHypeFunding();
-  setInterval(()=>{getFx();getFG();getPrices().then(render);if(state.view==='sentiment')loadHypeFunding();},60000);}
+  setInterval(()=>{getFx();getFG();getPrices().then(render);if(state.view==='sentiment')loadHypeFunding();},60000);
+  // FIX: the composite cycle (score/technicalScore/regimeMag/bottomScore/
+  // globalMcap — everything the Dashboard, Cycles tiles, and D1 history rely
+  // on) previously only ran on boot, on navigating to the Sentiment tab, or
+  // its manual refresh button. Nothing made it happen continuously in the
+  // background — so the Total Crypto Market Cap tile's own copy ("growing
+  // every composite cycle") was a promise nothing was actually keeping, for
+  // anyone spending their session on other tabs. Every 5 minutes (not 60s
+  // like the price timer above) since this is a much heavier call — all
+  // ~18 composite sources plus technicals — and shouldn't compete
+  // continuously with on-demand fetches like Market Cap Composition for the
+  // same CoinGecko budget.
+  setInterval(()=>{initSentimentTab().catch(err=>console.error('Periodic composite refresh failed:',err));},5*60*1000);}
 document.addEventListener('DOMContentLoaded',init);
 </script>
 </body>
