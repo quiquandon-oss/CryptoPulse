@@ -7420,6 +7420,16 @@ async function srcHypeFundingForComposite(){
   const aprPct=(parseFloat(c.funding)-HL_FUNDING_FLOOR_HOURLY)*24*365*100;
   return{score:to0_100(satur(aprPct,50))};
 }
+// Tracks which asset rows are expanded, surviving re-renders (loadHypeFunding
+// re-runs periodically) — without this, every refresh would silently
+// re-collapse anything the user had opened.
+const hlExpandedAssets=new Set();
+function toggleHlAssetDetail(sym){
+  if(hlExpandedAssets.has(sym))hlExpandedAssets.delete(sym);else hlExpandedAssets.add(sym);
+  const detail=$('#hlDetail_'+sym),chev=$('#hlChevron_'+sym);
+  if(detail)detail.classList.toggle('hidden');
+  if(chev)chev.textContent=hlExpandedAssets.has(sym)?'▲':'▼';
+}
 function loadHypeFunding(){
   const statusEl=$('#hypeFundingStatus'),host=$('#hlAssetCards');
   if(!statusEl||!host)return; // section not in DOM (different view) — skip quietly
@@ -7435,20 +7445,40 @@ function loadHypeFunding(){
       const aprColor=premiumAprPct>0?'#3BF38B':premiumAprPct<0?'#F5606C':'#94A3B8';
       const oiUsd=parseFloat(c.openInterest)*parseFloat(c.markPx);
       const hist=fundingHistoryStats(sym,15);
-      const histLine=hist?`<p class="text-[9px] text-mutet mt-1.5">Logged range (last ${Math.min(15,Math.ceil((Date.now()-hist.points[0].ts)/86400000)||1)}d, ${hist.count} sample${hist.count===1?'':'s'}): ${hist.min.toFixed(2)}% to ${hist.max.toFixed(2)}%</p>`:`<p class="text-[9px] text-mutet mt-1.5">No logged history yet — starts accumulating from now, check back in a few days</p>`;
-      return `<div class="border-t border-line/50 pt-3 first:border-t-0 first:pt-0">
-        <p class="text-xs font-semibold mb-2">${sym}${['BTC','ETH','HYPE'].includes(sym)?' <span class="text-[9px] font-normal text-neon">→ composite</span>':''}</p>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div class="text-center">
-            <p class="text-[10px] text-mutet mb-1">Funding (APR)</p>
-            <p class="tnum font-bold text-sm" style="color:${aprColor}">${(aprPct>=0?'+':'')+aprPct.toFixed(2)}%</p>
-            <p class="text-[9px] text-mutet mt-0.5">premium ${(premiumAprPct>=0?'+':'')+premiumAprPct.toFixed(2)}%</p>
+      const histLine=hist?`Logged range (last ${Math.min(15,Math.ceil((Date.now()-hist.points[0].ts)/86400000)||1)}d, ${hist.count} sample${hist.count===1?'':'s'}): ${hist.min.toFixed(2)}% to ${hist.max.toFixed(2)}%`:`No logged history yet — starts accumulating from now, check back in a few days`;
+      const dotColor=(META[sym]&&META[sym].c)||'#94A3B8';
+      const compositeTag=['BTC','ETH','HYPE'].includes(sym)?' <span class="text-[9px] font-normal text-neon">→ composite</span>':'';
+      // Mini funding bar: same rainbow-gradient + marker pattern as the other
+      // gauges in this app (Market Bottom, Sentiment score), clamped to a
+      // +-30%/yr premium range — comfortably covers normal funding swings
+      // without a single spike compressing the whole scale.
+      const clamped=Math.max(-30,Math.min(30,premiumAprPct));
+      const markerX=4+((clamped+30)/60)*192;
+      const isOpen=hlExpandedAssets.has(sym);
+      return `<div class="border-t border-line/50 pt-2.5 first:border-t-0 first:pt-0">
+        <button class="w-full flex items-center gap-2 text-left" onclick="toggleHlAssetDetail('${sym}')">
+          <span class="inline-block w-2.5 h-2.5 rounded-full shrink-0" style="background:${dotColor}"></span>
+          <span class="text-xs font-semibold shrink-0">${sym}${compositeTag}</span>
+          <svg viewBox="0 0 200 14" class="flex-1 mx-1" style="min-width:60px">
+            <defs><linearGradient id="hlGaugeGrad${sym}" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#F5606C"/><stop offset="35%" stop-color="#F5B843"/>
+              <stop offset="65%" stop-color="#FFD93D"/><stop offset="100%" stop-color="#3BF38B"/>
+            </linearGradient></defs>
+            <rect x="4" y="4" width="192" height="6" rx="3" fill="url(#hlGaugeGrad${sym})"/>
+            <polygon points="-4,0 4,0 0,6" fill="#E5E7EB" transform="translate(${markerX},1)"/>
+          </svg>
+          <span class="tnum font-bold text-xs shrink-0" style="color:${aprColor}">${(aprPct>=0?'+':'')+aprPct.toFixed(1)}%</span>
+          <span class="text-mutet text-[10px] shrink-0" id="hlChevron_${sym}">${isOpen?'▲':'▼'}</span>
+        </button>
+        <div class="${isOpen?'':'hidden'} mt-2 pl-[18px]" id="hlDetail_${sym}">
+          <p class="text-[9px] text-mutet mb-1.5">premium ${(premiumAprPct>=0?'+':'')+premiumAprPct.toFixed(2)}% (raw funding ${(aprPct>=0?'+':'')+aprPct.toFixed(2)}% minus Hyperliquid's fixed floor)</p>
+          <div class="grid grid-cols-3 gap-2">
+            <div class="text-center"><p class="text-[9px] text-mutet mb-0.5">Open Interest</p><p class="tnum font-bold text-xs">$${(oiUsd/1e6).toFixed(1)}M</p></div>
+            <div class="text-center"><p class="text-[9px] text-mutet mb-0.5">Mark Price</p><p class="tnum font-bold text-xs">$${parseFloat(c.markPx).toLocaleString('en-US',{maximumFractionDigits:2})}</p></div>
+            <div class="text-center"><p class="text-[9px] text-mutet mb-0.5">24h Volume</p><p class="tnum font-bold text-xs">$${(parseFloat(c.dayNtlVlm)/1e6).toFixed(1)}M</p></div>
           </div>
-          <div class="text-center"><p class="text-[10px] text-mutet mb-1">Open Interest</p><p class="tnum font-bold text-sm">$${(oiUsd/1e6).toFixed(1)}M</p></div>
-          <div class="text-center"><p class="text-[10px] text-mutet mb-1">Mark Price</p><p class="tnum font-bold text-sm">$${parseFloat(c.markPx).toLocaleString('en-US',{maximumFractionDigits:2})}</p></div>
-          <div class="text-center"><p class="text-[10px] text-mutet mb-1">24h Volume</p><p class="tnum font-bold text-sm">$${(parseFloat(c.dayNtlVlm)/1e6).toFixed(1)}M</p></div>
+          <p class="text-[9px] text-mutet mt-1.5">${histLine}</p>
         </div>
-        ${histLine}
       </div>`;
     }).join('');
     statusEl.textContent='Live from Hyperliquid · updated '+new Date().toLocaleTimeString('en-US');
