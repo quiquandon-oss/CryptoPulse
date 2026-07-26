@@ -2606,28 +2606,28 @@ function renderPulseAnalysis(a,statusId,bodyId,latestSourcesOverride){
     const c=d.correlation==null?'#94A3B8':Math.abs(d.correlation)>=0.3?(d.correlation>0?'#3BF38B':'#F5606C'):'#94A3B8';
     const curScore=latestSources[name];
     const scoreColor=curScore!=null?pulseLabelFor(curScore).color:'#94A3B8';
-    const markerX=d.correlation!=null?2+((Math.max(-1,Math.min(1,d.correlation))+1)/2)*96:50;
+    const markerX=d.correlation!=null?4+((Math.max(-1,Math.min(1,d.correlation))+1)/2)*192:100;
     const gradId='corrGrad_'+bodyId+'_'+idx;
-    // FIX: the SVG's Tailwind width class wasn't reliably constraining it,
-    // letting the bar (and everything after it) overflow off-screen.
-    // Explicit width/height ATTRIBUTES on the svg tag itself take priority
-    // in SVG's own sizing algorithm, unlike a CSS class that can apparently
-    // be overridden by the element's intrinsic/viewBox-derived size here.
+    // Aligned with the Hyperliquid funding bar's exact look: same 4-stop
+    // red/orange/yellow/green gradient (was a duller 3-stop red/gray/green),
+    // same flex-1 sizing so it fills available row space like Hyperliquid's
+    // does (was a cramped fixed 70px), same rect/viewBox proportions.
     return `<div class="flex items-center gap-1.5 py-1.5 text-xs border-t border-line/30 first:border-t-0">
       <span class="text-mutet w-16 shrink-0 truncate">${name}</span>
       <span class="tnum font-semibold w-7 shrink-0 text-right" style="color:${scoreColor}">${curScore!=null?curScore:'—'}</span>
-      <svg viewBox="0 0 100 10" width="70" height="10" class="shrink-0" style="width:70px;height:10px">
+      <svg viewBox="0 0 200 14" width="100%" height="14" class="flex-1 mx-1" style="min-width:60px;width:100%;height:14px">
         <defs><linearGradient id="${gradId}" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stop-color="#F5606C"/><stop offset="50%" stop-color="#5B6472"/><stop offset="100%" stop-color="#3BF38B"/>
+          <stop offset="0%" stop-color="#F5606C"/><stop offset="35%" stop-color="#F5B843"/>
+          <stop offset="65%" stop-color="#FFD93D"/><stop offset="100%" stop-color="#3BF38B"/>
         </linearGradient></defs>
-        <rect x="2" y="3" width="96" height="4" rx="2" fill="url(#${gradId})"/>
-        <polygon points="-3,0 3,0 0,4" fill="#E5E7EB" transform="translate(${markerX},3)"/>
+        <rect x="4" y="4" width="192" height="6" rx="3" fill="url(#${gradId})"/>
+        <polygon points="-4,0 4,0 0,6" fill="#E5E7EB" transform="translate(${markerX},1)"/>
       </svg>
       <span class="tnum font-semibold w-11 shrink-0 text-right" style="color:${c}">${fmt(d.correlation)}</span>
     </div>`;
   };
   const TOP_N=6;
-  h+=`<div class="flex items-center gap-1.5 pb-1 text-[9px] text-mutet uppercase tracking-wide"><span class="w-16 shrink-0">Source</span><span class="w-7 shrink-0 text-right">Now</span><span class="w-[70px] shrink-0"></span><span class="w-11 shrink-0 text-right">Corr</span></div>`;
+  h+=`<div class="flex items-center gap-1.5 pb-1 text-[9px] text-mutet uppercase tracking-wide"><span class="w-16 shrink-0">Source</span><span class="w-7 shrink-0 text-right">Now</span><span class="flex-1 mx-1"></span><span class="w-11 shrink-0 text-right">Corr</span></div>`;
   h+=perSrc.slice(0,TOP_N).map((e,i)=>rowHtml(e,i)).join('');
   const rest=perSrc.slice(TOP_N);
   if(rest.length){
