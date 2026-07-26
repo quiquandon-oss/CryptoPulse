@@ -646,6 +646,21 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <div id="cycRegimeBacktest">Loading…</div>
       </div>
 
+      <!-- ═══ Total Crypto Market Cap — live value + 24h change are available
+           immediately (CoinGecko's free /global endpoint), but the CHART only
+           has real data from whenever this was added onward: CoinGecko's
+           actual historical total-market-cap endpoint is Pro-API-only, so
+           there's no way to backfill real history before today. ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+        <h2 class="font-semibold mb-1">Total Crypto Market Cap</h2>
+        <div class="flex items-baseline gap-3 mb-3 mt-2">
+          <p id="cycMcapValue" class="grot font-bold text-2xl tnum">—</p>
+          <span id="cycMcapChange" class="text-xs font-semibold px-2 py-1 rounded-lg tnum"></span>
+        </div>
+        <div class="h-40"><canvas id="cycMcapChart"></canvas></div>
+        <p id="cycMcapNote" class="text-xs text-mutet mt-2">—</p>
+      </div>
+
       <!-- ═══ Hero row: phase icon (color-tinted), circular cycle dial, ATH
            drawdown gauge — replaces the old plain stat-card grid. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5" id="cycHeroCard">
@@ -2911,6 +2926,11 @@ async function srcGlobalMcap(){
   if(!res.ok)throw new Error('CoinGecko global '+res.status);
   const json=await res.json();
   const change=json.data.market_cap_change_percentage_24h_usd;
+  // Exposed for the Market Cap tile (Cycles tab) — same free /global call the
+  // composite already makes every cycle for its 0-100 score, just also
+  // keeping the absolute dollar figure that was being discarded before.
+  window.__lastGlobalMcapUsd=json.data.total_market_cap?.usd??null;
+  window.__lastGlobalMcapChangePct=change;
   return{score:to0_100(satur(change,5))};
 }
 async function srcOnChain(){
@@ -3200,7 +3220,7 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
         // straight from state.prices bypasses that fallback chain entirely
         // — genuinely missing this cycle now writes null (filterable),
         // never a stale guess dressed up as real.
-        body:JSON.stringify({score:composite,technicalScore:typeof technicalScore==='number'?technicalScore:null,btcPrice:state.prices.BTC?.usd||null,sources:sourcesSnapshot,goldRegime:window.__lastGoldRegime||null,regimeMag:window.__lastRegimeScorecard?.overallMag??null,bottomScore:calcBottomScore(false).score})
+        body:JSON.stringify({score:composite,technicalScore:typeof technicalScore==='number'?technicalScore:null,btcPrice:state.prices.BTC?.usd||null,sources:sourcesSnapshot,goldRegime:window.__lastGoldRegime||null,regimeMag:window.__lastRegimeScorecard?.overallMag??null,bottomScore:calcBottomScore(false).score,globalMcap:window.__lastGlobalMcapUsd??null})
       });
     }catch(e){console.warn('Failed to POST composite score to /history:',e.message);}
   }
@@ -5550,6 +5570,7 @@ function renderCyclesTab(){
       <div class="bg-panel2 rounded-lg px-3 py-2"><p class="text-mutet text-[10px]">Gold regime</p><p class="font-bold text-xs">${latest.goldRegime||'—'}</p></div>`;
     window.__lastLiveConditions={score:latest.score,technicalScore:latest.technicalScore,combined,goldRegime:latest.goldRegime}; // exposed for the Trader Analysis payload
     window.__lastHistoryFull=history; // same array already fetched above — reused for Dashboard's 24h-ago comparisons, no new fetch
+    renderGlobalMcapTile();
 
     if(!scoreEl)return;
     // ETF flow trend: latest etfflows score vs whatever reading sits closest to
@@ -6487,6 +6508,68 @@ function computeDashboardConclusion(sentiment,technical,combined,scOverallLabel,
   if(net>=2)return{label:'Bullish lean',color:'#3BF38B',icon:''};
   if(net<=-2)return{label:'Bearish lean',color:'#FF2D55',icon:''};
   return{label:'Mixed \u2014 no clear read',color:'#F5B843',icon:'\u2696\ufe0f'};
+}
+// ---- Total Crypto Market Cap tile (Cycles tab). Current value + 24h change
+// read straight from window.__lastGlobalMcapUsd/__lastGlobalMcapChangePct —
+// live, available as soon as the composite's free /global call completes,
+// same timing as every other cross-tab signal in this app. The CHART reads
+// window.__lastHistoryFull filtered to rows with a real global_mcap value —
+// which only exist from whenever this was deployed onward, since CoinGecko's
+// actual historical total-market-cap endpoint requires a paid plan. Plots
+// raw points (not day-bucketed) to preserve intraday resolution as it
+// accumulates, rather than needing weeks before a single point shows. ----
+let cycMcapChartInst=null;
+function fmtMcap(usd){
+  if(usd==null)return'—';
+  if(usd>=1e12)return'$'+(usd/1e12).toFixed(2)+'T';
+  if(usd>=1e9)return'$'+(usd/1e9).toFixed(2)+'B';
+  return'$'+Math.round(usd).toLocaleString();
+}
+function renderGlobalMcapTile(){
+  const valEl=$('#cycMcapValue'),chgEl=$('#cycMcapChange'),noteEl=$('#cycMcapNote'),cv=$('#cycMcapChart');
+  if(!valEl||!cv)return;
+  const val=window.__lastGlobalMcapUsd,chg=window.__lastGlobalMcapChangePct;
+  if(val!=null){
+    valEl.textContent=fmtMcap(val);
+    if(chg!=null){
+      const up=chg>=0;
+      chgEl.textContent=(up?'\u25b2 ':'\u25bc ')+Math.abs(chg).toFixed(2)+'%';
+      chgEl.className='text-xs font-semibold px-2 py-1 rounded-lg tnum '+(up?'bg-up/15 text-up':'bg-down/15 text-down');
+    }else{chgEl.textContent='';chgEl.className='text-xs font-semibold px-2 py-1 rounded-lg tnum';}
+  }else{
+    valEl.textContent='Loading…';chgEl.textContent='';chgEl.className='text-xs font-semibold px-2 py-1 rounded-lg tnum';
+  }
+  const hist=(window.__lastHistoryFull||[]).filter(p=>p.globalMcap!=null).sort((a,b)=>a.ts-b.ts);
+  const canvasWrap=cv.parentElement;
+  if(hist.length<2){
+    canvasWrap.style.display='none';
+    noteEl.textContent="Building history — CoinGecko's historical total market cap data is a paid-plan feature, so this chart only has real points logged since it was added here. It'll keep filling in as more cycles run.";
+    return;
+  }
+  canvasWrap.style.display='';
+  noteEl.textContent=hist.length+' point(s) logged since tracking started — growing every composite cycle.';
+  const now=new Date();
+  const labels=hist.map(p=>{
+    const d=new Date(p.ts);
+    const sameDay=d.toDateString()===now.toDateString();
+    return sameDay?d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString([],{month:'short',day:'numeric'});
+  });
+  const data=hist.map(p=>p.globalMcap);
+  const up=data[data.length-1]>=data[0];
+  const col=up?'#3BF38B':'#FF5C72';
+  const cfg={
+    type:'line',
+    data:{labels,datasets:[{data,borderColor:col,backgroundColor:col+'22',borderWidth:1.8,fill:true,tension:.3,pointRadius:0,pointHoverRadius:3,pointHoverBackgroundColor:col}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      scales:{
+        x:{grid:{display:false},ticks:{color:'#94A3B8',maxTicksLimit:6,autoSkip:true}},
+        y:{grid:{color:'#ffffff0d'},ticks:{color:'#94A3B8',callback:v=>fmtMcap(v)}}
+      },
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>fmtMcap(ctx.parsed.y)}}}
+    }
+  };
+  if(cycMcapChartInst){cycMcapChartInst.data=cfg.data;cycMcapChartInst.options=cfg.options;cycMcapChartInst.update();}
+  else cycMcapChartInst=new Chart(cv,cfg);
 }
 function renderDashboardSummary(){
   const lc=window.__lastLiveConditions;
