@@ -694,10 +694,10 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            per coin, all cached client-side. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-center justify-between mb-1">
-          <h2 class="font-semibold">Market Cap Comparison</h2>
+          <h2 class="font-semibold">Market Cap Composition</h2>
           <button onclick="openMcapFullscreen('compare')" class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1">⤢ Fullscreen</button>
         </div>
-        <p class="text-xs text-mutet mb-2">BTC · ETH · SOL · LINK · HYPE — log scale so smaller caps stay visible next to BTC.</p>
+        <p class="text-xs text-mutet mb-2">BTC · ETH · SOL · LINK · HYPE stacked — BTC anchors the base, smaller coins layer on top. Tap/hold a point to see each coin's $ value and % of the combined total.</p>
         <div class="flex gap-1.5 mb-3 flex-wrap" id="mcapCompareRangeTabs">
           <button data-range="4h" class="mcapRangeBtn text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">4H</button>
           <button data-range="1d" class="mcapRangeBtn text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">1D</button>
@@ -6739,6 +6739,17 @@ async function fetchCoinMcapRange(coin,range){
     return points;
   }catch(e){console.warn('fetchCoinMcapRange failed for',coin,range,':',e.message);return null;}
 }
+// FIX per follow-up: this was a normalized %-change comparison (5 separate
+// lines). That's not what was actually wanted — the ask is a COMPOSITION
+// view: one combined total (sum of these 5 coins), with each coin visible as
+// its own layer within that total, BTC anchoring the base since it's by far
+// the largest. Stacked area chart: linear $ scale (NOT log — stacking only
+// reads correctly on linear), ordered largest-to-smallest so small coins
+// naturally render as thin bands on top of BTC rather than needing their own
+// visual space. Tooltip shows each coin's raw $ value AND its % of the
+// combined total at that exact point — Chart.js's parsed.y for a stacked
+// dataset is still the individual (non-cumulative) value, so this is a
+// straightforward sum-and-divide, not fighting the stacking math.
 function buildMcapCompareChartConfig(perCoin,available,range){
   const ref=available.reduce((a,b)=>perCoin[a].length>=perCoin[b].length?a:b);
   const refPoints=perCoin[ref];
@@ -6749,29 +6760,47 @@ function buildMcapCompareChartConfig(perCoin,available,range){
     if(isIntraday)return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
     return d.toLocaleDateString([],{month:'short',day:'numeric'})+(d.getFullYear()!==now.getFullYear()?" '"+String(d.getFullYear()).slice(2):'');
   });
-  const datasets=available.map(coin=>{
+  // Largest-to-smallest by latest value — first dataset in a Chart.js stack
+  // renders as the base layer, so BTC (by far the biggest) anchors the
+  // bottom and smaller coins stack thinly on top of it.
+  const ordered=[...available].sort((a,b)=>{
+    const av=perCoin[a][perCoin[a].length-1].mcap,bv=perCoin[b][perCoin[b].length-1].mcap;
+    return bv-av;
+  });
+  const datasets=ordered.map((coin,idx)=>{
     const pts=perCoin[coin];
-    const base=pts[0].mcap;
-    // % change from THIS coin's own first point — each line shows "how has
-    // this coin moved", independent of which coin happens to be the ref.
-    const series=refPoints.map((_,i)=>{
+    const data=refPoints.map((_,i)=>{
       const p=pts[i]||pts[pts.length-1];
-      return p?((p.mcap-base)/base)*100:null;
+      return p?p.mcap:0;
     });
     const col=META[coin].c;
-    return{label:coin,data:series,borderColor:col,borderWidth:1.8,fill:false,tension:.25,pointRadius:0,pointHoverRadius:3,pointHoverBackgroundColor:col};
+    return{label:coin,data,borderColor:col,backgroundColor:col+'AA',borderWidth:1.2,fill:idx===0?'origin':'-1',tension:.2,pointRadius:0,pointHoverRadius:3,pointHoverBackgroundColor:col};
   });
   return{
     type:'line',
     data:{labels,datasets},
     options:{responsive:true,maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
       scales:{
         x:{grid:{display:false},ticks:{color:'#94A3B8',maxTicksLimit:6,autoSkip:true}},
-        y:{grid:{color:'#ffffff0d'},ticks:{color:'#94A3B8',callback:v=>(v>=0?'+':'')+v.toFixed(0)+'%'}}
+        y:{stacked:true,grid:{color:'#ffffff0d'},ticks:{color:'#94A3B8',callback:v=>fmtMcap(v)}}
       },
       plugins:{
         legend:{display:true,position:'bottom',labels:{color:'#94A3B8',boxWidth:10,font:{size:10}}},
-        tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': '+(ctx.parsed.y>=0?'+':'')+ctx.parsed.y.toFixed(2)+'%'}}
+        tooltip:{
+          callbacks:{
+            label:ctx=>{
+              const val=ctx.parsed.y;
+              const total=ctx.chart.data.datasets.reduce((s,ds)=>s+(ds.data[ctx.dataIndex]||0),0);
+              const pct=total>0?(val/total*100).toFixed(1):'0.0';
+              return ctx.dataset.label+': '+fmtMcap(val)+' ('+pct+'%)';
+            },
+            footer:items=>{
+              const total=items.reduce((s,item)=>s+item.parsed.y,0);
+              return 'Combined total: '+fmtMcap(total);
+            }
+          }
+        }
       }
     }
   };
@@ -6798,7 +6827,7 @@ async function renderMcapCompareChart(){
   if(mcapCompareChartInst){mcapCompareChartInst.data=cfg.data;mcapCompareChartInst.options=cfg.options;mcapCompareChartInst.update();}
   else mcapCompareChartInst=new Chart(cv,cfg);
   const missing=MCAP_COMPARE_COINS.filter(c=>!available.includes(c));
-  noteEl.textContent=(missing.length?`Showing ${available.join(', ')} \u2014 ${missing.join(', ')} unavailable right now. `:'')+`% change from start of range \u2014 real CoinGecko data, ${mcapCompareRange} range.`;
+  noteEl.textContent=(missing.length?`Showing ${available.join(', ')} \u2014 ${missing.join(', ')} unavailable right now. `:'')+`Stacked composition, real CoinGecko data \u2014 ${mcapCompareRange} range.`;
 }
 // ---- Shared fullscreen modal for all 3 market cap tiles — reuses the same
 // config builders above, so the fullscreen view can never visually diverge
@@ -6837,7 +6866,7 @@ async function renderMcapFullscreenChart(){
     const available=MCAP_COMPARE_COINS.filter(c=>perCoin[c]&&perCoin[c].length>1);
     if(!available.length){noteEl.textContent="Couldn't load market cap data right now.";return;}
     cfg=buildMcapCompareChartConfig(perCoin,available,mcapCompareRange);
-    noteEl.textContent='% change from start of range \u2014 '+mcapCompareRange+' range, real CoinGecko data.';
+    noteEl.textContent='Stacked composition, real CoinGecko data \u2014 '+mcapCompareRange+' range.';
   }
   if(!cfg)return;
   if(mcapFullscreenChartInst){mcapFullscreenChartInst.data=cfg.data;mcapFullscreenChartInst.options=cfg.options;mcapFullscreenChartInst.update();}
