@@ -697,7 +697,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <h2 class="font-semibold">Market Cap Composition</h2>
           <button onclick="openMcapFullscreen('compare')" class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1">⤢ Fullscreen</button>
         </div>
-        <p class="text-xs text-mutet mb-2">BTC · ETH · SOL · LINK · HYPE stacked — BTC anchors the base, smaller coins layer on top. Tap/hold a point to see each coin's $ value and % of the combined total.</p>
+        <p class="text-xs text-mutet mb-2">BTC · ETH · SOL · LINK · HYPE stacked, plus "Other" (rest of the total crypto market) where real total data overlaps. BTC anchors the base, smaller layers stack on top. Tap/hold a point to see each coin's $ value and % of the combined total.</p>
         <div class="flex gap-1.5 mb-3 flex-wrap" id="mcapCompareRangeTabs">
           <button data-range="4h" class="mcapRangeBtn text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">4H</button>
           <button data-range="1d" class="mcapRangeBtn text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">1D</button>
@@ -6813,15 +6813,50 @@ function buildMcapCompareChartConfig(perCoin,available,range){
     const av=perCoin[a][perCoin[a].length-1].mcap,bv=perCoin[b][perCoin[b].length-1].mcap;
     return bv-av;
   });
-  const datasets=ordered.map((coin,idx)=>{
+  const coinData={};
+  ordered.forEach(coin=>{
     const pts=perCoin[coin];
-    const data=refPoints.map((_,i)=>{
+    coinData[coin]=refPoints.map((_,i)=>{
       const p=pts[i]||pts[pts.length-1];
       return p?p.mcap:0;
     });
-    const col=META[coin].c;
-    return{label:coin,data,borderColor:col,backgroundColor:col+'AA',borderWidth:1.2,fill:idx===0?'origin':'-1',tension:.2,pointRadius:0,pointHoverRadius:3,pointHoverBackgroundColor:col};
   });
+  // FIX (missed requirement): "Rest of Market" = real logged total-market-cap
+  // history MINUS the sum of these 5 coins, matched to the nearest real
+  // total point within a 20-min tolerance — never fabricated for periods
+  // before total-market logging began. That logging is very recent (started
+  // this session), so this will only show for the last few points right now
+  // and appear as a gap further back, growing as more history accumulates —
+  // same honest-growth pattern as the Total Crypto Market Cap tile itself.
+  const totalHistory=(window.__lastHistoryFull||[]).filter(p=>p.globalMcap!=null);
+  let hasOther=false;
+  const otherData=refPoints.map((p,i)=>{
+    if(!totalHistory.length)return null;
+    let closest=null,closestDiff=Infinity;
+    totalHistory.forEach(h=>{const diff=Math.abs(h.ts-p.ts);if(diff<closestDiff){closestDiff=diff;closest=h;}});
+    if(!closest||closestDiff>20*60*1000)return null;
+    const sumCoins=ordered.reduce((s,coin)=>s+coinData[coin][i],0);
+    const other=closest.globalMcap-sumCoins;
+    if(other<=0)return null; // sanity guard — never show a negative "rest of market"
+    hasOther=true;
+    return other;
+  });
+  const datasets=ordered.map(coin=>{
+    const col=META[coin].c;
+    return{label:coin,data:coinData[coin],borderColor:col,backgroundColor:col+'AA',borderWidth:1.2,fill:false,tension:.2,pointRadius:0,pointHoverRadius:3,pointHoverBackgroundColor:col};
+  });
+  if(hasOther){
+    // Insert "Other" by actual size among the coin datasets rather than
+    // always-last — it's frequently bigger than several tracked coins, and
+    // stacking should still go largest-to-smallest, base to top.
+    const otherLatest=[...otherData].reverse().find(v=>v!=null)||0;
+    let insertAt=datasets.length;
+    for(let i=0;i<ordered.length;i++){
+      if(otherLatest>coinData[ordered[i]][coinData[ordered[i]].length-1]){insertAt=i;break;}
+    }
+    datasets.splice(insertAt,0,{label:'Other',data:otherData,borderColor:'#6B7280',backgroundColor:'#6B728099',borderWidth:1.2,fill:false,tension:.2,pointRadius:0,pointHoverRadius:3,pointHoverBackgroundColor:'#6B7280'});
+  }
+  datasets.forEach((ds,i)=>{ds.fill=i===0?'origin':'-1';});
   return{
     type:'line',
     data:{labels,datasets},
@@ -6877,7 +6912,8 @@ async function renderMcapCompareChart(){
   if(mcapCompareChartInst){mcapCompareChartInst.data=cfg.data;mcapCompareChartInst.options=cfg.options;mcapCompareChartInst.update();}
   else mcapCompareChartInst=new Chart(cv,cfg);
   const missing=MCAP_COMPARE_COINS.filter(c=>!available.includes(c));
-  noteEl.textContent=(missing.length?`Showing ${available.join(', ')} \u2014 ${missing.join(', ')} unavailable right now. `:'')+`Stacked composition, real CoinGecko data \u2014 ${mcapCompareRange} range.`;
+  const hasOther=cfg.data.datasets.some(ds=>ds.label==='Other');
+  noteEl.textContent=(missing.length?`Showing ${available.join(', ')} \u2014 ${missing.join(', ')} unavailable right now. `:'')+`Stacked composition, real CoinGecko data \u2014 ${mcapCompareRange} range.`+(hasOther?' "Other" (rest of market) included where real total-market data overlaps.':' "Other" not shown \u2014 no real total-market data close enough in time yet.');
 }
 // ---- Shared fullscreen modal for all 3 market cap tiles — reuses the same
 // config builders above, so the fullscreen view can never visually diverge
@@ -6916,7 +6952,8 @@ async function renderMcapFullscreenChart(){
     const available=MCAP_COMPARE_COINS.filter(c=>perCoin[c]&&perCoin[c].length>1);
     if(!available.length){noteEl.textContent="Couldn't load market cap data right now.";return;}
     cfg=buildMcapCompareChartConfig(perCoin,available,mcapCompareRange);
-    noteEl.textContent='Stacked composition, real CoinGecko data \u2014 '+mcapCompareRange+' range.';
+    const hasOtherFs=cfg.data.datasets.some(ds=>ds.label==='Other');
+    noteEl.textContent='Stacked composition, real CoinGecko data \u2014 '+mcapCompareRange+' range.'+(hasOtherFs?' "Other" (rest of market) included where real total-market data overlaps.':' "Other" not shown \u2014 no real total-market data close enough in time yet.');
   }
   if(!cfg)return;
   if(mcapFullscreenChartInst){mcapFullscreenChartInst.data=cfg.data;mcapFullscreenChartInst.options=cfg.options;mcapFullscreenChartInst.update();}
