@@ -1048,10 +1048,15 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <div class="flex items-center gap-4">
           <p id="pulseScore" class="grot font-bold tnum text-4xl">—</p>
           <div class="flex-1">
-            <div class="h-2.5 rounded-full bg-panel2 overflow-hidden relative">
-              <div class="absolute left-1/2 top-0 h-full w-px bg-line"></div>
-              <div id="pulseBar" class="h-full rounded-full transition-all" style="width:0%;margin-left:0%;"></div>
-            </div>
+            <svg viewBox="0 0 200 20" class="w-full">
+              <defs><linearGradient id="pulseGaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#F5606C"/><stop offset="35%" stop-color="#F5B843"/>
+                <stop offset="65%" stop-color="#FFD93D"/><stop offset="100%" stop-color="#3BF38B"/>
+              </linearGradient></defs>
+              <rect x="4" y="6" width="192" height="8" rx="4" fill="url(#pulseGaugeGrad)"/>
+              <line x1="100" y1="2" x2="100" y2="18" stroke="#1F2632" stroke-width="1.5"/>
+              <polygon id="pulseBarMarker" points="-5,0 5,0 0,8" fill="#E5E7EB" transform="translate(4,0)" style="transition:transform .5s ease"/>
+            </svg>
             <div class="flex justify-between text-[10px] text-mutet mt-1">
               <span>0 · Extreme Bear</span><span>50 · Neutral</span><span>100 · Extreme Bull</span>
             </div>
@@ -2384,7 +2389,7 @@ function renderPulseSentiment(history){
   const{text,color}=pulseLabelFor(latest.score);
   const scoreEl=$('#pulseScore');scoreEl.textContent=latest.score;scoreEl.style.color=color;
   const labelEl=$('#pulseLabel');labelEl.textContent=text;labelEl.style.color=color;labelEl.style.backgroundColor=color+'26';
-  const bar=$('#pulseBar');bar.style.width=Math.max(0,Math.min(100,latest.score))+'%';bar.style.marginLeft='0%';bar.style.background=color;
+  const bar=$('#pulseBarMarker');if(bar)bar.setAttribute('transform','translate('+(4+Math.max(0,Math.min(100,latest.score))/100*192)+',0)');
   const ageMin=Math.round((Date.now()-latest.ts)/60000);
   const ageTxt=ageMin<60?`${ageMin}m ago`:`${(ageMin/60).toFixed(1)}h ago`;
   $('#pulseMeta').textContent=`${history.length} point(s) in history · last updated ${ageTxt}`+(latest.btc?` · BTC $${Math.round(latest.btc).toLocaleString('en-US')} at that time`:'');
