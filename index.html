@@ -802,7 +802,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
 
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-center justify-between mb-1">
-          <h2 class="font-semibold">Per-coin distance from ATH</h2>
+          <h2 class="font-semibold">Per-coin distance from ATH<span id="dotAth" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h2>
           <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'cycAthNote')">ⓘ Info</button>
         </div>
         <p class="hidden text-xs text-mutet mb-3" id="cycAthNote">Altcoins historically lag/overshoot BTC's cycle timing (dominance rotation) — each coin can genuinely be in a different phase of its own.</p>
@@ -6531,8 +6531,12 @@ function renderCyclesTab(){
 
   // ---- Per-coin distance from ATH — horizontal ruler bars ----
   const athEl=$('#cycPerCoinAth');
+  let athAllLive=true,athOldestFetch=Infinity,athAnyCoin=false;
   athEl.innerHTML=Object.entries(COIN_PARAMS).map(([coin,cp])=>{
     const px=pxUsd(coin);if(!px||!cp.ath)return'';
+    athAnyCoin=true;
+    if(state.prices[coin]?.usd){athOldestFetch=Math.min(athOldestFetch,state.prices[coin].fetchedAt||0);}
+    else{athAllLive=false;}
     const dd=(px-cp.ath)/cp.ath*100;
     const barPct=Math.max(2,Math.min(100,100+dd)); // dd is <=0 normally; 0%=full bar (at ATH), -100%=empty
     // Brighter, more saturated fluo colors — and heights set via inline style
@@ -6553,6 +6557,20 @@ function renderCyclesTab(){
       <p class="text-[9px] text-mutet">$${px.toLocaleString('en-US',{maximumFractionDigits:2})} vs ATH $${cp.ath.toLocaleString('en-US')} (${new Date(cp.athDate).toLocaleDateString('en-US',{month:'short',year:'numeric'})})</p>
     </div>`;
   }).join('');
+  // Current price side can be live or fall back to the static embedded
+  // PRICE_HISTORY snapshot (see pxUsd) — the ATH reference itself is always
+  // a static table, so what matters here is which path the CURRENT price
+  // took. If every coin has a live price, use the oldest of their fetch
+  // times (5-min threshold, same as the price-refresh cadence elsewhere);
+  // if any coin fell back to the static snapshot, flag the whole tile as
+  // static rather than silently mixing live and stale-snapshot numbers.
+  if(!athAnyCoin){setHealthDot('dotAth','error','No coin data available');}
+  else if(!athAllLive){setHealthDot('dotAth','static','At least one coin using the embedded price snapshot, not a live fetch');}
+  else{
+    const ageMin=Math.round((Date.now()-athOldestFetch)/60000);
+    const ageTxt=ageMin<60?`${ageMin}m ago`:`${(ageMin/60).toFixed(1)}h ago`;
+    setHealthDot('dotAth',ageMin<=5?'live':'stale',`Oldest per-coin price: ${ageTxt}`);
+  }
 
   // ---- Fan chart: Base ± 1 annualized sigma, portfolio-value-weighted across
   // held coins (ignores cross-coin correlation — a real simplification, but an
