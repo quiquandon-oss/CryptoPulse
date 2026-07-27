@@ -3557,20 +3557,33 @@ async function srcFundingRate(){
   return{score:to0_100(satur(avgRate8h*100,0.05))};
 }
 async function srcLongShort(){
-  // FIX: was calling fapi.binance.com directly from the browser — confirmed
-  // (via Binance's own developer community forum) that this endpoint blocks
-  // arbitrary browser origins with CORS, which is exactly why 'longshort'
-  // was always silently absent from every cycle's sources_json despite being
-  // a registered composite source. Routed through PulseWorker's server-side
-  // proxy instead, since a Worker fetch isn't subject to browser CORS — same
-  // fix pattern already applied to srcFundingRate previously (see its own
-  // comment: "the old Binance-based convention").
-  const res=await fetch(`${PULSE_WORKER_URL}/longshort-proxy`);
-  if(!res.ok)throw new Error('Long/short proxy '+res.status);
-  const json=await res.json();
-  if(json.error)throw new Error('Long/short proxy: '+json.error);
-  const ratio=parseFloat(json[0].longShortRatio);
-  return{score:to0_100(satur(Math.log(ratio),0.6))};
+  // FIX: no reliable path to Binance's long/short-ratio endpoint exists from
+  // anywhere in this app's infrastructure. Confirmed browser-CORS-blocked
+  // (Binance's own developer forum), and separately confirmed that routing
+  // through PulseWorker doesn't help either — Binance, and independently
+  // Bybit, both geoblock Cloudflare Workers specifically (multiple reports,
+  // including one from inside an actual Cloudflare Worker hitting the exact
+  // same 403), a documented anti-scraping policy at major CEXes that a
+  // server-side proxy can't route around. No free, CORS-and-geoblock-safe
+  // equivalent was found after checking Binance, Bybit, and OKX.
+  //
+  // APPROXIMATED instead via Hyperliquid funding rate — the same reliable
+  // source already used successfully elsewhere in this app — averaged
+  // across the FULL 5-asset universe (BTC/ETH/HYPE/SOL/LINK), not just the
+  // BTC/ETH pair `funding` already uses. This is a genuine approximation,
+  // not a true long/short ACCOUNT ratio: funding rate reflects perpetual-
+  // futures funding pressure, which correlates with but isn't identical to
+  // account positioning, and the historical +0.54 correlation this source
+  // showed was measured against Binance's actual metric, not this proxy —
+  // expect the real correlation to differ once enough new readings
+  // accumulate under this method. Kept as its own source rather than merged
+  // into `funding` since the broader 5-asset scope is a meaningfully
+  // different read, even though the underlying mechanism is related.
+  const assets=await fetchHyperliquidAssets();
+  const rates=HL_ASSETS.map(sym=>assets[sym]?parseFloat(assets[sym].funding)-HL_FUNDING_FLOOR_HOURLY:null).filter(v=>v!=null);
+  if(!rates.length)throw new Error('No Hyperliquid funding data available for any tracked asset');
+  const avgRate8h=(rates.reduce((a,b)=>a+b,0)/rates.length)*8;
+  return{score:to0_100(satur(avgRate8h*100,0.05))};
 }
 async function srcGlobalMcap(attempt=0){
   const res=await cgFetch(`${CG}/global`);
@@ -3686,7 +3699,7 @@ const COMPOSITE_SOURCES_DEFAULTS=[
   // signal, this could reasonably be revisited upward.
   {id:'fng',label:'Fear & Greed Index',weight:28,confidence:1.0},
   {id:'funding',label:'Funding Rate (BTC/ETH, Hyperliquid)',weight:15,confidence:1.0},
-  {id:'longshort',label:'Long/Short Ratio (accounts)',weight:18,confidence:1.0},
+  {id:'longshort',label:'Long/Short Proxy (HL funding, 5-asset avg)',weight:10,confidence:0.5},
   {id:'global',label:'Market Cap 24h (global)',weight:12,confidence:1.0},
   {id:'cryptonews',label:'Crypto News (CoinTelegraph)',weight:15,confidence:0.7},
   {id:'macrogeo',label:'Macro Economy (Investing.com)',weight:8,confidence:0.7},
