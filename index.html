@@ -522,7 +522,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <div id="scenReviewBanner"></div>
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-start justify-between mb-4">
-          <div><h2 class="font-semibold flex items-center gap-2">Portfolio Scenarios <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'scenGrowthNote')">ⓘ Info</button></h2><p class="text-xs text-mutet mt-0.5">2019–2024 market cycles · not financial advice</p></div>
+          <div><h2 class="font-semibold flex items-center gap-2">Portfolio Scenarios<span id="dotPortfolioScenarios" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span> <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'scenGrowthNote')">ⓘ Info</button></h2><p class="text-xs text-mutet mt-0.5">2019–2024 market cycles · not financial advice</p></div>
           <div class="flex items-start gap-2">
             <div class="text-right shrink-0 ml-3">
               <p class="text-[10px] uppercase tracking-wide text-mutet">Break-even</p>
@@ -649,7 +649,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            same direction. One wobble in one factor means nothing; several
            aligned at once is the actual signal. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
-        <h2 class="font-semibold mb-1">Regime Scorecard</h2>
+        <h2 class="font-semibold mb-1">Regime Scorecard<span id="dotRegimeScorecard" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h2>
         <div id="cycRegimeScorecard">Loading…</div>
       </div>
 
@@ -664,7 +664,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            there's no way to backfill real history before today. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-center justify-between mb-1">
-          <h2 class="font-semibold">Total Crypto Market Cap</h2>
+          <h2 class="font-semibold">Total Crypto Market Cap<span id="dotTotalMcap" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h2>
           <button onclick="openMcapFullscreen('total')" class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1">⤢ Fullscreen</button>
         </div>
         <div class="flex items-baseline gap-3 mb-3 mt-2">
@@ -684,7 +684,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            /global, which has zero free historical access). ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-center justify-between mb-1">
-          <h2 class="font-semibold">BTC Market Cap <span class="text-mutet font-normal text-sm">(12mo)</span></h2>
+          <h2 class="font-semibold">BTC Market Cap <span class="text-mutet font-normal text-sm">(12mo)</span><span id="dotBtcMcap" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h2>
           <div class="flex items-center gap-2">
             <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'btcMcapNote')">ⓘ Info</button>
             <button onclick="openMcapFullscreen('btc')" class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1">⤢ Fullscreen</button>
@@ -1040,7 +1040,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <div class="rounded-2xl border border-line bg-panel p-5 space-y-4">
         <div>
           <div class="flex items-center justify-between mb-1">
-            <h2 class="font-semibold">Sentiment Engine (Pulse)</h2>
+            <h2 class="font-semibold">Sentiment Engine (Pulse)<span id="dotSentimentEngine" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h2>
             <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'sentimentEngineNote')">ⓘ Info</button>
           </div>
           <p class="hidden text-xs text-mutet max-w-md" id="sentimentEngineNote">Composite market sentiment from Pulse — Llama 3.1 8B scoring of crypto/macro/geopolitics news (CoinTelegraph, Investing.com, BBC), on-chain (funding, long/short), ETF flows, and macro series (oil, yields, USD, indices). Not per-coin — one overall market read.</p>
@@ -1113,7 +1113,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            funding/positioning data for those two coins before this. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-5">
         <div class="flex items-center justify-between mb-1">
-          <h3 class="text-sm font-semibold">Hyperliquid — Funding &amp; Open Interest</h3>
+          <h3 class="text-sm font-semibold">Hyperliquid — Funding &amp; Open Interest<span id="dotHypeFunding" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h3>
           <div class="flex items-center gap-2">
             <span class="text-[10px] text-mutet">Hyperliquid (direct, no key)</span>
             <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'hlFundingNote')">ⓘ Info</button>
@@ -1521,6 +1521,27 @@ function toggleNote(btn,noteId){
   const el=$('#'+noteId);if(!el)return;
   const nowHidden=el.classList.toggle('hidden');
   btn.textContent=nowHidden?'ⓘ Info':'ⓘ Hide';
+}
+// ---- Shared health-status dot: green=healthy (live and fresh, OR
+// intentionally static-by-design — both count as "working as intended"),
+// amber=stale (a live tile whose data is older than ITS OWN expected refresh
+// window — every tile defines its own threshold at the call site, there's
+// no single global rule), red=error this cycle. One shared setter so the
+// color mapping lives in one place even though the dot appears on several
+// tiles; each call site just reports what it already knows. Inline styles
+// throughout (not new Tailwind classes) — this app's Tailwind CSS is a
+// precompiled static bundle that only includes classes present at the
+// original build, confirmed earlier this session, so any brand-new utility
+// class would silently have zero effect.
+function setHealthDot(elId,state,detail){
+  const el=document.getElementById(elId);
+  if(!el)return;
+  const colors={live:'#3BF38B',static:'#3BF38B',stale:'#F5B843',error:'#F5606C'};
+  el.style.background=colors[state]||'#94A3B8';
+  el.title=detail||'';
+}
+function healthDotHtml(id){
+  return `<span id="${id}" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span>`;
 }
 const uid=()=>Math.random().toString(36).slice(2,10);
 const symC=()=>state.ccy==='USD'?'$':'€';
@@ -2424,6 +2445,7 @@ function renderPulseSentiment(history){
     $('#pulseScore').textContent='—';
     $('#pulseLabel').textContent='No data';
     $('#pulseMeta').textContent='Pulse has no history points yet.';
+    setHealthDot('dotSentimentEngine','error','No history yet');
     return;
   }
   const latest=history[history.length-1];
@@ -2434,6 +2456,9 @@ function renderPulseSentiment(history){
   const ageMin=Math.round((Date.now()-latest.ts)/60000);
   const ageTxt=ageMin<60?`${ageMin}m ago`:`${(ageMin/60).toFixed(1)}h ago`;
   $('#pulseMeta').textContent=`${history.length} point(s) in history · last updated ${ageTxt}`+(latest.btc?` · BTC $${Math.round(latest.btc).toLocaleString('en-US')} at that time`:'');
+  // Composite cycle runs every 5 min — 15 min (3x) is a reasonable "should
+  // have refreshed by now" threshold before calling it stale.
+  setHealthDot('dotSentimentEngine',ageMin<=15?'live':'stale',`Updated ${ageTxt}`);
 
   // Sentiment-extreme reversion callout — only shown when today's reading is
   // actually near a 30-day extreme, not a permanent fixture, since the real
@@ -5251,6 +5276,7 @@ function renderScenarioReviewBanner(){
   });
 }
 function renderScenario(){
+  setHealthDot('dotPortfolioScenarios','static','Static model — 2019\u20132024 historical cycles, not live data');
   const t=totals();
   const cur=t.val,cost=t.cost;
   const need=(cost/cur-1)*100;
@@ -6459,9 +6485,15 @@ function renderCyclesTab(){
         ${renderColumn('Medium-term (weeks)',midTerm,midMag)}
         ${renderColumn('Long-term (months+)',longTerm,longMag)}
       </div>`;
+    // Same underlying composite-cycle data as Sentiment Engine (5 min) —
+    // same 15-min threshold.
+    const ageMin=Math.round((Date.now()-latest.ts)/60000);
+    const ageTxt=ageMin<60?`${ageMin}m ago`:`${(ageMin/60).toFixed(1)}h ago`;
+    setHealthDot('dotRegimeScorecard',ageMin<=15?'live':'stale',`Updated ${ageTxt}`);
   }).catch(err=>{
     liveEl.innerHTML='<p class="text-down col-span-2">Error: '+(err&&err.message?err.message:String(err))+'</p>';
     if(scoreEl)scoreEl.innerHTML='<p class="text-down">Error: '+(err&&err.message?err.message:String(err))+'</p>';
+    setHealthDot('dotRegimeScorecard','error',err&&err.message?err.message:String(err));
   }).finally(()=>{cyclesLiveConditionsInFlight=false;});
 
   // ---- Per-coin distance from ATH — horizontal ruler bars ----
@@ -7191,8 +7223,17 @@ function renderGlobalMcapTile(){
     }else{chgEl.textContent='';chgEl.className='text-xs font-semibold px-2 py-1 rounded-lg tnum';}
   }else{
     valEl.textContent='Loading…';chgEl.textContent='';chgEl.className='text-xs font-semibold px-2 py-1 rounded-lg tnum';
+    setHealthDot('dotTotalMcap','error','Not loaded yet');
   }
   const hist=(window.__lastHistoryFull||[]).filter(p=>p.globalMcap!=null).sort((a,b)=>a.ts-b.ts);
+  // Same composite cycle as Sentiment Engine (5 min) — same 15-min threshold.
+  if(hist.length){
+    const ageMin=Math.round((Date.now()-hist[hist.length-1].ts)/60000);
+    const ageTxt=ageMin<60?`${ageMin}m ago`:`${(ageMin/60).toFixed(1)}h ago`;
+    setHealthDot('dotTotalMcap',ageMin<=15?'live':'stale',`Updated ${ageTxt}`);
+  }else if(val!=null){
+    setHealthDot('dotTotalMcap','live','Loaded this session');
+  }
   const canvasWrap=cv.parentElement;
   if(hist.length<2){
     canvasWrap.style.display='none';
@@ -7235,6 +7276,7 @@ async function renderBtcMcapTile(){
   if(!points||points.length<2){
     valEl.textContent='—';chgEl.textContent='';chgEl.className='text-xs font-semibold px-2 py-1 rounded-lg tnum';
     noteEl.textContent="Couldn't load BTC market cap history right now \u2014 will retry next refresh.";
+    setHealthDot('dotBtcMcap','error',"Couldn't load");
     return;
   }
   const last=points[points.length-1].mcap,first=points[0].mcap;
@@ -7244,6 +7286,7 @@ async function renderBtcMcapTile(){
   chgEl.textContent=(up?'\u25b2 ':'\u25bc ')+Math.abs(changePct).toFixed(1)+'% (12mo)';
   chgEl.className='text-xs font-semibold px-2 py-1 rounded-lg tnum '+(up?'bg-up/15 text-up':'bg-down/15 text-down');
   noteEl.textContent=points.length+' real daily point(s) \u2014 CoinGecko free tier, last 365 days.';
+  setHealthDot('dotBtcMcap','live','Loaded this session (6h cache)');
   const cfg=buildSingleMcapChartConfig(points,{intraday:false});
   if(cycBtcMcapChartInst){cycBtcMcapChartInst.data=cfg.data;cycBtcMcapChartInst.options=cfg.options;cycBtcMcapChartInst.update();}
   else cycBtcMcapChartInst=new Chart(cv,cfg);
@@ -7972,8 +8015,10 @@ function loadHypeFunding(){
       </div>`;
     }).join('');
     statusEl.textContent='Live from Hyperliquid · updated '+new Date().toLocaleTimeString('en-US');
+    setHealthDot('dotHypeFunding','live','Fetched live this render');
   }).catch(err=>{
     statusEl.textContent='Error: '+(err&&err.message?err.message:String(err));
+    setHealthDot('dotHypeFunding','error',err&&err.message?err.message:String(err));
   });
 }
 window.loadHypeFunding=loadHypeFunding;
