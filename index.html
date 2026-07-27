@@ -5389,16 +5389,23 @@ function computeRegimeBacktest(history){
     let hits=0,total=0;
     const targetMs=h.days*86400000,tolerance=targetMs*0.3; // within 30% of the horizon length counts as "close enough"
     history.forEach(row=>{
-      if(row.regimeMag==null||Math.abs(row.regimeMag)<0.05||row.btcPrice==null)return; // skip rows with no real call
+      // FIX: was checking row.btcPrice, which doesn't exist on these objects
+      // (the real field, confirmed from the Worker's SELECT alias and used
+      // correctly everywhere else in this app, is .btc) — row.btcPrice was
+      // always undefined, so every single row failed this check and got
+      // skipped, regardless of how much real regimeMag history had
+      // accumulated. This is why it stayed at 0 calls no matter how much
+      // time passed.
+      if(row.regimeMag==null||Math.abs(row.regimeMag)<0.05||row.btc==null)return; // skip rows with no real call
       const targetTs=row.ts+targetMs;
       let closest=null,closestDiff=Infinity;
       history.forEach(r2=>{
-        if(r2.ts<=row.ts||r2.btcPrice==null)return;
+        if(r2.ts<=row.ts||r2.btc==null)return;
         const diff=Math.abs(r2.ts-targetTs);
         if(diff<closestDiff){closestDiff=diff;closest=r2;}
       });
       if(!closest||closestDiff>tolerance)return;
-      const realizedUp=(closest.btcPrice-row.btcPrice)/row.btcPrice>0;
+      const realizedUp=(closest.btc-row.btc)/row.btc>0;
       const predictedUp=row.regimeMag>0;
       total++;
       if(predictedUp===realizedUp)hits++;
@@ -5416,7 +5423,7 @@ function renderRegimeBacktest(history){
   const results=computeRegimeBacktest(history);
   el.innerHTML='<p class="text-[10px] uppercase tracking-wide text-mutet mb-2">Track record (self-check)</p>'+
     '<div class="grid grid-cols-3 gap-2">'+
-    results.map(r=>`<div class="text-center"><p class="text-[9px] text-mutet">${r.label} forward</p><p class="font-bold text-sm">${r.total>0?(r.hitRate*100).toFixed(0)+'%':'—'}</p><p class="text-[9px] text-mutet">${r.total} call${r.total===1?'':'s'}</p></div>`).join('')+
+    results.map(r=>`<div class="text-center"><p class="text-[9px] text-mutet">${r.label} forward</p><p class="font-bold text-sm tnum">${r.total>0?(r.hitRate*100).toFixed(0)+'%':'—'}</p><p class="text-[9px] text-mutet tnum">${r.total} call${r.total===1?'':'s'}</p></div>`).join('')+
     '</div><p class="text-[9px] text-mutet mt-2">% of past scorecard readings (excluding near-zero/no-call ones) where the overall lean matched BTC\u2019s realized direction over that horizon. Early numbers with few calls aren\u2019t statistically reliable — treat as directional, not confident, until more history accumulates.</p>';
 }
 // ═══ Whale Movements — standalone tile only. Reuses the already-deployed
