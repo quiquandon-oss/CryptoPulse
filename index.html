@@ -1105,6 +1105,24 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="sosoEtfList"></div>
       </div>
 
+      <!-- 9 Magnificent — market-cap-weighted basket of major tech/AI names
+           (Broadcom, Apple, Tesla, Microsoft, Meta, Alphabet, Amazon,
+           Nvidia, SpaceX). STANDALONE DISPLAY TILE ONLY — not yet wired
+           into the Sentiment composite or Regime Scorecard, pending
+           approval on look/feel first, per explicit request. Data via
+           PulseWorker's /stock-proxy (Yahoo Finance v8/chart, server-side —
+           see that route's own comment for the unofficial-API caveat). -->
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h3 class="text-sm font-semibold">9 Magnificent<span id="dotNineMag" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h3>
+            <p class="text-xs text-mutet mt-0.5">Broadcom · Apple · Tesla · Microsoft · Meta · Alphabet · Amazon · Nvidia · SpaceX — 24h change</p>
+          </div>
+          <span class="text-xs text-mutet" id="nineMagMeta">—</span>
+        </div>
+        <div class="grid grid-cols-3 gap-2" id="nineMagGrid"></div>
+      </div>
+
       <!-- ═══ Hyperliquid Funding & Open Interest — HYPE, SOL, LINK, one API call.
            Direct from Hyperliquid's own public info endpoint, no key required.
            HYPE's funding now feeds the composite score (source id "hypefunding",
@@ -3443,6 +3461,51 @@ function renderSosoEtfFlows(data){
   }
 }
 
+// ---- 9 Magnificent — standalone display tile, NOT yet wired into the
+// Sentiment composite or Regime Scorecard (pending approval on look/feel
+// per explicit request). Data via PulseWorker's /stock-proxy.
+const NINE_MAG_ORDER=['NVDA','AVGO','AAPL','MSFT','GOOGL','AMZN','META','TSLA','SPCX'];
+const NINE_MAG_NAMES={NVDA:'Nvidia',AVGO:'Broadcom',AAPL:'Apple',MSFT:'Microsoft',GOOGL:'Alphabet',AMZN:'Amazon',META:'Meta',TSLA:'Tesla',SPCX:'SpaceX'};
+async function fetchNineMagnificent(){
+  const res=await fetch(`${PULSE_WORKER_URL}/stock-proxy`,{cache:'no-store'});
+  if(!res.ok)throw new Error('Stock proxy '+res.status);
+  const json=await res.json();
+  if(json.error)throw new Error(json.error);
+  return json;
+}
+function renderNineMagnificent(data){
+  const grid=$('#nineMagGrid'),metaEl=$('#nineMagMeta');
+  if(!grid)return;
+  const quotes=data.quotes||{};
+  let anyOk=false,anyErr=false;
+  grid.innerHTML=NINE_MAG_ORDER.map(sym=>{
+    const q=quotes[sym];
+    const label=NINE_MAG_NAMES[sym]||sym;
+    if(!q||q.error||q.price==null||q.prevClose==null){
+      anyErr=true;
+      return`<div class="bg-panel2 rounded-xl" style="padding:10px"><p class="text-xs font-semibold">${sym}</p><p class="text-[10px] text-mutet mt-0.5">${label}</p><p class="text-xs text-mutet mt-1">N/A</p></div>`;
+    }
+    anyOk=true;
+    const pct=(q.price-q.prevClose)/q.prevClose*100;
+    const up=pct>=0,color=up?'#3BF38B':'#FF5C72';
+    const barPct=Math.max(2,Math.min(100,50+pct*8)); // ±6.25% spans the full bar width, centered at 0%
+    return`<div class="bg-panel2 rounded-xl" style="padding:10px">
+      <p class="text-xs font-semibold">${sym}</p>
+      <p class="text-[10px] text-mutet mt-0.5">${label}</p>
+      <p class="tnum font-bold text-sm mt-1" style="color:${color}">${up?'+':''}${pct.toFixed(2)}%</p>
+      <div class="w-full rounded-full bg-panel overflow-hidden mt-1.5" style="height:4px">
+        <div style="width:${barPct}%;height:4px;background:${color};border-radius:9999px"></div>
+      </div>
+    </div>`;
+  }).join('');
+  const ageMin=data.ts?Math.round((Date.now()-data.ts)/60000):null;
+  const ageTxt=ageMin==null?'—':ageMin<60?`${ageMin}m ago`:`${(ageMin/60).toFixed(1)}h ago`;
+  if(metaEl)metaEl.textContent=`Updated ${ageTxt}`;
+  if(!anyOk)setHealthDot('dotNineMag','error','All 9 symbols failed to load');
+  else if(anyErr)setHealthDot('dotNineMag','live','Fetched OK, some symbols unavailable this cycle');
+  else setHealthDot('dotNineMag','live','Fetched OK this cycle');
+}
+
 // ════════════════════════════════════════════════════════════════
 // INDEPENDENT COMPOSITE SENTIMENT SCORING — ported directly from Pulse's
 // frontend (quiquandon-oss/Sentiment), so CryptoPulse no longer depends on
@@ -4323,6 +4386,15 @@ async function _initSentimentTabImpl(){
   }catch(err){
     console.error('Error fetching SoSoValue ETF data:',err);
     $('#sosoEtfList').innerHTML='<p class="text-xs text-mutet col-span-4">Error: '+(err && err.message ? err.message : String(err))+'</p>';
+  }
+  // ---- 9 Magnificent — standalone display, not yet feeding the composite ----
+  try{
+    const nineMagData=await fetchNineMagnificent();
+    renderNineMagnificent(nineMagData);
+  }catch(err){
+    console.error('Error fetching 9 Magnificent data:',err);
+    $('#nineMagGrid').innerHTML='<p class="text-xs text-mutet" style="grid-column:span 3">Error: '+(err && err.message ? err.message : String(err))+'</p>';
+    setHealthDot('dotNineMag','error',err&&err.message?err.message:String(err));
   }
   // ---- Technical Analysis (BTC): live levels + Technical score. Moved ahead of
   // the composite score computation below so technicalScore can be saved into
