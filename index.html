@@ -6860,10 +6860,20 @@ async function fetchSectorRotation(){
   const nasdaqVals=(json.observations||[]).map(o=>parseFloat(o.value)).filter(v=>!isNaN(v)).reverse(); // oldest->newest
   if(nasdaqVals.length<10)throw new Error('Not enough Nasdaq history returned');
   const nasdaqSlope=normalizedSlope(nasdaqVals);
-  const h=PRICE_HISTORY.BTC;
-  if(!h)throw new Error('No BTC price history available');
-  const dates=Object.keys(h).sort().slice(-nasdaqVals.length);
-  const btcSlope=normalizedSlope(dates.map(d=>h[d]));
+  // FIX: this used to read BTC's own trend from PRICE_HISTORY — a static
+  // table embedded at build time that stops at June 26. That meant this
+  // comparison was structurally incapable of reflecting anything from the
+  // current period, no matter how fresh the Nasdaq side was: on a day with
+  // a real, unambiguous mega-cap-tech selloff, this signal was silently
+  // comparing BTC's April-June behavior against a recent Nasdaq window.
+  // Fetch real, live BTC daily closes instead, matching the same CoinGecko
+  // call pattern already used reliably elsewhere in this app.
+  const btcRes=await cgFetch(`${CG}/coins/bitcoin/market_chart?vs_currency=usd&days=90`);
+  if(!btcRes.ok)throw new Error('CoinGecko BTC market_chart '+btcRes.status);
+  const btcJson=await btcRes.json();
+  const btcCloses=(btcJson.prices||[]).map(p=>p[1]);
+  if(btcCloses.length<nasdaqVals.length)throw new Error('Not enough live BTC history returned');
+  const btcSlope=normalizedSlope(btcCloses.slice(-nasdaqVals.length));
   if(nasdaqSlope==null||btcSlope==null)throw new Error('Could not fit trend for one or both series');
   const gap=btcSlope-nasdaqSlope; // BTC's own daily % trend minus Nasdaq's
   let label,tag;
