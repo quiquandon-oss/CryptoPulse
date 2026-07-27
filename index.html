@@ -587,7 +587,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            toward one edge instead of Base. -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-center justify-between mb-1">
-          <h2 class="font-semibold text-sm">Scenario tracking vs. reality</h2>
+          <h2 class="font-semibold text-sm">Scenario tracking vs. reality<span id="dotScenTracking" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h2>
           <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'scenTrackNote')">ⓘ Info</button>
         </div>
         <p class="hidden text-xs text-mutet mb-3" id="scenTrackNote">Baseline is your actual portfolio value on your first recorded transaction — not a re-forecast, an honesty check on the assumptions above using real history.</p>
@@ -1129,7 +1129,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            feature CryptoPulse had before. -->
       <div class="rounded-2xl border border-line bg-panel p-5">
         <div class="flex items-center justify-between mb-2">
-          <h3 class="text-sm font-semibold">Sentiment → Price Correlation (24h lag)</h3>
+          <h3 class="text-sm font-semibold">Sentiment → Price Correlation (24h lag)<span id="dotCorrelation" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h3>
           <div class="flex items-center gap-2">
             <span class="text-xs text-mutet" id="pulseAnalysisStatus">—</span>
             <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'correlationNote')">ⓘ Info</button>
@@ -1149,7 +1149,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <div class="rounded-2xl border border-line bg-panel p-5 space-y-4">
         <div class="flex items-center justify-between">
           <div>
-            <h2 class="font-semibold mb-1">Technical Analysis (BTC)</h2>
+            <h2 class="font-semibold mb-1">Technical Analysis (BTC)<span id="dotTechAnalysis" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h2>
             <p class="text-xs text-mutet">Tenkan/Kijun/MA levels computed live here · LLM read via Pulse (Cloudflare AI)</p>
           </div>
           <span class="text-xs text-mutet" id="techStatus">—</span>
@@ -2672,12 +2672,19 @@ function renderPulseAnalysis(a,statusId,bodyId,latestSourcesOverride){
   statusId=statusId||'pulseAnalysisStatus';bodyId=bodyId||'pulseCorrelationBody';
   const host=$('#'+bodyId);const status=$('#'+statusId);
   if(!host||!status)return;
+  // Only touch the main tile's dot when this is genuinely the main tile call
+  // (bodyId==='pulseCorrelationBody') — this function is also called from
+  // the Settings correlation explorer with a different bodyId/custom lag,
+  // which shouldn't override the main tile's own status.
+  const isMainTile=bodyId==='pulseCorrelationBody';
   if(a.insufficientData){
     status.textContent=`${a.pointsAvailable} point(s)`;
     host.innerHTML=`<p class="text-xs text-mutet">${a.message}</p>`;
+    if(isMainTile)setHealthDot('dotCorrelation','live','Fetched OK — not enough history yet for a reliable read');
     return;
   }
   status.textContent=`${a.pointsTotal} point(s) · ${a.compositeSamples} sample(s)`;
+  if(isMainTile)setHealthDot('dotCorrelation','live',`Fetched OK — ${a.pointsTotal} point(s)`);
   const fmt=v=>v==null?'—':(v>=0?'+':'')+v.toFixed(2);
   const compColor=a.compositeCorrelation==null?'#94A3B8':Math.abs(a.compositeCorrelation)>=0.3?(a.compositeCorrelation>0?'#3BF38B':'#F5606C'):'#94A3B8';
   let h=`<div class="flex items-center justify-between mb-1 pb-1">
@@ -4312,12 +4319,14 @@ async function _initSentimentTabImpl(){
     const t=await fetchBtcTechnicals();
     renderTechnicalLevels(t);
     $('#techStatus').textContent='Live';
+    setHealthDot('dotTechAnalysis','live','Fetched OK this visit');
     technicalsForTrader=t;
     technicalScore=computeTechnicalScore(t);
   }catch(err){
     console.error('Error fetching BTC technicals:',err);
     $('#techStatus').textContent='Error';
     $('#techPrice').textContent='—';
+    setHealthDot('dotTechAnalysis','error',err&&err.message?err.message:String(err));
     const detailBody=$('#techDetailBody');
     if(detailBody)detailBody.innerHTML='<p class="text-xs text-mutet">Technical error: '+(err&&err.message?err.message:String(err))+'</p>';
   }
@@ -4365,6 +4374,7 @@ async function _initSentimentTabImpl(){
     console.error('Error fetching Pulse analysis:',err);
     $('#pulseAnalysisStatus').textContent='Error';
     $('#pulseCorrelationBody').innerHTML='<p class="text-xs text-mutet">Technical error: '+(err&&err.message?err.message:String(err))+'</p>';
+    setHealthDot('dotCorrelation','error',err&&err.message?err.message:String(err));
   }
   // ---- DCA metrics sync (unaffected by any of the above — independent of sentiment) ----
   try{
@@ -5198,6 +5208,7 @@ function portfolioValueUsdAt(d){
   return val;
 }
 function renderScenarioTracking(){
+  setHealthDot('dotScenTracking','static','Computed from your own transactions — not live-fetched data');
   const host=$('#scenTrackingPanel');if(!host)return;
   const baselinePrice=portfolioValueUsdAt(APP_TRACKING_START);
   if(!(baselinePrice>0)){
