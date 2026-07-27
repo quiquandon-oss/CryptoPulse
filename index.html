@@ -736,7 +736,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <!-- ═══ Hero row: phase icon (color-tinted), circular cycle dial, ATH
            drawdown gauge — replaces the old plain stat-card grid. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5" id="cycHeroCard">
-        <h2 class="font-semibold mb-1">Where are we in the cycle?</h2>
+        <h2 class="font-semibold mb-1">Where are we in the cycle?<span id="dotCycleHero" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h2>
         <p class="text-xs text-mutet mb-4">Crypto moves in halving-driven ~4-year cycles, historically. This adds cycle-aware context on top of the Scenarios tab's static Bear/Base/Bull — it doesn't replace it.</p>
         <div class="grid grid-cols-3 gap-3 items-center mb-3">
           <div class="text-center">
@@ -773,7 +773,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            brainstorm: see all 4 cycles on the same "days since halving" axis. -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-center justify-between mb-1">
-          <h2 class="font-semibold">This cycle vs. the last three</h2>
+          <h2 class="font-semibold">This cycle vs. the last three<span id="dotCycOverlay" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h2>
           <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'cycOverlayNote')">ⓘ Info</button>
         </div>
         <p class="hidden text-xs text-mutet mb-3" id="cycOverlayNote">BTC price indexed to 100 on halving day, log scale. Connects sourced checkpoints (halving → peak → bottom) for each past cycle, not continuous daily data — CryptoPulse doesn't have dense price history back to 2012 embedded. Current cycle's "now" point uses live price.</p>
@@ -782,7 +782,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
 
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-center justify-between mb-1">
-          <h2 class="font-semibold">Diminishing returns, cycle over cycle</h2>
+          <h2 class="font-semibold">Diminishing returns, cycle over cycle<span id="dotDiminishing" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h2>
           <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'cycDiminishingNote')">ⓘ Info</button>
         </div>
         <p class="hidden text-xs text-mutet mb-3" id="cycDiminishingNote">Documented pattern: each cycle's peak % gain has been smaller than the last — not because BTC is weakening, but because a larger market cap needs proportionally more capital to move the same percentage.</p>
@@ -5477,16 +5477,19 @@ function computeRegimeBacktest(history){
 }
 function renderRegimeBacktest(history){
   const el=$('#cycRegimeBacktest');if(!el)return;
+  const dotSpan='<span id="dotTrackRecord" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span>';
   const hasField=history.some(h=>h.regimeMag!=null);
   if(!hasField){
-    el.innerHTML='<p class="text-[10px] text-mutet">No regime-magnitude history yet — this starts accumulating from now (and needs a few weeks before the longer horizons have anything to check).</p>';
+    el.innerHTML='<p class="text-[10px] uppercase tracking-wide text-mutet mb-2">Track record (self-check)'+dotSpan+'</p><p class="text-[10px] text-mutet">No regime-magnitude history yet — this starts accumulating from now (and needs a few weeks before the longer horizons have anything to check).</p>';
+    setHealthDot('dotTrackRecord','live','Computed OK \u2014 no regime-magnitude history yet');
     return;
   }
   const results=computeRegimeBacktest(history);
-  el.innerHTML='<p class="text-[10px] uppercase tracking-wide text-mutet mb-2">Track record (self-check)</p>'+
+  el.innerHTML='<p class="text-[10px] uppercase tracking-wide text-mutet mb-2">Track record (self-check)'+dotSpan+'</p>'+
     '<div class="grid grid-cols-3 gap-2">'+
     results.map(r=>`<div class="text-center"><p class="text-[9px] text-mutet">${r.label} forward</p><p class="font-bold text-sm tnum">${r.total>0?(r.hitRate*100).toFixed(0)+'%':'—'}</p><p class="text-[9px] text-mutet tnum">${r.total} call${r.total===1?'':'s'}</p></div>`).join('')+
     '</div><p class="text-[9px] text-mutet mt-2">% of past scorecard readings (excluding near-zero/no-call ones) where the overall lean matched BTC\u2019s realized direction over that horizon. Early numbers with few calls aren\u2019t statistically reliable — treat as directional, not confident, until more history accumulates.</p>';
+  setHealthDot('dotTrackRecord','live',`Computed OK from ${history.length} history point(s)`);
 }
 // ═══ Whale Movements — standalone tile only. Reuses the already-deployed
 // PulseWorker /whale-proxy endpoint (Whale Alert's public Telegram mirror,
@@ -6119,6 +6122,21 @@ function renderCyclesTab(){
 
   // ---- ATH drawdown gauge ----
   const btcNow=pxUsd('BTC');
+  // Shared freshness check reused below for both this hero card's dot and
+  // the overlay chart's dot — both depend on this same live-or-fallback BTC
+  // price for their one live component (everything else here is static
+  // calendar/historical math). Same reasoning as the Per-coin ATH tile.
+  let btcPriceDotState='error',btcPriceDotDetail='No price available';
+  if(btcNow>0){
+    if(state.prices['BTC']?.usd){
+      const ageMin=Math.round((Date.now()-(state.prices['BTC'].fetchedAt||0))/60000);
+      const ageTxt=ageMin<60?`${ageMin}m ago`:`${(ageMin/60).toFixed(1)}h ago`;
+      btcPriceDotState=ageMin<=5?'live':'stale';btcPriceDotDetail=`BTC price updated ${ageTxt}`;
+    }else{
+      btcPriceDotState='static';btcPriceDotDetail='Using the embedded price snapshot, not a live fetch';
+    }
+  }
+  setHealthDot('dotCycleHero',btcPriceDotState,btcPriceDotDetail);
   const gaugeH=96;
   let dd=null;
   if(btcNow>0){
@@ -6190,8 +6208,13 @@ function renderCyclesTab(){
     }}};
   if(cycOverlayChartInst){cycOverlayChartInst.data=overlayCfg.data;cycOverlayChartInst.options=overlayCfg.options;cycOverlayChartInst.update();}
   else cycOverlayChartInst=new Chart(overlayCv,overlayCfg);
+  setHealthDot('dotCycOverlay',btcPriceDotState,btcPriceDotDetail);
 
   // ---- Diminishing-returns bar chart + adjusted-Bull table ----
+  // Static: uses only already-recorded historical cycle ATH/start prices
+  // (CYCLE_ATH is a fixed reference, not the live btcNow used above) — no
+  // live-price dependency at all, unlike the hero card and overlay chart.
+  setHealthDot('dotDiminishing','static','Historical cycle data only \u2014 not live-price-dependent');
   const roiPct=HALVING_HISTORY.map(c=>(c.peakPrice-c.startPrice)/c.startPrice*100);
   roiPct.push((CYCLE_ATH.price-CURRENT_CYCLE_START_PRICE)/CURRENT_CYCLE_START_PRICE*100);
   const dimCv=$('#cycDiminishingChart');
