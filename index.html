@@ -708,7 +708,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            per coin, all cached client-side. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-center justify-between mb-1">
-          <h2 class="font-semibold">Market Cap Composition</h2>
+          <h2 class="font-semibold">Market Cap Composition<span id="dotMcapComposition" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h2>
           <button onclick="openMcapFullscreen('compare')" class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1">⤢ Fullscreen</button>
         </div>
         <div class="flex gap-1.5 mb-3 flex-wrap" id="mcapCompareRangeTabs">
@@ -831,7 +831,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            Trader Analysis yet — informational only for now. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-center justify-between mb-1">
-          <h2 class="font-semibold">Whale Movements</h2>
+          <h2 class="font-semibold">Whale Movements<span id="dotWhaleMovements" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h2>
           <button id="whaleRefreshBtn" class="px-2 py-1 rounded-md text-mutet hover:text-white" title="Refresh" onclick="renderWhaleTile()">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v6h-6"/></svg>
           </button>
@@ -848,7 +848,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            Sentiment, the Regime Scorecard, or Trader Analysis yet. ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-center justify-between mb-1">
-          <h2 class="font-semibold">Liquidation Levels (Modeled)</h2>
+          <h2 class="font-semibold">Liquidation Levels (Modeled)<span id="dotLiquidation" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h2>
           <div class="flex items-center gap-1">
             <button id="liqExpandBtn" class="px-2 py-1 rounded-md text-mutet hover:text-white" title="Fullscreen" onclick="openLiqFullscreen()">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
@@ -933,7 +933,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <div class="rounded-2xl border border-line bg-panel p-5 space-y-4">
         <div class="flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h2 class="font-semibold mb-1 flex items-center gap-2">Buy-Window Radar <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'radarNote')">ⓘ Info</button></h2>
+            <h2 class="font-semibold mb-1 flex items-center gap-2">Buy-Window Radar<span id="dotRadar" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:2px;vertical-align:middle;"></span> <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'radarNote')">ⓘ Info</button></h2>
             <p class="hidden text-xs text-mutet max-w-md" id="radarNote">Uses a 90-day hourly heatmap to find which day/hour this coin has historically traded cheapest. Refreshes hourly. A pattern-recognition tool, not financial advice.</p>
           </div>
           <div class="flex items-center gap-2">
@@ -1099,7 +1099,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            Moved above the Hyperliquid funding tile per request. -->
       <div class="rounded-2xl border border-line bg-panel p-5">
         <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-semibold">Spot ETF Net Inflow (SoSoValue)</h3>
+          <h3 class="text-sm font-semibold">Spot ETF Net Inflow (SoSoValue)<span id="dotEtfFlows" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h3>
           <span class="text-xs text-mutet" id="sosoEtfCacheNote">—</span>
         </div>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="sosoEtfList"></div>
@@ -2139,6 +2139,7 @@ async function ensureRadarData(sym,token){
     if(token===radarToken&&state.radar.coin===sym){
       $('#radarWindow').textContent='Analysis unavailable';
       $('#radarReliability').textContent=e.message;
+      setHealthDot('dotRadar','error',e.message);
     }
   }
 }
@@ -2174,6 +2175,10 @@ function renderRadarFromCache(sym){
     $('#radarWindow').textContent=`${RADAR_DAYS_EN[best.day]}, ${h0}:00–${h1}:00`;
     $('#radarReliability').textContent=`Reliable ${hits}/${total} weeks · avg ${best.pct.toFixed(2)}% below weekly mean (local time)`;
     renderRadarHeatmap(c.weekly);
+    // Hourly cadence (RADAR_REFRESH_MS) — 2h (roughly 2x) before calling it stale.
+    const ageHours=(Date.now()-c.fetchedAt)/3600000;
+    const ageTxt=ageHours<1?Math.round(ageHours*60)+'m ago':ageHours.toFixed(1)+'h ago';
+    setHealthDot('dotRadar',ageHours<=2?'live':'stale',`Updated ${ageTxt}`);
   }
 }
 // ---- Weekly trend signal (Tuesday→Tuesday week, per explicit choice) ----
@@ -3418,6 +3423,17 @@ function renderSosoEtfFlows(data){
       <p class="text-[10px] text-mutet mt-0.5">${d.days}d sum: ${fmtUsdCompact(d.weekSum)}</p>
     </div>`;
   }).join('');
+  // Freshness based on the underlying data's own reported date (not just
+  // browser cache age) — daily-cadence data, so 36h allows for normal
+  // reporting lag before calling it stale.
+  const validDates=SOSO_ETF_SYMS.map(s=>data[s]&&data[s].date).filter(Boolean);
+  if(!validDates.length){
+    setHealthDot('dotEtfFlows','error','No usable data from any tracked symbol');
+  }else{
+    const latestDate=validDates.sort().reverse()[0];
+    const ageHours=(Date.now()-new Date(latestDate+'T00:00:00Z').getTime())/3600000;
+    setHealthDot('dotEtfFlows',ageHours<=36?'live':'stale',`Latest data: ${latestDate}`);
+  }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -5520,10 +5536,11 @@ function renderWhaleTile(){
         '.</p>'+
         (dbg&&dbg.sampleAroundTransferred?'<p class="text-[10px] text-mutet mt-2 font-mono whitespace-pre-wrap break-all bg-panel2 rounded-lg p-2">'+dbg.sampleAroundTransferred.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</p>':'')+
         (dbg&&dbg.charsBeforeTicker?'<p class="text-[10px] text-mutet mt-2 font-mono bg-panel2 rounded-lg p-2">char codes: '+dbg.charsBeforeTicker.map(c=>c.code).join(',')+'</p>':'');
+      setHealthDot('dotWhaleMovements','live','Fetched OK, nothing parsed this cycle');
       return;
     }
     const items=rawItems.filter(it=>WHALE_TILE_SYMBOLS.includes(it.symbol));
-    if(!items.length){el.innerHTML='<p class="text-xs text-mutet">No BTC/ETH/SOL/LINK transfers in the current window.</p>';return;}
+    if(!items.length){el.innerHTML='<p class="text-xs text-mutet">No BTC/ETH/SOL/LINK transfers in the current window.</p>';setHealthDot('dotWhaleMovements','live','Fetched OK, no matching symbols this cycle');return;}
     const classified=items.map(it=>{
       const fromEx=whaleTileIsExchange(it.from),toEx=whaleTileIsExchange(it.to);
       const fromUnk=whaleTileIsUnknown(it.from),toUnk=whaleTileIsUnknown(it.to);
@@ -5532,7 +5549,7 @@ function renderWhaleTile(){
       else if(fromUnk&&toEx)direction='inflow';
       return{...it,direction};
     }).filter(it=>it.direction); // only the interpretable ones — exchange<->exchange and unknown<->unknown excluded
-    if(!classified.length){el.innerHTML='<p class="text-xs text-mutet">No labeled-exchange transfers in the current window (only exchange<->unknown-wallet moves are shown here).</p>';return;}
+    if(!classified.length){el.innerHTML='<p class="text-xs text-mutet">No labeled-exchange transfers in the current window (only exchange<->unknown-wallet moves are shown here).</p>';setHealthDot('dotWhaleMovements','live','Fetched OK, no labeled-exchange transfers this cycle');return;}
     const concentration=computeWhaleConcentration(classified);
     // ---- Cross-tab handoff to Trader Analysis — same "populated only if
     // visited this session" pattern as liquidationClusters. Only the raw
@@ -5563,6 +5580,7 @@ function renderWhaleTile(){
         <span class="text-xs font-semibold shrink-0 ml-2" style="color:${color}">${arrow} ${label}</span>
       </div>`;
     }).join('');
+    setHealthDot('dotWhaleMovements','live','Fetched OK this cycle');
     // ---- Plain-language AI narration — CryptoPulse already did the actual
     // classification AND the concentration/bidirectional flag detection
     // above; the Worker's LLM only explains it in everyday language for
@@ -5581,6 +5599,7 @@ function renderWhaleTile(){
       });
   }).catch(err=>{
     el.innerHTML='<p class="text-xs text-down">Could not load whale data: '+(err&&err.message?err.message:String(err))+'</p>';
+    setHealthDot('dotWhaleMovements','error',err&&err.message?err.message:String(err));
   });
 }
 // ═══ Liquidation Levels — standalone tile only, same standalone principle as
@@ -5906,6 +5925,7 @@ async function renderLiquidationTile(){
   try{assets=await fetchHyperliquidAssets();}catch(e){
     summaryEl.innerHTML='<p class="text-mutet">Could not load Hyperliquid data: '+e.message+'</p>';
     if(analysisEl)analysisEl.textContent='';
+    setHealthDot('dotLiquidation','error',e.message);
     return;
   }
   const perAsset={};
@@ -5922,6 +5942,7 @@ async function renderLiquidationTile(){
   if(!Object.keys(perAsset).length){
     summaryEl.innerHTML='<p class="text-mutet">No Hyperliquid data available this cycle.</p>';
     if(analysisEl)analysisEl.textContent='';
+    setHealthDot('dotLiquidation','live','Fetched OK, no data this cycle');
     return;
   }
   summaryEl.innerHTML=LIQ_SYMBOLS.filter(s=>perAsset[s]).map(sym=>{
@@ -5936,6 +5957,7 @@ async function renderLiquidationTile(){
       <span>${elevated}</span>
     </div>`;
   }).join('');
+  setHealthDot('dotLiquidation','live','Fetched OK this cycle');
   await renderLiquidationChart(); // populate liqState.last* first, so the AI payload can reference the actual visible chart data
   if(analysisEl){
     analysisEl.textContent='Loading plain-language summary…';
@@ -7486,11 +7508,13 @@ async function renderMcapCompareChart(){
   const available=MCAP_COMPARE_COINS.filter(c=>perCoin[c]&&perCoin[c].length>1);
   if(!available.length){
     noteEl.textContent="Couldn't load market cap data right now \u2014 will retry next refresh.";
+    setHealthDot('dotMcapComposition','error',"Couldn't load");
     return;
   }
   const cfg=buildMcapCompareChartConfig(perCoin,available,mcapCompareRange);
   if(mcapCompareChartInst){mcapCompareChartInst.data=cfg.data;mcapCompareChartInst.options=cfg.options;mcapCompareChartInst.update();}
   else mcapCompareChartInst=new Chart(cv,cfg);
+  setHealthDot('dotMcapComposition','live',available.length+'/'+MCAP_COMPARE_COINS.length+' coins loaded');
   const missing=MCAP_COMPARE_COINS.filter(c=>!available.includes(c));
   const hasOther=cfg.data.datasets.some(ds=>ds.label==='Other');
   noteEl.textContent=(missing.length?`Showing ${available.join(', ')} \u2014 ${missing.join(', ')} unavailable right now. `:'')+`Stacked composition, real CoinGecko data \u2014 ${mcapCompareRange} range.`+(hasOther?' "Other" (rest of market) included where real total-market data overlaps.':' "Other" not shown \u2014 no real total-market data close enough in time yet.');
