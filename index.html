@@ -3509,9 +3509,18 @@ async function srcFundingRate(){
   return{score:to0_100(satur(avgRate8h*100,0.05))};
 }
 async function srcLongShort(){
-  const res=await fetch('https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=BTCUSDT&period=1h&limit=1');
-  if(!res.ok)throw new Error('Binance long/short '+res.status);
+  // FIX: was calling fapi.binance.com directly from the browser — confirmed
+  // (via Binance's own developer community forum) that this endpoint blocks
+  // arbitrary browser origins with CORS, which is exactly why 'longshort'
+  // was always silently absent from every cycle's sources_json despite being
+  // a registered composite source. Routed through PulseWorker's server-side
+  // proxy instead, since a Worker fetch isn't subject to browser CORS — same
+  // fix pattern already applied to srcFundingRate previously (see its own
+  // comment: "the old Binance-based convention").
+  const res=await fetch(`${PULSE_WORKER_URL}/longshort-proxy`);
+  if(!res.ok)throw new Error('Long/short proxy '+res.status);
   const json=await res.json();
+  if(json.error)throw new Error('Long/short proxy: '+json.error);
   const ratio=parseFloat(json[0].longShortRatio);
   return{score:to0_100(satur(Math.log(ratio),0.6))};
 }
