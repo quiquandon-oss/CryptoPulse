@@ -1120,6 +1120,33 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           </div>
           <span class="text-xs text-mutet" id="nineMagMeta">—</span>
         </div>
+        <!-- Basket score gauge — same rainbow bar+marker style as the RSI
+             gauge, previewing what this would map to on the same 0-100
+             sentiment scale if wired into the composite later. Not live in
+             the composite yet — display only. -->
+        <div class="mb-3">
+          <div class="flex items-center justify-between mb-1">
+            <p class="text-xs text-mutet">Basket score (preview — not yet feeding Sentiment)</p>
+            <span id="nineMagScoreVal" class="tnum font-bold text-sm">—</span>
+          </div>
+          <svg viewBox="0 0 200 20" width="100%" height="20" style="width:100%;height:20px">
+            <defs><linearGradient id="nineMagGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#F5606C"/><stop offset="50%" stop-color="#94A3B8"/><stop offset="100%" stop-color="#3BF38B"/>
+            </linearGradient></defs>
+            <rect x="4" y="6" width="192" height="8" rx="4" fill="url(#nineMagGrad)"/>
+            <polygon id="nineMagScoreMarker" points="-5,0 5,0 0,8" fill="#E5E7EB" transform="translate(100,0)" style="transition:transform .5s ease"/>
+          </svg>
+        </div>
+        <!-- 30-day chart: basket vs BTC, both rebased to 0% at the start of
+             the window, since comparing raw price levels ($100s vs $65K+)
+             on one chart wouldn't be readable. -->
+        <div class="mb-3">
+          <div class="flex items-center gap-3 mb-1 text-[9px] text-mutet">
+            <span class="flex items-center gap-1"><span class="inline-block w-1.5 h-1.5 rounded-full" style="background:#E5E7EB"></span>9 Magnificent (rebased)</span>
+            <span class="flex items-center gap-1"><span class="inline-block w-1.5 h-1.5 rounded-full" style="background:#F7931A"></span>BTC (rebased)</span>
+          </div>
+          <div class="h-[110px]"><canvas id="nineMagChart"></canvas></div>
+        </div>
         <div class="grid grid-cols-3 gap-2" id="nineMagGrid"></div>
       </div>
 
@@ -3466,12 +3493,108 @@ function renderSosoEtfFlows(data){
 // per explicit request). Data via PulseWorker's /stock-proxy.
 const NINE_MAG_ORDER=['NVDA','AVGO','AAPL','MSFT','GOOGL','AMZN','META','TSLA','SPCX'];
 const NINE_MAG_NAMES={NVDA:'Nvidia',AVGO:'Broadcom',AAPL:'Apple',MSFT:'Microsoft',GOOGL:'Alphabet',AMZN:'Amazon',META:'Meta',TSLA:'Tesla',SPCX:'SpaceX'};
+let nineMagChartInst=null;
 async function fetchNineMagnificent(){
   const res=await fetch(`${PULSE_WORKER_URL}/stock-proxy`,{cache:'no-store'});
   if(!res.ok)throw new Error('Stock proxy '+res.status);
   const json=await res.json();
   if(json.error)throw new Error(json.error);
   return json;
+}
+// Today's basket move: market-cap-weighted if every symbol has a market cap
+// this cycle, otherwise falls back to equal-weight rather than silently
+// dropping symbols. Verified against a synthetic Monday-like scenario
+// (NVDA -4.99%, others mild) before integration.
+function computeNineMagScore(quotes){
+  let weightedSum=0,weightTotal=0,allHaveMcap=true;
+  const changes=[];
+  NINE_MAG_ORDER.forEach(sym=>{
+    const q=quotes[sym];
+    if(!q||q.error||q.price==null||q.prevClose==null)return;
+    const pct=(q.price-q.prevClose)/q.prevClose*100;
+    changes.push(pct);
+    if(q.marketCap){weightedSum+=pct*q.marketCap;weightTotal+=q.marketCap;}
+    else allHaveMcap=false;
+  });
+  if(!changes.length)return null;
+  const useWeighted=allHaveMcap&&weightTotal>0;
+  const avgPct=useWeighted?weightedSum/weightTotal:changes.reduce((a,b)=>a+b,0)/changes.length;
+  return{avgPct,weighted:useWeighted,n:changes.length};
+}
+function nearestSeriesPoint(series,targetTs){
+  let best=null,bestDiff=Infinity;
+  series.forEach(p=>{const diff=Math.abs(p.ts-targetTs);if(diff<bestDiff){bestDiff=diff;best=p;}});
+  return best;
+}
+// Builds one blended daily series for the whole basket, each symbol first
+// normalized to "% change from its own first available point" (so a
+// $100 stock and a $700 stock combine sensibly), then averaged per day
+// (weighted by market cap when available). Uses whichever symbol has the
+// most data points as the reference date set — all 9 are US-exchange-listed
+// so their trading calendars should align closely; verified the underlying
+// nearest-timestamp matching against a synthetic weekday-only vs every-day
+// scenario before integration.
+function buildNineMagBasketSeries(quotes){
+  let refSeries=null,maxLen=0;
+  NINE_MAG_ORDER.forEach(sym=>{
+    const q=quotes[sym];
+    if(q&&q.series&&q.series.length>maxLen){maxLen=q.series.length;refSeries=q.series;}
+  });
+  if(!refSeries||refSeries.length<3)return null;
+  const dates=refSeries.map(p=>p.ts);
+  const normalizedBySym={},weights={};
+  NINE_MAG_ORDER.forEach(sym=>{
+    const q=quotes[sym];
+    if(!q||!q.series||q.series.length<2)return;
+    const base=q.series[0].close;
+    if(!base)return;
+    normalizedBySym[sym]=q.series.map(p=>({ts:p.ts,pct:((p.close-base)/base)*100}));
+    weights[sym]=q.marketCap||null;
+  });
+  const allHaveMcap=Object.keys(normalizedBySym).every(sym=>weights[sym]!=null);
+  return dates.map(refTs=>{
+    let wSum=0,wTotal=0;const vals=[];
+    Object.keys(normalizedBySym).forEach(sym=>{
+      const nearest=nearestSeriesPoint(normalizedBySym[sym].map(p=>({ts:p.ts,close:p.pct})),refTs);
+      if(!nearest)return;
+      vals.push(nearest.close);
+      if(allHaveMcap){wSum+=nearest.close*weights[sym];wTotal+=weights[sym];}
+    });
+    if(!vals.length)return null;
+    const avg=allHaveMcap&&wTotal>0?wSum/wTotal:vals.reduce((a,b)=>a+b,0)/vals.length;
+    return{ts:refTs,pct:avg};
+  }).filter(Boolean);
+}
+async function renderNineMagChart(quotes){
+  const cv=$('#nineMagChart');if(!cv)return;
+  const basket=buildNineMagBasketSeries(quotes);
+  if(!basket||basket.length<3)return;
+  let btcSeries=[];
+  try{
+    const btcRes=await cgFetch(`${CG}/coins/bitcoin/market_chart?vs_currency=usd&days=35`);
+    if(btcRes.ok){
+      const btcJson=await btcRes.json();
+      btcSeries=(btcJson.prices||[]).map(p=>({ts:p[0],close:p[1]}));
+    }
+  }catch(e){console.warn('9 Magnificent chart: BTC fetch failed, showing basket only:',e.message);}
+  const labels=basket.map(p=>new Date(p.ts).toLocaleDateString([],{month:'short',day:'numeric'}));
+  const basketVals=basket.map(p=>p.pct);
+  let btcVals=null;
+  if(btcSeries.length){
+    const aligned=basket.map(p=>nearestSeriesPoint(btcSeries,p.ts));
+    if(aligned.every(Boolean)){
+      const base=aligned[0].close;
+      btcVals=aligned.map(a=>((a.close-base)/base)*100);
+    }
+  }
+  const datasets=[{label:'9 Magnificent',data:basketVals,borderColor:'#E5E7EB',borderWidth:1.5,pointRadius:0,tension:.15,fill:false}];
+  if(btcVals)datasets.push({label:'BTC',data:btcVals,borderColor:'#F7931A',borderWidth:1.5,pointRadius:0,tension:.15,fill:false});
+  const cfg={type:'line',data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,
+    scales:{x:{display:false},y:{display:false}},
+    plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false,callbacks:{label:c=>c.dataset.label+': '+(c.parsed.y>=0?'+':'')+c.parsed.y.toFixed(1)+'%'}}}
+  }};
+  if(nineMagChartInst){nineMagChartInst.data=cfg.data;nineMagChartInst.options=cfg.options;nineMagChartInst.update();}
+  else nineMagChartInst=new Chart(cv,cfg);
 }
 function renderNineMagnificent(data){
   const grid=$('#nineMagGrid'),metaEl=$('#nineMagMeta');
@@ -3498,6 +3621,20 @@ function renderNineMagnificent(data){
       </div>
     </div>`;
   }).join('');
+  // Basket score gauge — same 0-100 scale as RSI/Sentiment, ±2.5% saturation
+  // (tighter than a single stock's, since averaging 9 names naturally
+  // reduces day-to-day variance).
+  const scoreValEl=$('#nineMagScoreVal'),scoreMarker=$('#nineMagScoreMarker');
+  const scoreResult=computeNineMagScore(quotes);
+  if(scoreResult&&scoreValEl){
+    const score=to0_100(satur(scoreResult.avgPct,2.5));
+    scoreValEl.textContent=score+(scoreResult.weighted?' (cap-weighted)':' (equal-weight — market cap unavailable)');
+    scoreValEl.style.color=score>60?'#3BF38B':score<40?'#F5606C':'#94A3B8';
+    if(scoreMarker)scoreMarker.setAttribute('transform','translate('+(4+Math.max(0,Math.min(100,score))/100*192)+',0)');
+  }else if(scoreValEl){
+    scoreValEl.textContent='—';
+  }
+  renderNineMagChart(quotes).catch(e=>console.warn('9 Magnificent chart render failed:',e.message));
   const ageMin=data.ts?Math.round((Date.now()-data.ts)/60000):null;
   const ageTxt=ageMin==null?'—':ageMin<60?`${ageMin}m ago`:`${(ageMin/60).toFixed(1)}h ago`;
   if(metaEl)metaEl.textContent=`Updated ${ageTxt}`;
