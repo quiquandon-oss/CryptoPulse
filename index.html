@@ -1180,7 +1180,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
              plus a compact value grid below for exact numbers. -->
         <div class="pt-3 border-t border-line">
           <p class="text-xs text-mutet mb-1.5">Moving Averages vs Price</p>
-          <div id="techMaLadder" class="h-[30px]"></div>
+          <div id="techMaLadder" class="h-[55px]"></div>
           <div id="techMaGrid" class="grid grid-cols-5 gap-1 text-center mt-1"></div>
         </div>
         <!-- Ichimoku cloud diagram — replaces a sentence with a small band
@@ -3047,23 +3047,35 @@ function renderTechnicalLevels(t){
   // distances rather than evenly-spaced placeholder positions.
   const maLadder=$('#techMaLadder');
   const maList=[['Tenkan',t.tenkan],['Kijun',t.kijun],['MA50',t.ma50],['MA100',t.ma100],['MA200',t.ma200]];
+  const maAbbrev=['T','K','50','100','200'];
   const validVals=maList.map(([,v])=>v).filter(v=>v!=null).concat([t.price]);
   if(maLadder&&validVals.length){
     const minV=Math.min(...validVals),maxV=Math.max(...validVals);
     const range=(maxV-minV)||1;
     const xFor=v=>4+((v-minV)/range)*192;
+    // FIX: labels used to sit in a separate uniform-width grid below, with no
+    // positional relationship to the value-scaled ticks above — a tick's
+    // screen position didn't correspond to its label's grid column at all,
+    // so there was no way to tell which line was which. Now labels sit
+    // directly at each tick's real x-position, inside the same SVG.
+    // Alternating above/below by index (not by value) happens to separate
+    // adjacent-value pairs like Kijun/MA50 here, since they're adjacent in
+    // the fixed list order too — a reasonable heuristic, not a guaranteed
+    // collision-avoidance algorithm for every possible value distribution.
     let svg=`<defs><linearGradient id="techMaGrad" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" stop-color="#F5606C"/><stop offset="50%" stop-color="#5B6472"/><stop offset="100%" stop-color="#3BF38B"/>
     </linearGradient></defs>
-    <line x1="4" y1="15" x2="196" y2="15" stroke="url(#techMaGrad)" stroke-width="3"/>`;
-    maList.forEach(([label,v])=>{
+    <line x1="4" y1="23" x2="196" y2="23" stroke="url(#techMaGrad)" stroke-width="3"/>`;
+    maList.forEach(([label,v],i)=>{
       if(v==null)return;
-      const x=xFor(v),above=t.price>v;
-      svg+=`<line x1="${x}" y1="6" x2="${x}" y2="24" stroke="${above?'#3BF38B':'#F5606C'}" stroke-width="2"/>`;
+      const x=xFor(v),above=t.price>v,color=above?'#3BF38B':'#F5606C';
+      const labelAbove=i%2===0;
+      svg+=`<line x1="${x}" y1="14" x2="${x}" y2="32" stroke="${color}" stroke-width="2"/>`;
+      svg+=`<text x="${x}" y="${labelAbove?9:47}" font-size="9" text-anchor="middle" fill="${color}">${maAbbrev[i]}</text>`;
     });
     const px=xFor(t.price);
-    svg+=`<polygon points="-5,0 5,0 0,8" fill="#E5E7EB" transform="translate(${px},2)"/>`;
-    maLadder.innerHTML=`<svg viewBox="0 0 200 30" width="100%" height="30" style="width:100%;height:30px">${svg}</svg>`;
+    svg+=`<polygon points="-5,0 5,0 0,8" fill="#E5E7EB" transform="translate(${px},10)"/>`;
+    maLadder.innerHTML=`<svg viewBox="0 0 200 55" width="100%" height="55" style="width:100%;height:55px">${svg}</svg>`;
   }
   const maGrid=$('#techMaGrid');
   if(maGrid){
@@ -3090,7 +3102,7 @@ function renderTechnicalLevels(t){
       const x1=xFor(t.cloud.cloudBottom),x2=xFor(t.cloud.cloudTop);
       cloudDiagram.innerHTML=`<svg viewBox="0 0 200 30" width="100%" height="30" style="width:100%;height:30px"><rect x="4" y="8" width="192" height="14" rx="2" fill="#1A1F2E"/>
         <rect x="${x1}" y="8" width="${Math.max(2,x2-x1)}" height="14" rx="2" fill="${cloudColor}" stroke="${t.cloud.senkouA>=t.cloud.senkouB?'#3BF38B':'#F5606C'}" stroke-width="1"/>
-        <polygon points="-4,0 4,0 0,6" fill="#E5E7EB" transform="translate(${xFor(t.price)},20)"/></svg>`;
+        <circle cx="${xFor(t.price)}" cy="15" r="4" fill="#E5E7EB" stroke="#0B0E14" stroke-width="1.5"/></svg>`;
     }else{
       cloudLabel.textContent='N/A';cloudLabel.style.color='#94A3B8';
       cloudDiagram.innerHTML='<svg viewBox="0 0 200 30" width="100%" height="30" style="width:100%;height:30px"><rect x="4" y="8" width="192" height="14" rx="2" fill="#1A1F2E"/></svg>';
