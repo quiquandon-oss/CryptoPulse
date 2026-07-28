@@ -1137,17 +1137,48 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             <polygon id="nineMagScoreMarker" points="-5,0 5,0 0,8" fill="#E5E7EB" transform="translate(100,0)" style="transition:transform .5s ease"/>
           </svg>
         </div>
-        <!-- 30-day chart: basket vs BTC, both rebased to 0% at the start of
-             the window, since comparing raw price levels ($100s vs $65K+)
-             on one chart wouldn't be readable. -->
-        <div class="mb-3">
-          <div class="flex items-center gap-3 mb-1 text-[9px] text-mutet">
+        <!-- Chart: basket vs BTC, both rebased to 0% at the start of the
+             window, since comparing raw price levels ($100s vs $65K+) on
+             one chart wouldn't be readable. Same range-tab + fullscreen
+             pattern as Market Cap Composition. -->
+        <div class="flex items-center justify-between mb-1.5">
+          <div class="flex items-center gap-3 text-[9px] text-mutet">
             <span class="flex items-center gap-1"><span class="inline-block w-1.5 h-1.5 rounded-full" style="background:#E5E7EB"></span>9 Magnificent (rebased)</span>
             <span class="flex items-center gap-1"><span class="inline-block w-1.5 h-1.5 rounded-full" style="background:#F7931A"></span>BTC (rebased)</span>
           </div>
-          <div class="h-[110px]"><canvas id="nineMagChart"></canvas></div>
+          <button onclick="openNineMagFullscreen()" class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1">⤢ Fullscreen</button>
         </div>
-        <div class="grid grid-cols-3 gap-2" id="nineMagGrid"></div>
+        <div class="flex gap-1.5 mb-2 flex-wrap" id="nineMagRangeTabs">
+          <button data-range="7d" class="nineMagRangeBtn text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">7D</button>
+          <button data-range="30d" class="nineMagRangeBtn text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">30D</button>
+          <button data-range="90d" class="nineMagRangeBtn text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">90D</button>
+        </div>
+        <div class="h-[110px]"><canvas id="nineMagChart"></canvas></div>
+        <p id="nineMagChartNote" class="text-[10px] text-mutet mt-1.5">—</p>
+        <div class="grid grid-cols-3 gap-2 mt-3" id="nineMagGrid"></div>
+      </div>
+
+      <!-- Fullscreen modal for the 9 Magnificent chart — separate from the
+           shared Market Cap Composition modal since this is a differently-
+           shaped comparison chart (2-line rebased %, not stacked mcap
+           area); keeping it isolated avoids adding special-casing into
+           that existing, working modal. -->
+      <div id="nineMagFullscreen" class="hidden fixed inset-0 z-50 bg-panel p-4 flex flex-col">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-semibold">9 Magnificent vs BTC<span id="dotNineMagFullscreen" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h3>
+          <button class="px-2.5 py-1.5 rounded-md text-xs bg-panel2 hover:text-white border border-line" onclick="closeNineMagFullscreen()">✕ Close</button>
+        </div>
+        <div class="flex items-center gap-3 mb-2 text-xs text-mutet">
+          <span class="flex items-center gap-1"><span class="inline-block w-2 h-2 rounded-full" style="background:#E5E7EB"></span>9 Magnificent (rebased)</span>
+          <span class="flex items-center gap-1"><span class="inline-block w-2 h-2 rounded-full" style="background:#F7931A"></span>BTC (rebased)</span>
+        </div>
+        <div class="flex gap-1.5 mb-2 flex-wrap" id="nineMagRangeTabsFull">
+          <button data-range="7d" class="nineMagRangeBtnFull text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">7D</button>
+          <button data-range="30d" class="nineMagRangeBtnFull text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">30D</button>
+          <button data-range="90d" class="nineMagRangeBtnFull text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">90D</button>
+        </div>
+        <p id="nineMagFullscreenNote" class="text-[10px] text-mutet mb-2">—</p>
+        <div class="flex-1"><canvas id="nineMagFullscreenChart"></canvas></div>
       </div>
 
       <!-- ═══ Hyperliquid Funding & Open Interest — HYPE, SOL, LINK, one API call.
@@ -3534,21 +3565,31 @@ function nearestSeriesPoint(series,targetTs){
 // so their trading calendars should align closely; verified the underlying
 // nearest-timestamp matching against a synthetic weekday-only vs every-day
 // scenario before integration.
-function buildNineMagBasketSeries(quotes){
+let nineMagRange='30d'; // '7d'|'30d'|'90d'
+let nineMagLastQuotes=null,nineMagBtcCache=null,nineMagBtcCacheAt=0;
+const NINE_MAG_RANGE_DAYS={'7d':7,'30d':30,'90d':90};
+function buildNineMagBasketSeries(quotes,days){
   let refSeries=null,maxLen=0;
   NINE_MAG_ORDER.forEach(sym=>{
     const q=quotes[sym];
     if(q&&q.series&&q.series.length>maxLen){maxLen=q.series.length;refSeries=q.series;}
   });
   if(!refSeries||refSeries.length<3)return null;
-  const dates=refSeries.map(p=>p.ts);
+  const cutoff=Date.now()-days*86400000;
+  const dates=refSeries.map(p=>p.ts).filter(ts=>ts>=cutoff);
+  if(dates.length<3)return null;
   const normalizedBySym={},weights={};
   NINE_MAG_ORDER.forEach(sym=>{
     const q=quotes[sym];
     if(!q||!q.series||q.series.length<2)return;
-    const base=q.series[0].close;
+    // Rebase from the first point WITHIN the sliced window (not the full
+    // 3mo fetch), so a 7D view shows 7D of actual movement, not a fragment
+    // of a longer trend that happens to fall in this window.
+    const inWindow=q.series.filter(p=>p.ts>=cutoff);
+    if(inWindow.length<2)return;
+    const base=inWindow[0].close;
     if(!base)return;
-    normalizedBySym[sym]=q.series.map(p=>({ts:p.ts,pct:((p.close-base)/base)*100}));
+    normalizedBySym[sym]=inWindow.map(p=>({ts:p.ts,pct:((p.close-base)/base)*100}));
     weights[sym]=q.marketCap||null;
   });
   const allHaveMcap=Object.keys(normalizedBySym).every(sym=>weights[sym]!=null);
@@ -3565,18 +3606,27 @@ function buildNineMagBasketSeries(quotes){
     return{ts:refTs,pct:avg};
   }).filter(Boolean);
 }
-async function renderNineMagChart(quotes){
-  const cv=$('#nineMagChart');if(!cv)return;
-  const basket=buildNineMagBasketSeries(quotes);
-  if(!basket||basket.length<3)return;
+async function getNineMagBtcSeries(){
+  // Cached for 30 min — this doesn't need to be as fresh as the stock data
+  // itself, and avoids re-hitting CoinGecko on every range-tab click.
+  if(nineMagBtcCache&&Date.now()-nineMagBtcCacheAt<30*60000)return nineMagBtcCache;
+  const btcRes=await cgFetch(`${CG}/coins/bitcoin/market_chart?vs_currency=usd&days=95`);
+  if(!btcRes.ok)throw new Error('CoinGecko BTC market_chart '+btcRes.status);
+  const btcJson=await btcRes.json();
+  nineMagBtcCache=(btcJson.prices||[]).map(p=>({ts:p[0],close:p[1]}));
+  nineMagBtcCacheAt=Date.now();
+  return nineMagBtcCache;
+}
+// Core chart-building logic, parameterized by canvas ID so the small tile
+// and the fullscreen view call the exact same code — they can never
+// visually diverge from each other.
+async function buildNineMagChartConfig(quotes,range){
+  const days=NINE_MAG_RANGE_DAYS[range]||30;
+  const basket=buildNineMagBasketSeries(quotes,days);
+  if(!basket||basket.length<3)return null;
   let btcSeries=[];
-  try{
-    const btcRes=await cgFetch(`${CG}/coins/bitcoin/market_chart?vs_currency=usd&days=35`);
-    if(btcRes.ok){
-      const btcJson=await btcRes.json();
-      btcSeries=(btcJson.prices||[]).map(p=>({ts:p[0],close:p[1]}));
-    }
-  }catch(e){console.warn('9 Magnificent chart: BTC fetch failed, showing basket only:',e.message);}
+  try{btcSeries=await getNineMagBtcSeries();}
+  catch(e){console.warn('9 Magnificent chart: BTC fetch failed, showing basket only:',e.message);}
   const labels=basket.map(p=>new Date(p.ts).toLocaleDateString([],{month:'short',day:'numeric'}));
   const basketVals=basket.map(p=>p.pct);
   let btcVals=null;
@@ -3589,12 +3639,54 @@ async function renderNineMagChart(quotes){
   }
   const datasets=[{label:'9 Magnificent',data:basketVals,borderColor:'#E5E7EB',borderWidth:1.5,pointRadius:0,tension:.15,fill:false}];
   if(btcVals)datasets.push({label:'BTC',data:btcVals,borderColor:'#F7931A',borderWidth:1.5,pointRadius:0,tension:.15,fill:false});
-  const cfg={type:'line',data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,
+  return{type:'line',data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,
     scales:{x:{display:false},y:{display:false}},
     plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false,callbacks:{label:c=>c.dataset.label+': '+(c.parsed.y>=0?'+':'')+c.parsed.y.toFixed(1)+'%'}}}
   }};
+}
+async function renderNineMagChart(){
+  const cv=$('#nineMagChart'),noteEl=$('#nineMagChartNote');
+  if(!cv||!nineMagLastQuotes)return;
+  $$('.nineMagRangeBtn').forEach(b=>{
+    b.onclick=()=>{nineMagRange=b.dataset.range;renderNineMagChart();};
+    const on=b.dataset.range===nineMagRange;
+    b.classList.toggle('bg-neon',on);b.classList.toggle('text-ink',on);b.classList.toggle('border-neon',on);
+    b.classList.toggle('text-mutet',!on);
+  });
+  const cfg=await buildNineMagChartConfig(nineMagLastQuotes,nineMagRange);
+  if(!cfg){if(noteEl)noteEl.textContent='Not enough data yet for this range.';return;}
   if(nineMagChartInst){nineMagChartInst.data=cfg.data;nineMagChartInst.options=cfg.options;nineMagChartInst.update();}
   else nineMagChartInst=new Chart(cv,cfg);
+  if(noteEl)noteEl.textContent=`${nineMagRange.toUpperCase()} range, both series rebased to 0% at the start of the window.`;
+}
+let nineMagFullscreenChartInst=null;
+function openNineMagFullscreen(){
+  const modal=$('#nineMagFullscreen');if(!modal)return;
+  modal.classList.remove('hidden');
+  renderNineMagFullscreenChart();
+}
+function closeNineMagFullscreen(){
+  const modal=$('#nineMagFullscreen');if(modal)modal.classList.add('hidden');
+  if(nineMagFullscreenChartInst){nineMagFullscreenChartInst.destroy();nineMagFullscreenChartInst=null;}
+}
+async function renderNineMagFullscreenChart(){
+  const cv=$('#nineMagFullscreenChart'),noteEl=$('#nineMagFullscreenNote');
+  if(!cv||!nineMagLastQuotes)return;
+  $$('.nineMagRangeBtnFull').forEach(b=>{
+    b.onclick=()=>{nineMagRange=b.dataset.range;renderNineMagFullscreenChart();renderNineMagChart();};
+    const on=b.dataset.range===nineMagRange;
+    b.classList.toggle('bg-neon',on);b.classList.toggle('text-ink',on);b.classList.toggle('border-neon',on);
+    b.classList.toggle('text-mutet',!on);
+  });
+  const cfg=await buildNineMagChartConfig(nineMagLastQuotes,nineMagRange);
+  if(!cfg){if(noteEl)noteEl.textContent='Not enough data yet for this range.';return;}
+  if(nineMagFullscreenChartInst){nineMagFullscreenChartInst.data=cfg.data;nineMagFullscreenChartInst.options=cfg.options;nineMagFullscreenChartInst.update();}
+  else nineMagFullscreenChartInst=new Chart(cv,cfg);
+  if(noteEl)noteEl.textContent=`${nineMagRange.toUpperCase()} range, both series rebased to 0% at the start of the window.`;
+  // Mirror the tile's own health dot so the fullscreen view isn't a
+  // separate, un-synced indicator.
+  const mainDot=document.getElementById('dotNineMag'),fsDot=document.getElementById('dotNineMagFullscreen');
+  if(mainDot&&fsDot){fsDot.style.background=mainDot.style.background;fsDot.title=mainDot.title;}
 }
 function renderNineMagnificent(data){
   const grid=$('#nineMagGrid'),metaEl=$('#nineMagMeta');
@@ -3634,7 +3726,8 @@ function renderNineMagnificent(data){
   }else if(scoreValEl){
     scoreValEl.textContent='—';
   }
-  renderNineMagChart(quotes).catch(e=>console.warn('9 Magnificent chart render failed:',e.message));
+  nineMagLastQuotes=quotes;
+  renderNineMagChart().catch(e=>console.warn('9 Magnificent chart render failed:',e.message));
   const ageMin=data.ts?Math.round((Date.now()-data.ts)/60000):null;
   const ageTxt=ageMin==null?'—':ageMin<60?`${ageMin}m ago`:`${(ageMin/60).toFixed(1)}h ago`;
   if(metaEl)metaEl.textContent=`Updated ${ageTxt}`;
