@@ -1149,6 +1149,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <button onclick="openNineMagFullscreen()" class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1">⤢ Fullscreen</button>
         </div>
         <div class="flex gap-1.5 mb-2 flex-wrap" id="nineMagRangeTabs">
+          <button data-range="24h" class="nineMagRangeBtn text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">24H</button>
           <button data-range="7d" class="nineMagRangeBtn text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">7D</button>
           <button data-range="30d" class="nineMagRangeBtn text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">30D</button>
           <button data-range="90d" class="nineMagRangeBtn text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">90D</button>
@@ -1173,6 +1174,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <span class="flex items-center gap-1"><span class="inline-block w-2 h-2 rounded-full" style="background:#F7931A"></span>BTC (rebased)</span>
         </div>
         <div class="flex gap-1.5 mb-2 flex-wrap" id="nineMagRangeTabsFull">
+          <button data-range="24h" class="nineMagRangeBtnFull text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">24H</button>
           <button data-range="7d" class="nineMagRangeBtnFull text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">7D</button>
           <button data-range="30d" class="nineMagRangeBtnFull text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">30D</button>
           <button data-range="90d" class="nineMagRangeBtnFull text-xs font-semibold px-2.5 py-1 rounded-lg border border-line">90D</button>
@@ -3532,24 +3534,48 @@ async function fetchNineMagnificent(){
   if(json.error)throw new Error(json.error);
   return json;
 }
+// SpaceX IPO'd June 12, 2026 and is far more volatile than the other 8
+// mature names (down ~50% from its post-IPO high already). Per explicit
+// request: limit, not eliminate, its influence on the GAUGE specifically
+// (the chart and the individual card both still show its real, undampened
+// numbers — this dampening is scoped to the single composite score only).
+// Grows linearly from a floor toward full weight over ~180 days, roughly a
+// typical post-IPO lockup window, after which it's treated like any other
+// constituent.
+const NINE_MAG_SPCX_IPO_TS=Date.parse('2026-06-12T00:00:00Z');
+const NINE_MAG_SPCX_MATURITY_DAYS=180;
+const NINE_MAG_SPCX_WEIGHT_FLOOR=0.25;
+function spcxMaturityFactor(){
+  const daysSinceIpo=(Date.now()-NINE_MAG_SPCX_IPO_TS)/86400000;
+  const raw=daysSinceIpo/NINE_MAG_SPCX_MATURITY_DAYS;
+  return Math.max(NINE_MAG_SPCX_WEIGHT_FLOOR,Math.min(1,raw));
+}
 // Today's basket move: market-cap-weighted if every symbol has a market cap
 // this cycle, otherwise falls back to equal-weight rather than silently
 // dropping symbols. Verified against a synthetic Monday-like scenario
 // (NVDA -4.99%, others mild) before integration.
 function computeNineMagScore(quotes){
-  let weightedSum=0,weightTotal=0,allHaveMcap=true;
+  const spcxFactor=spcxMaturityFactor();
   const changes=[];
+  let allHaveMcap=true;
+  NINE_MAG_ORDER.forEach(sym=>{
+    const q=quotes[sym];
+    if(!q||q.error||q.price==null||q.prevClose==null)return;
+    changes.push((q.price-q.prevClose)/q.prevClose*100);
+    if(!q.marketCap)allHaveMcap=false;
+  });
+  if(!changes.length)return null;
+  const useWeighted=allHaveMcap;
+  let weightedSum=0,weightTotal=0;
   NINE_MAG_ORDER.forEach(sym=>{
     const q=quotes[sym];
     if(!q||q.error||q.price==null||q.prevClose==null)return;
     const pct=(q.price-q.prevClose)/q.prevClose*100;
-    changes.push(pct);
-    if(q.marketCap){weightedSum+=pct*q.marketCap;weightTotal+=q.marketCap;}
-    else allHaveMcap=false;
+    let weight=useWeighted?q.marketCap:1;
+    if(sym==='SPCX')weight*=spcxFactor; // limited, not eliminated
+    weightedSum+=pct*weight;weightTotal+=weight;
   });
-  if(!changes.length)return null;
-  const useWeighted=allHaveMcap&&weightTotal>0;
-  const avgPct=useWeighted?weightedSum/weightTotal:changes.reduce((a,b)=>a+b,0)/changes.length;
+  const avgPct=weightTotal>0?weightedSum/weightTotal:changes.reduce((a,b)=>a+b,0)/changes.length;
   return{avgPct,weighted:useWeighted,n:changes.length};
 }
 function nearestSeriesPoint(series,targetTs){
@@ -3565,7 +3591,7 @@ function nearestSeriesPoint(series,targetTs){
 // so their trading calendars should align closely; verified the underlying
 // nearest-timestamp matching against a synthetic weekday-only vs every-day
 // scenario before integration.
-let nineMagRange='30d'; // '7d'|'30d'|'90d'
+let nineMagRange='24h'; // '24h'|'7d'|'30d'|'90d' — defaults to 24h, the priority view for sentiment/scorecard purposes
 let nineMagLastQuotes=null,nineMagBtcCache=null,nineMagBtcCacheAt=0;
 const NINE_MAG_RANGE_DAYS={'7d':7,'30d':30,'90d':90};
 function buildNineMagBasketSeries(quotes,days){
@@ -3617,17 +3643,55 @@ async function getNineMagBtcSeries(){
   nineMagBtcCacheAt=Date.now();
   return nineMagBtcCache;
 }
+let nineMagIntradayCache=null,nineMagIntradayCacheAt=0;
+async function fetchNineMagIntraday(){
+  // 5-min cache — this is the 24H tab specifically, only fetched when a
+  // user actually selects it, not on every regular tile refresh, given
+  // this source's documented fragility.
+  if(nineMagIntradayCache&&Date.now()-nineMagIntradayCacheAt<5*60000)return nineMagIntradayCache;
+  const res=await fetch(`${PULSE_WORKER_URL}/stock-proxy?granularity=intraday`,{cache:'no-store'});
+  if(!res.ok)throw new Error('Stock proxy (intraday) '+res.status);
+  const json=await res.json();
+  if(json.error)throw new Error(json.error);
+  nineMagIntradayCache=json.quotes;nineMagIntradayCacheAt=Date.now();
+  return json.quotes;
+}
+let nineMagBtcIntradayCache=null,nineMagBtcIntradayCacheAt=0;
+async function getNineMagBtcIntradaySeries(){
+  if(nineMagBtcIntradayCache&&Date.now()-nineMagBtcIntradayCacheAt<5*60000)return nineMagBtcIntradayCache;
+  const btcRes=await cgFetch(`${CG}/coins/bitcoin/market_chart?vs_currency=usd&days=2`);
+  if(!btcRes.ok)throw new Error('CoinGecko BTC market_chart (intraday) '+btcRes.status);
+  const btcJson=await btcRes.json();
+  nineMagBtcIntradayCache=(btcJson.prices||[]).map(p=>({ts:p[0],close:p[1]}));
+  nineMagBtcIntradayCacheAt=Date.now();
+  return nineMagBtcIntradayCache;
+}
 // Core chart-building logic, parameterized by canvas ID so the small tile
 // and the fullscreen view call the exact same code — they can never
 // visually diverge from each other.
 async function buildNineMagChartConfig(quotes,range){
-  const days=NINE_MAG_RANGE_DAYS[range]||30;
-  const basket=buildNineMagBasketSeries(quotes,days);
-  if(!basket||basket.length<3)return null;
-  let btcSeries=[];
-  try{btcSeries=await getNineMagBtcSeries();}
-  catch(e){console.warn('9 Magnificent chart: BTC fetch failed, showing basket only:',e.message);}
-  const labels=basket.map(p=>new Date(p.ts).toLocaleDateString([],{month:'short',day:'numeric'}));
+  let basket,btcSeries=[],labelFmt;
+  if(range==='24h'){
+    let intradayQuotes;
+    try{intradayQuotes=await fetchNineMagIntraday();}
+    catch(e){console.warn('9 Magnificent 24H chart: intraday fetch failed:',e.message);return null;}
+    // days=2.5 as a generous cutoff, not a meaningful slice — the 2d/5m
+    // Worker fetch is already bounded to roughly the right window, this
+    // just guards against including anything stray.
+    basket=buildNineMagBasketSeries(intradayQuotes,2.5);
+    if(!basket||basket.length<3)return null;
+    try{btcSeries=await getNineMagBtcIntradaySeries();}
+    catch(e){console.warn('9 Magnificent 24H chart: BTC intraday fetch failed, showing basket only:',e.message);}
+    labelFmt=ts=>new Date(ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  }else{
+    const days=NINE_MAG_RANGE_DAYS[range]||30;
+    basket=buildNineMagBasketSeries(quotes,days);
+    if(!basket||basket.length<3)return null;
+    try{btcSeries=await getNineMagBtcSeries();}
+    catch(e){console.warn('9 Magnificent chart: BTC fetch failed, showing basket only:',e.message);}
+    labelFmt=ts=>new Date(ts).toLocaleDateString([],{month:'short',day:'numeric'});
+  }
+  const labels=basket.map(p=>labelFmt(p.ts));
   const basketVals=basket.map(p=>p.pct);
   let btcVals=null;
   if(btcSeries.length){
