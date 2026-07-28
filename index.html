@@ -1115,8 +1115,9 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <div class="rounded-2xl border border-line bg-panel p-5">
         <div class="flex items-center justify-between mb-3">
           <div>
-            <h3 class="text-sm font-semibold">9 Magnificent<span id="dotNineMag" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h3>
+            <h3 class="text-sm font-semibold flex items-center gap-2">9 Magnificent<span id="dotNineMag" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:2px;vertical-align:middle;"></span> <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'nineMagNote')">ⓘ Info</button></h3>
             <p class="text-xs text-mutet mt-0.5">Broadcom · Apple · Tesla · Microsoft · Meta · Alphabet · Amazon · Nvidia · SpaceX — 24h change</p>
+            <p class="hidden text-xs text-mutet max-w-md mt-1" id="nineMagNote">Market-cap-weighted basket score, feeding the Sentiment composite and the Regime Scorecard's short-term factor. SpaceX (IPO'd June 2026, far more volatile than the other 8) has its weight in this score dampened toward a floor while new, growing linearly back to full market-cap weight over ~180 days — the chart and its own card still show its real, undampened numbers, only the single composite score is limited. Falls back to equal-weight if market cap data is unavailable for any symbol this cycle.</p>
           </div>
           <span class="text-xs text-mutet" id="nineMagMeta">—</span>
         </div>
@@ -1126,7 +1127,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
              the composite yet — display only. -->
         <div class="mb-3">
           <div class="flex items-center justify-between mb-1">
-            <p class="text-xs text-mutet">Basket score (preview — not yet feeding Sentiment)</p>
+            <p class="text-xs text-mutet">Basket score (feeds Sentiment composite &amp; Regime Scorecard, short-term)</p>
             <span id="nineMagScoreVal" class="tnum font-bold text-sm">—</span>
           </div>
           <svg viewBox="0 0 200 20" width="100%" height="20" style="width:100%;height:20px">
@@ -4011,6 +4012,16 @@ async function srcEtfFlowsFromExisting(etfResults){
   if(!btc||btc.error)throw new Error('No BTC ETF data available this cycle');
   return{score:to0_100(satur(btc.latest/1e6,100))};
 }
+async function srcNineMagnificent(){
+  // Reuses whatever fetchNineMagnificent() already retrieved this cycle for
+  // the tile itself (no duplicate call to the fragile Yahoo endpoint) — the
+  // exact same dampened-SpaceX gauge score already shown on the tile, kept
+  // consistent rather than computing a second, different number here.
+  if(!nineMagLastQuotes)throw new Error('9 Magnificent data not populated yet this session');
+  const result=computeNineMagScore(nineMagLastQuotes);
+  if(!result)throw new Error('No usable 9 Magnificent data this cycle');
+  return{score:to0_100(satur(result.avgPct,2.5))};
+}
 async function srcNewsRss(source){
   const res=await fetch(`${PULSE_WORKER_URL}/news-proxy?source=${source}`);
   if(!res.ok)throw new Error('Worker news-proxy '+res.status);
@@ -4069,6 +4080,7 @@ const COMPOSITE_SOURCES_DEFAULTS=[
   {id:'usd',label:'US Dollar Strength (Hyperliquid xyz:EUR, inverted)',weight:2,confidence:0.6},
   {id:'nasdaq',label:'Nasdaq Composite (FRED)',weight:6,confidence:0.7},
   {id:'sp500',label:'S&P 500 (FRED)',weight:6,confidence:0.7},
+  {id:'ninemag',label:'9 Magnificent (tech/AI basket, cap-weighted)',weight:8,confidence:0.6},
   {id:'etfflows',label:'BTC ETF Flows (SoSoValue)',weight:10,confidence:0.8},
   {id:'hypefunding',label:'HYPE Perp Funding (Hyperliquid)',weight:4,confidence:0.4},
   {id:'gold',label:'Gold (Hyperliquid xyz:GOLD)',weight:5,confidence:0.5},
@@ -4137,6 +4149,7 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
     ['usd',srcUsdFromHyperliquid],
     ['nasdaq',()=>srcFredSeries('nasdaq')],
     ['sp500',()=>srcFredSeries('sp500')],
+    ['ninemag',srcNineMagnificent],
     ['etfflows',()=>srcEtfFlowsFromExisting(etfResultsFromPanel)],
     ['cryptonews',()=>srcNewsRss('crypto')],
     ['macrogeo',()=>srcNewsRss('macro')],
@@ -6704,6 +6717,14 @@ function renderCyclesTab(){
       latestSources.regulatory!=null
         ?{label:'Regulatory/trade-policy news',display:latestSources.regulatory,tag:tagOf(latestSources.regulatory,55,45),mag:magOf01(latestSources.regulatory),available:true}
         :{label:'Regulatory/trade-policy news',display:'—',tag:'neutral',mag:0,available:false,reason:'Not included in the latest Sentiment reading (source likely failed that cycle)'},
+      // 9 Magnificent: same rationale as oil/geopolitics/regulatory above —
+      // a concentrated mega-cap-tech/AI correction (e.g. Nvidia -5% while
+      // the broad Nasdaq barely moves) is exactly the kind of thing that
+      // gets diluted into invisibility inside a blended Combined score.
+      // Visible on its own here instead.
+      latestSources.ninemag!=null
+        ?{label:'9 Magnificent (tech/AI basket)',display:latestSources.ninemag,tag:tagOf(latestSources.ninemag,55,45),mag:magOf01(latestSources.ninemag),available:true}
+        :{label:'9 Magnificent (tech/AI basket)',display:'—',tag:'neutral',mag:0,available:false,reason:'Not included in the latest Sentiment reading (source likely failed that cycle)'},
     ];
     // ---- Liquidation cluster pull (SHORT-TERM ONLY, days). Deliberately
     // computed fresh here at a FIXED 1-day horizon, independent of whatever
