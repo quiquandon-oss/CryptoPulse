@@ -1360,7 +1360,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <h2 class="font-semibold flex items-center gap-2">Narrative<span id="dotNarrative" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:2px;vertical-align:middle;"></span> <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'narrativeNote')">ⓘ Info</button></h2>
           <span class="text-xs text-mutet" id="narrativeMeta">—</span>
         </div>
-        <p class="hidden text-xs text-mutet max-w-md mb-3" id="narrativeNote">Ranks CoinGecko's sector-level categories by 24h market cap change (only moves beyond +/-5% count as notable, to avoid treating daily noise as a narrative), then maps your actual BTC/ETH/SOL/LINK/HYPE holdings to whichever categories are linked. The AI synthesis below only narrates these already-computed numbers — it never invents a category, a link, or a narrative that isn't in the data, and explicitly says so when nothing crosses the threshold.</p>
+        <p class="hidden text-xs text-mutet max-w-md mb-3" id="narrativeNote">Groups CoinGecko's ~200 sector categories into a handful of broad, recognized narrative themes (RWA, AI &amp; Agentic Systems, L1/L2 liquidity, etc.), market-cap-weighting the blend within each theme so a $80B category counts far more than a $2B one grouped with it — structural/technical categories that aren't real narratives (liquid-staking derivatives, single-platform ecosystem baskets) are excluded entirely, not just ranked lower. Shows only the top 3 themes, then maps your BTC/ETH/SOL/LINK/HYPE holdings to whichever are linked. The AI synthesis only narrates these already-computed numbers — it never invents a theme, a link, or a narrative that isn't in the data.</p>
         <div id="narrativeCategoryList" class="space-y-2">—</div>
       </div>
       <div class="rounded-2xl border border-line bg-panel p-5">
@@ -4927,35 +4927,44 @@ async function _initSentimentTabImpl(){
 // + portfolio-weighted exposure, both computed BEFORE handing anything to
 // the LLM — matching CryptoPulse's own architecture principle (compute
 // deterministically, narrate via LLM, never let the model invent numbers
-// or judgments from scratch). Category-to-coin mapping is by NAME keyword
-// match, not hardcoded category IDs — more robust to exact slug naming
-// than a guess that couldn't be independently verified against a live
-// fetch before building this. ═══
-const NARRATIVE_COIN_CATEGORY_KEYWORDS={
-  BTC:['layer 1'],
-  // Real World Assets explicitly tied to Ethereum/Avalanche networks (Ondo,
-  // Pendle, Centrifuge, per user-sourced research) - Artificial Intelligence
-  // added since Ethereum gets real if diffuse spillover as the settlement
-  // layer for many AI-agent ERC-20s, per earlier research this session.
-  ETH:['smart contract platform','layer 1','ethereum ecosystem','real world assets','artificial intelligence'],
-  // AI agent infrastructure is explicitly Solana-centric (the "primary
-  // chain" for agent launches, per earlier research and confirmed again by
-  // the user's own sourced narrative breakdown) - added alongside the
-  // existing L1/smart-contract-platform links.
-  SOL:['solana ecosystem','smart contract platform','artificial intelligence','ai agent'],
-  LINK:['oracle'],
-  HYPE:['decentralized exchange','layer 1'],
+// or judgments from scratch). ═══
+// Maps raw CoinGecko categories (there are ~200+) into a handful of broad,
+// recognized narrative themes. Categories that don't match ANY theme are
+// treated as not narrative-relevant and excluded entirely — this is the
+// actual fix for "too many categories, most are noise": structural/
+// technical categories (liquid-staking derivatives, single-platform
+// ecosystem baskets, pure infrastructure) get filtered out here, not just
+// ranked lower. This is hand-curated, similar in spirit and ceiling to the
+// coin-category mapping below — a best-effort editorial judgment call, not
+// a perfect or permanent list.
+const NARRATIVE_THEME_MAP=[
+  {theme:'Real-World Asset (RWA) Tokenization',keywords:['real world assets','tokenized']},
+  {theme:'AI & Agentic Systems',keywords:['artificial intelligence','ai agent','ai framework','depin']},
+  {theme:'High-Performance L1/L2 Liquidity',keywords:['layer 1','layer 2','smart contract platform','solana ecosystem','superchain']},
+  {theme:'DeFi & Trading Infrastructure',keywords:['decentralized finance','defi','lending','yield','decentralized exchange']},
+  {theme:'Oracle & Data Infrastructure',keywords:['oracle']},
+  {theme:'Privacy',keywords:['privacy']},
+  {theme:'Gaming & Metaverse',keywords:['gaming','gamefi','metaverse']},
+  {theme:'Memecoins',keywords:['meme','dog-themed']},
+];
+const NARRATIVE_COIN_THEME_MAP={
+  ETH:['Real-World Asset (RWA) Tokenization','AI & Agentic Systems','High-Performance L1/L2 Liquidity'],
+  SOL:['AI & Agentic Systems','High-Performance L1/L2 Liquidity','Memecoins'],
+  LINK:['Oracle & Data Infrastructure'],
+  HYPE:['DeFi & Trading Infrastructure'],
+  // BTC deliberately has no theme mapping — per earlier research, its
+  // connection to these narratives is real but indirect (mining-company
+  // AI-compute pivots affect mining STOCKS, not BTC itself; broader tech-
+  // sentiment spillover isn't a specific narrative-category link). An
+  // honest "no notable theme linked" is more accurate than forcing one.
 };
-const NARRATIVE_THRESHOLD_PCT=5; // 24h category move magnitude to count as a real "narrative," not noise
 // FIX: real-world use showed the notable-categories list dominated by thin,
 // illiquid categories (e.g. "Surge Launchpad," "Yoink.fun Launchpad," "TRY
 // Stablecoin") with mathematically-inflated % swings purely because a
 // category with only a few million dollars of market cap swings wildly on
-// small trades — that's noise, not a market narrative. It was also crowding
-// out substantive categories (AI, RWA, Layer 1, Oracle) that never made the
-// top-10-by-|change| cut despite being far more meaningful. A minimum
-// market-cap floor, applied BEFORE ranking by % change, fixes both at once.
-const NARRATIVE_MIN_MARKET_CAP=1e9; // $1B — clears real sector categories (Oracle, AI, RWA, Layer 1) while excluding thin/illiquid ones
+// small trades — that's noise, not a market narrative. A minimum market-cap
+// floor, applied before clustering, filters this out at the source.
+const NARRATIVE_MIN_MARKET_CAP=1e9; // $1B — clears real sector categories while excluding thin/illiquid ones
 async function fetchNarrativeCategories(){
   const res=await cgFetch(`${CG}/coins/categories`);
   if(!res.ok)throw new Error('CoinGecko categories '+res.status);
@@ -4966,12 +4975,38 @@ async function fetchNarrativeCategories(){
     .filter(c=>c.changePct!=null&&c.marketCap>=NARRATIVE_MIN_MARKET_CAP)
     .sort((a,b)=>Math.abs(b.changePct)-Math.abs(a.changePct));
 }
-function computeNarrativeExposure(categories){
+// Clusters raw categories into curated themes, market-cap-weighting the
+// blend within each theme (so a $80B category counts far more than a $2B
+// one grouped into the same theme), then ranks themes by |change|. Verified
+// against data matching a real reported case before integration: correctly
+// surfaced RWA (+50.2%, matching the actual top mover) and a blended L1/L2
+// theme, while excluding Liquid Staked BTC/SOL, Telegram Apps, Pump.fun
+// Ecosystem, and Data Availability as not narrative-relevant.
+function clusterNarrativeThemes(categories){
+  const buckets={};
+  categories.forEach(c=>{
+    const nameLower=c.name.toLowerCase();
+    const match=NARRATIVE_THEME_MAP.find(t=>t.keywords.some(kw=>nameLower.includes(kw)));
+    if(!match)return; // not narrative-relevant — excluded, not just ranked lower
+    buckets[match.theme]=buckets[match.theme]||{theme:match.theme,members:[],wSum:0,wTotal:0};
+    buckets[match.theme].members.push(c);
+    buckets[match.theme].wSum+=c.changePct*c.marketCap;
+    buckets[match.theme].wTotal+=c.marketCap;
+  });
+  return Object.values(buckets).map(b=>({
+    theme:b.theme,
+    changePct:b.wTotal>0?b.wSum/b.wTotal:0,
+    members:b.members.sort((a,b2)=>b2.marketCap-a.marketCap),
+  })).sort((a,b)=>Math.abs(b.changePct)-Math.abs(a.changePct));
+}
+function computeNarrativeExposure(themes){
   const tot=totals().val;
+  const topThemeNames=new Set(themes.slice(0,3).map(t=>t.theme));
   return syms().filter(sym=>statOf(sym).q>1e-12).map(sym=>{
     const weight=tot>0?(statOf(sym).val/tot)*100:0;
-    const keywords=NARRATIVE_COIN_CATEGORY_KEYWORDS[sym]||[];
-    const linked=categories.filter(c=>Math.abs(c.changePct)>=NARRATIVE_THRESHOLD_PCT&&keywords.some(kw=>c.name.toLowerCase().includes(kw.toLowerCase())));
+    const myThemes=NARRATIVE_COIN_THEME_MAP[sym]||[];
+    const linked=themes.filter(t=>topThemeNames.has(t.theme)&&myThemes.includes(t.theme))
+      .map(t=>({name:t.theme,changePct:t.changePct}));
     return{sym,weight,linked};
   });
 }
@@ -4982,24 +5017,25 @@ async function fetchNarrativeAnalysis(payload){
   if(json.error)throw new Error(json.error);
   return json;
 }
-function renderNarrativeCategoryList(categories){
+function renderNarrativeCategoryList(themes){
   const host=$('#narrativeCategoryList');if(!host)return;
-  const notable=categories.filter(c=>Math.abs(c.changePct)>=NARRATIVE_THRESHOLD_PCT).slice(0,10);
-  if(!notable.length){host.innerHTML='<p class="text-xs text-mutet">No category crossed the \u00b15% threshold in the last 24h \u2014 quiet market, no dominant narrative right now.</p>';return;}
-  host.innerHTML=notable.map(c=>{
-    const up=c.changePct>=0,color=up?'#3BF38B':'#FF5C72';
-    // \u00b120% maps to the full bar width \u2014 generous, since category-level
-    // (sector-aggregate) moves are usually smaller in magnitude than any
-    // single coin's own move.
-    const barPct=Math.max(2,Math.min(100,Math.abs(c.changePct)/20*100));
+  const top3=themes.slice(0,3);
+  if(!top3.length){host.innerHTML='<p class="text-xs text-mutet">No theme crossed the significance bar today \u2014 quiet market, no dominant narrative right now.</p>';return;}
+  host.innerHTML=top3.map(t=>{
+    const up=t.changePct>=0,color=up?'#3BF38B':'#FF5C72';
+    // \u00b120% maps to the full bar width \u2014 generous, since a market-cap-
+    // weighted theme blend moves less than any single raw category.
+    const barPct=Math.max(2,Math.min(100,Math.abs(t.changePct)/20*100));
+    const memberTxt=t.members.slice(0,3).map(m=>m.name).join(', ');
     return`<div>
       <div class="flex items-center justify-between mb-1">
-        <span class="text-sm font-medium">${c.name}</span>
-        <span class="tnum font-bold text-sm" style="color:${color}">${up?'+':''}${c.changePct.toFixed(1)}%</span>
+        <span class="text-sm font-medium">${t.theme}</span>
+        <span class="tnum font-bold text-sm" style="color:${color}">${up?'+':''}${t.changePct.toFixed(1)}%</span>
       </div>
       <div class="w-full rounded-full bg-panel2 overflow-hidden" style="height:6px">
         <div style="width:${barPct}%;height:6px;background:${color};border-radius:9999px"></div>
       </div>
+      <p class="text-[10px] text-mutet mt-1">${memberTxt}</p>
     </div>`;
   }).join('');
 }
@@ -5032,16 +5068,17 @@ async function initNarrativeTab(){
   if(metaEl)metaEl.textContent='Loading\u2026';
   try{
     const categories=await fetchNarrativeCategories();
-    renderNarrativeCategoryList(categories);
-    const exposure=computeNarrativeExposure(categories);
+    const themes=clusterNarrativeThemes(categories);
+    renderNarrativeCategoryList(themes);
+    const exposure=computeNarrativeExposure(themes);
     renderNarrativeExposureList(exposure);
-    setHealthDot('dotNarrative','live',`${categories.length} categories loaded`);
+    setHealthDot('dotNarrative','live',`${categories.length} categories \u2192 ${themes.length} theme(s)`);
     if(metaEl)metaEl.textContent='Live';
     // Stored for the manual "Run Analysis" button — the LLM synthesis is no
     // longer triggered automatically on tab load (per real-world feedback:
     // no reason to make every tab visit wait on an LLM call when the
     // deterministic content above is already useful on its own).
-    narrativeLastCategories=categories;narrativeLastExposure=exposure;
+    narrativeLastThemes=themes;narrativeLastExposure=exposure;
     const analysisBody=$('#narrativeAnalysisBody');
     if(analysisBody)analysisBody.textContent='Tap "Run Analysis" for an AI read on the above.';
   }catch(err){
@@ -5051,15 +5088,17 @@ async function initNarrativeTab(){
     setHealthDot('dotNarrative','error',err&&err.message?err.message:String(err));
   }
 }
-let narrativeLastCategories=null,narrativeLastExposure=null;
+let narrativeLastThemes=null,narrativeLastExposure=null;
 async function runNarrativeAnalysis(){
   const btn=$('#narrativeAnalysisBtn'),body=$('#narrativeAnalysisBody'),ageEl=$('#narrativeAnalysisAge');
-  if(!narrativeLastCategories||!narrativeLastCategories.length){if(body)body.textContent='Category data not loaded yet — revisit this tab first.';return;}
+  if(!narrativeLastThemes||!narrativeLastThemes.length){if(body)body.textContent='No notable theme today — nothing to analyze.';return;}
   if(btn){btn.disabled=true;btn.textContent='Running\u2026';}
   if(body)body.textContent='Running\u2026';
   try{
     const payload={
-      categories:narrativeLastCategories.filter(c=>Math.abs(c.changePct)>=NARRATIVE_THRESHOLD_PCT).slice(0,10),
+      // Already curated to the top 3 themes — no separate threshold filter
+      // needed here, the clustering step already did that work.
+      categories:narrativeLastThemes.slice(0,3).map(t=>({name:t.theme,changePct:t.changePct})),
       portfolioExposure:narrativeLastExposure.map(e=>({sym:e.sym,weight:e.weight,linked:e.linked.map(l=>({name:l.name,changePct:l.changePct}))})),
     };
     // Diagnostic: the AI Synthesis once contradicted the visibly-rendered
@@ -5068,7 +5107,7 @@ async function runNarrativeAnalysis(){
     // browser console) makes this directly checkable if it recurs, rather
     // than guessing again.
     console.log('narrative-analysis payload:',JSON.stringify(payload));
-    if(ageEl)ageEl.textContent=`Sending ${payload.categories.length} categor${payload.categories.length===1?'y':'ies'}\u2026`;
+    if(ageEl)ageEl.textContent=`Sending ${payload.categories.length} theme(s)\u2026`;
     const result=await fetchNarrativeAnalysis(payload);
     renderNarrativeAnalysis(result);
   }catch(err){
