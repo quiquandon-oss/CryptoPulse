@@ -1393,21 +1393,19 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
          being narrated from pre-computed numbers. -->
     <section id="v-outlook" class="hidden space-y-4">
       <div class="rounded-2xl border border-line bg-panel p-5">
-        <div class="flex items-center justify-between mb-1">
-          <h2 class="font-semibold flex items-center gap-2">Outlook<span id="dotOutlook" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:2px;vertical-align:middle;"></span> <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'outlookNote')">ⓘ Info</button></h2>
-          <span class="text-xs text-mutet" id="outlookMeta">—</span>
-        </div>
-        <p class="text-xs text-mutet mt-0.5">Medium &amp; long-term narrative and portfolio impact, powered by Gemini</p>
-        <p class="hidden text-xs text-mutet max-w-md mt-1" id="outlookNote">Unlike the Narrative tab (deliberately constrained to CryptoPulse's own 24h category data), this calls Gemini directly using your own free-tier API key, and explicitly lets it draw on its own broader knowledge of current crypto narratives — not just what CryptoPulse computed. Only your real portfolio weights are passed in as ground truth; the narrative content itself is Gemini's own synthesis, so treat it as an informed read, not a CryptoPulse-verified number. No live web search is used (Google Search grounding has a genuinely ambiguous free-tier billing requirement, so it's deliberately left out) — Gemini is answering from its own training knowledge, which may not reflect the very latest developments.</p>
-        <div id="outlookPortfolioList" class="grid grid-cols-3 gap-2 mt-3">—</div>
-      </div>
-      <div class="rounded-2xl border border-line bg-panel p-5">
         <div class="flex items-center justify-between mb-2">
-          <p class="text-sm font-semibold">Gemini Outlook</p>
+          <h2 class="font-semibold flex items-center gap-2">Gemini Outlook<span id="dotOutlook" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:2px;vertical-align:middle;"></span> <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'outlookNote')">ⓘ Info</button></h2>
           <button id="outlookAnalysisBtn" onclick="runOutlookAnalysis()" class="text-xs font-semibold bg-panel2 hover:bg-line border border-line rounded-lg px-3 py-1.5 transition">Run Analysis</button>
         </div>
-        <div id="outlookScorecard" class="hidden mb-3"></div>
-        <div id="outlookAnalysisBody" class="text-sm whitespace-pre-line mb-1">Tap "Run Analysis" for a medium/long-term read from Gemini.</div>
+        <p class="text-xs text-mutet">Medium &amp; long-term narrative and portfolio impact, powered by Gemini</p>
+        <p class="hidden text-xs text-mutet max-w-md mt-1" id="outlookNote">Unlike the Narrative tab (deliberately constrained to CryptoPulse's own 24h category data), this calls Gemini directly using your own free-tier API key, and explicitly lets it draw on its own broader knowledge of current crypto narratives — not just what CryptoPulse computed. Only your real portfolio weights are passed in as ground truth; the narrative content itself is Gemini's own synthesis, so treat it as an informed read, not a CryptoPulse-verified number. No live web search is used (Google Search grounding has a genuinely ambiguous free-tier billing requirement, so it's deliberately left out) — Gemini is answering from its own training knowledge, which may not reflect the very latest developments.</p>
+      </div>
+      <div id="outlookNarrativeTiles" class="space-y-4">
+        <p class="text-sm text-mutet">Tap "Run Analysis" for a medium/long-term read from Gemini.</p>
+      </div>
+      <div class="rounded-2xl border border-line bg-panel p-5 hidden" id="outlookOverallCard">
+        <p class="text-sm font-semibold mb-1">Overall Positioning</p>
+        <div id="outlookOverallBody" class="text-sm whitespace-pre-line"></div>
         <span class="text-[10px] text-mutet" id="outlookAnalysisAge"></span>
       </div>
     </section>
@@ -5165,14 +5163,6 @@ function computeOutlookPortfolio(){
     weight:tot>0?(statOf(sym).val/tot)*100:0,
   })).sort((a,b)=>b.weight-a.weight);
 }
-function renderOutlookPortfolioList(portfolio){
-  const host=$('#outlookPortfolioList');if(!host)return;
-  if(!portfolio.length){host.innerHTML='<p class="text-xs text-mutet" style="grid-column:span 3">No holdings this session.</p>';return;}
-  host.innerHTML=portfolio.map(p=>`<div class="bg-panel2 rounded-xl text-center" style="padding:10px">
-    <p class="text-xs font-semibold">${p.sym}</p>
-    <p class="tnum font-bold text-sm mt-1">${p.weight.toFixed(1)}%</p>
-  </div>`).join('');
-}
 async function fetchGeminiOutlook(payload){
   const res=await fetch(`${PULSE_WORKER_URL}/gemini-outlook`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
   if(!res.ok){
@@ -5190,8 +5180,13 @@ function outlookGaugeValue(v){
   // bullish=100, bearish=0, neutral=50 (also the default when a value is
   // missing). Same scoring convention as everywhere else, so this is
   // already in the right shape to reuse in the Regime Scorecard later.
-  if(v==='bullish')return 100;
-  if(v==='bearish')return 0;
+  // FIX: was an exact-case match, so any casing variation from Gemini
+  // (e.g. "Bullish" instead of "bullish") silently fell through to the
+  // neutral default - this is exactly why every gauge clustered near the
+  // same position regardless of the real value. Normalize before comparing.
+  const s=(v||'').toLowerCase().trim();
+  if(s==='bullish')return 100;
+  if(s==='bearish')return 0;
   return 50;
 }
 function outlookMiniGauge(value,gradId){
@@ -5204,39 +5199,76 @@ function outlookMiniGauge(value,gradId){
     <polygon points="-3,0 3,0 0,5" fill="#E5E7EB" transform="translate(${markerX},0)"/>
   </svg>`;
 }
-function renderOutlookScorecard(narrativeScores){
-  const host=$('#outlookScorecard');if(!host)return;
-  if(!narrativeScores||!Array.isArray(narrativeScores)||!narrativeScores.length){host.classList.add('hidden');host.innerHTML='';return;}
+function outlookGaugeRows(n,ni){
   const order=['BTC','ETH','SOL','LINK','HYPE'];
-  let anyNarrative=false;
-  const blocks=narrativeScores.map((n,ni)=>{
-    if(!n||!n.name)return'';
-    const medium=n.medium||{},long=n.long||{};
-    let rows=`<div class="grid grid-cols-3 gap-2 text-[9px] text-mutet uppercase tracking-wide pb-1"><span></span><span class="text-center">Medium</span><span class="text-center">Long</span></div>`;
-    let any=false;
-    order.forEach((sym,si)=>{
-      if(medium[sym]==null&&long[sym]==null)return;
-      any=true;
-      rows+=`<div class="grid grid-cols-3 gap-2 items-center py-1 border-t border-line/30 first:border-t-0">
-        <span class="text-xs font-semibold">${sym}</span>
-        <span>${outlookMiniGauge(outlookGaugeValue(medium[sym]),`outlookGaugeM_${ni}_${si}`)}</span>
-        <span>${outlookMiniGauge(outlookGaugeValue(long[sym]),`outlookGaugeL_${ni}_${si}`)}</span>
-      </div>`;
-    });
-    if(!any)return'';
-    anyNarrative=true;
-    return`<div class="mb-3"><p class="text-xs font-semibold mb-1">${n.name}</p>${rows}</div>`;
-  }).join('');
-  if(!anyNarrative){host.classList.add('hidden');host.innerHTML='';return;}
-  host.innerHTML=blocks;
-  host.classList.remove('hidden');
+  const medium=(n&&n.medium)||{},long=(n&&n.long)||{};
+  let rows=`<div class="grid grid-cols-3 gap-2 text-[9px] text-mutet uppercase tracking-wide pb-1"><span></span><span class="text-center">Medium</span><span class="text-center">Long</span></div>`;
+  let any=false;
+  order.forEach((sym,si)=>{
+    if(medium[sym]==null&&long[sym]==null)return;
+    any=true;
+    rows+=`<div class="grid grid-cols-3 gap-2 items-center py-1 border-t border-line/30 first:border-t-0">
+      <span class="text-xs font-semibold">${sym}</span>
+      <span>${outlookMiniGauge(outlookGaugeValue(medium[sym]),`outlookGaugeM_${ni}_${si}`)}</span>
+      <span>${outlookMiniGauge(outlookGaugeValue(long[sym]),`outlookGaugeL_${ni}_${si}`)}</span>
+    </div>`;
+  });
+  return any?rows:null;
+}
+// Splits the narrative text into per-narrative chunks, matching the
+// \n\n breaks the Worker already inserts before "Narrative N:" and
+// "Overall positioning:" - lookahead split so each label stays attached to
+// its own following content.
+function splitOutlookNarrativeText(analysis){
+  if(!analysis)return{narrativeChunks:[],overallText:''};
+  const parts=analysis.split(/\n\n(?=Narrative\s+\d+:|Overall positioning:)/);
+  const narrativeChunks=[];
+  let overallText='';
+  parts.forEach(p=>{
+    const trimmed=p.trim();
+    if(!trimmed)return;
+    if(/^Overall positioning:/i.test(trimmed)){
+      overallText=trimmed.replace(/^Overall positioning:\s*/i,'');
+    }else{
+      // Strip only the "Narrative N:" numeric label - the tile's own header
+      // (from narrativeScores[i].name) already shows the name, so this
+      // avoids a redundant "Narrative 1:" prefix. The name itself may still
+      // appear at the start of the body text since it's not reliably
+      // separable from the following explanation sentence - a small,
+      // harmless restatement, not worth risking a broken strip over.
+      narrativeChunks.push(trimmed.replace(/^Narrative\s+\d+:\s*/i,''));
+    }
+  });
+  return{narrativeChunks,overallText};
 }
 function renderGeminiOutlook(result){
-  const body=$('#outlookAnalysisBody'),ageEl=$('#outlookAnalysisAge');
-  if(!body)return;
-  if(!result||!result.analysis){body.textContent='No analysis available.';renderOutlookScorecard(null);return;}
-  body.textContent=result.analysis;
-  renderOutlookScorecard(result.narrativeScores);
+  const tilesHost=$('#outlookNarrativeTiles'),overallCard=$('#outlookOverallCard'),overallBody=$('#outlookOverallBody'),ageEl=$('#outlookAnalysisAge');
+  if(!tilesHost)return;
+  if(!result||!result.analysis){tilesHost.innerHTML='<p class="text-sm text-mutet">No analysis available.</p>';if(overallCard)overallCard.classList.add('hidden');return;}
+  const{narrativeChunks,overallText}=splitOutlookNarrativeText(result.analysis);
+  const scores=result.narrativeScores||[];
+  const count=Math.max(narrativeChunks.length,scores.length);
+  if(!count){
+    tilesHost.innerHTML=`<div class="rounded-2xl border border-line bg-panel p-5"><div class="text-sm whitespace-pre-line">${result.analysis}</div></div>`;
+  }else{
+    let html='';
+    for(let i=0;i<count;i++){
+      const n=scores[i];
+      const text=narrativeChunks[i]||'';
+      const gaugeRows=n?outlookGaugeRows(n,i):null;
+      const title=(n&&n.name)?n.name:(text.split(/[.!?]/)[0]||`Narrative ${i+1}`);
+      html+=`<div class="rounded-2xl border border-line bg-panel p-5">
+        <p class="text-sm font-semibold mb-2">${title}</p>
+        ${gaugeRows?`<div class="mb-3">${gaugeRows}</div>`:''}
+        ${text?`<div class="text-sm whitespace-pre-line">${text}</div>`:''}
+      </div>`;
+    }
+    tilesHost.innerHTML=html;
+  }
+  if(overallCard&&overallBody){
+    if(overallText){overallBody.textContent=overallText;overallCard.classList.remove('hidden');}
+    else overallCard.classList.add('hidden');
+  }
   if(ageEl&&result.ts){
     const ageMin=Math.round((Date.now()-result.ts)/60000);
     ageEl.textContent=ageMin<60?`${ageMin}m ago`:`${(ageMin/60).toFixed(1)}h ago`;
@@ -5244,21 +5276,18 @@ function renderGeminiOutlook(result){
 }
 let outlookLastPortfolio=null;
 function initOutlookTab(){
-  const metaEl=$('#outlookMeta');
   const portfolio=computeOutlookPortfolio();
-  renderOutlookPortfolioList(portfolio);
   outlookLastPortfolio=portfolio;
   // Static/pure computation — no external fetch involved (portfolio
   // composition is already-known local data), same reasoning as Portfolio
   // Scenarios and Diminishing Returns elsewhere in this app.
   setHealthDot('dotOutlook','static','Computed from your own holdings — not live-fetched data');
-  if(metaEl)metaEl.textContent=`${portfolio.length} holding(s)`;
 }
 async function runOutlookAnalysis(){
-  const btn=$('#outlookAnalysisBtn'),body=$('#outlookAnalysisBody'),ageEl=$('#outlookAnalysisAge');
-  if(!outlookLastPortfolio||!outlookLastPortfolio.length){if(body)body.textContent='No holdings this session — nothing to analyze.';return;}
+  const btn=$('#outlookAnalysisBtn'),tilesHost=$('#outlookNarrativeTiles');
+  if(!outlookLastPortfolio||!outlookLastPortfolio.length){if(tilesHost)tilesHost.innerHTML='<p class="text-sm text-mutet">No holdings this session — nothing to analyze.</p>';return;}
   if(btn){btn.disabled=true;btn.textContent='Running\u2026';}
-  if(body)body.textContent='Running\u2026 (Gemini can take a bit longer than the usual fast model)';
+  if(tilesHost)tilesHost.innerHTML='<p class="text-sm text-mutet">Running\u2026 (Gemini can take a bit longer than the usual fast model)</p>';
   try{
     const payload={portfolio:outlookLastPortfolio.map(p=>({sym:p.sym,weight:p.weight}))};
     console.log('gemini-outlook payload:',JSON.stringify(payload));
@@ -5266,7 +5295,7 @@ async function runOutlookAnalysis(){
     renderGeminiOutlook(result);
   }catch(err){
     console.error('Error fetching Gemini outlook:',err);
-    if(body)body.textContent='Technical error: '+(err&&err.message?err.message:String(err));
+    if(tilesHost)tilesHost.innerHTML='<p class="text-sm text-mutet">Technical error: '+(err&&err.message?err.message:String(err))+'</p>';
   }
   if(btn){btn.disabled=false;btn.textContent='Run Analysis';}
 }
