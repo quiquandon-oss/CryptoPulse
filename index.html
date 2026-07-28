@@ -1406,6 +1406,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <p class="text-sm font-semibold">Gemini Outlook</p>
           <button id="outlookAnalysisBtn" onclick="runOutlookAnalysis()" class="text-xs font-semibold bg-panel2 hover:bg-line border border-line rounded-lg px-3 py-1.5 transition">Run Analysis</button>
         </div>
+        <div id="outlookScorecard" class="hidden mb-3"></div>
         <div id="outlookAnalysisBody" class="text-sm whitespace-pre-line mb-1">Tap "Run Analysis" for a medium/long-term read from Gemini.</div>
         <span class="text-[10px] text-mutet" id="outlookAnalysisAge"></span>
       </div>
@@ -5183,11 +5184,37 @@ async function fetchGeminiOutlook(payload){
   if(json.error)throw new Error(json.error);
   return json;
 }
+function renderOutlookScorecard(scorecard){
+  const host=$('#outlookScorecard');if(!host)return;
+  if(!scorecard){host.classList.add('hidden');host.innerHTML='';return;}
+  const order=['BTC','ETH','SOL','LINK','HYPE'];
+  const colorFor=v=>v==='bullish'?'#3BF38B':v==='bearish'?'#FF5C72':'#94A3B8';
+  const badge=v=>{
+    const c=colorFor(v);
+    return `<span class="text-[10px] font-semibold px-2 py-0.5 rounded-lg" style="background:${c}22;color:${c}">${v||'\u2014'}</span>`;
+  };
+  let rows=`<div class="grid grid-cols-3 gap-2 text-[9px] text-mutet uppercase tracking-wide pb-1"><span></span><span class="text-center">Medium</span><span class="text-center">Long</span></div>`;
+  let any=false;
+  order.forEach(sym=>{
+    const entry=scorecard[sym];
+    if(!entry)return;
+    any=true;
+    rows+=`<div class="grid grid-cols-3 gap-2 items-center py-1 border-t border-line/30 first:border-t-0">
+      <span class="text-xs font-semibold">${sym}</span>
+      <span class="text-center">${badge(entry.medium)}</span>
+      <span class="text-center">${badge(entry.long)}</span>
+    </div>`;
+  });
+  if(!any){host.classList.add('hidden');host.innerHTML='';return;}
+  host.innerHTML=rows;
+  host.classList.remove('hidden');
+}
 function renderGeminiOutlook(result){
   const body=$('#outlookAnalysisBody'),ageEl=$('#outlookAnalysisAge');
   if(!body)return;
-  if(!result||!result.analysis){body.textContent='No analysis available.';return;}
+  if(!result||!result.analysis){body.textContent='No analysis available.';renderOutlookScorecard(null);return;}
   body.textContent=result.analysis;
+  renderOutlookScorecard(result.scorecard);
   if(ageEl&&result.ts){
     const ageMin=Math.round((Date.now()-result.ts)/60000);
     ageEl.textContent=ageMin<60?`${ageMin}m ago`:`${(ageMin/60).toFixed(1)}h ago`;
