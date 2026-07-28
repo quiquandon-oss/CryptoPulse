@@ -196,6 +196,9 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <button data-view="traderanalysis" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 00-4 4v1a4 4 0 004 4 4 4 0 004-4V6a4 4 0 00-4-4z"/><path d="M6 11a6 6 0 0012 0M4 21h16M9 21v-4a3 3 0 116 0v4"/></svg> Trader Analysis
       </button>
+      <button data-view="narrative" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg> Narrative
+      </button>
       <button data-view="mycrypto" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5h3a2 2 0 010 4h-3v-4zm0 4v3"/></svg> My Crypto
       </button>
@@ -1340,6 +1343,39 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       </div>
     </section>
 
+    <!-- =============== NARRATIVE =============== -->
+    <!-- Deliberately a separate tab from Trader Analysis and Sentiment —
+         different question ("what crypto-market theme is dominant right
+         now, and how exposed is my specific portfolio to it" vs "what's
+         BTC doing"), and deliberately not mixed into either's data. Category
+         ranking and portfolio exposure are computed deterministically
+         client-side (CoinGecko categories, direct fetch, same domain/key
+         already used everywhere in this app); the LLM (gpt-oss-120b, tested
+         for this route specifically) only narrates what's already computed,
+         explicitly allowed to say "no dominant narrative" rather than
+         forcing one every time. -->
+    <section id="v-narrative" class="hidden space-y-4">
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold flex items-center gap-2">Narrative<span id="dotNarrative" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:2px;vertical-align:middle;"></span> <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'narrativeNote')">ⓘ Info</button></h2>
+          <span class="text-xs text-mutet" id="narrativeMeta">—</span>
+        </div>
+        <p class="hidden text-xs text-mutet max-w-md mb-3" id="narrativeNote">Ranks CoinGecko's sector-level categories by 24h market cap change (only moves beyond +/-5% count as notable, to avoid treating daily noise as a narrative), then maps your actual BTC/ETH/SOL/LINK/HYPE holdings to whichever categories are linked. The AI synthesis below only narrates these already-computed numbers — it never invents a category, a link, or a narrative that isn't in the data, and explicitly says so when nothing crosses the threshold.</p>
+        <div id="narrativeCategoryList" class="space-y-2">—</div>
+      </div>
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <p class="text-sm font-semibold mb-3">Your Portfolio Exposure</p>
+        <div id="narrativeExposureList" class="space-y-2">—</div>
+      </div>
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-sm font-semibold">AI Synthesis</p>
+          <span class="text-[10px] text-mutet" id="narrativeAnalysisAge">—</span>
+        </div>
+        <div id="narrativeAnalysisBody" class="text-sm whitespace-pre-line">—</div>
+      </div>
+    </section>
+
     <!-- =============== TRADER ANALYSIS =============== -->
     <section id="v-traderanalysis" class="hidden space-y-4">
       <!-- ═══ Trader Analysis — LLM synthesis (Pulse / Cloudflare AI) across
@@ -2055,9 +2091,9 @@ function wireModal(){
   });
   $('#chartModal').onclick=(e)=>{if(e.target===$('#chartModal'))closeChartModal();};
 }
-function setView(v){state.view=v;['dashboard','mycrypto','dca','scenario','cycles','capital','radar','sentiment','traderanalysis','settings'].forEach(x=>$('#v-'+x).classList.toggle('hidden',x!==v));
+function setView(v){state.view=v;['dashboard','mycrypto','dca','scenario','cycles','capital','radar','sentiment','narrative','traderanalysis','settings'].forEach(x=>$('#v-'+x).classList.toggle('hidden',x!==v));
   $$('#nav .navitem,#navMobile .navitem').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
-  $('#viewTitle').textContent={dashboard:'Dashboard',mycrypto:'My Crypto',dca:'Average Cost',scenario:'Scenarios',cycles:'Cycles',capital:'Capital',radar:'Radar',sentiment:'Sentiment',traderanalysis:'Trader Analysis',settings:'Settings'}[v];
+  $('#viewTitle').textContent={dashboard:'Dashboard',mycrypto:'My Crypto',dca:'Average Cost',scenario:'Scenarios',cycles:'Cycles',capital:'Capital',radar:'Radar',sentiment:'Sentiment',narrative:'Narrative',traderanalysis:'Trader Analysis',settings:'Settings'}[v];
   if(v==='dca'){fillAssets();$('#d_date').value=NOW();renderDcaAvgTable();renderDcaDonuts();}
   if(v==='dashboard'){renderPerf();renderAlloc();}
   if(v==='mycrypto'){renderCards();}
@@ -2066,6 +2102,7 @@ function setView(v){state.view=v;['dashboard','mycrypto','dca','scenario','cycle
   if(v==='capital'){renderCapital();}
   if(v==='radar'){initRadarTab();}
   if(v==='sentiment'){initSentimentTab();loadHypeFunding();}
+  if(v==='narrative'){initNarrativeTab();}
   if(v==='traderanalysis'){renderManualNewsList();}
   if(v==='settings'){renderFredDebugPanel();initAlertsSection();}}
 function setCcy(c){state.ccy=c;LS.ccy();
@@ -4884,6 +4921,125 @@ async function _initSentimentTabImpl(){
 // ---- Re-entrancy guard: boot prefetch, a manual tab visit, and the manual
 // "Refresh" button can all trigger this within seconds of each other. Without
 // this, overlapping calls each independently fire the ETF/technicals fetches,
+// ═══ NARRATIVE TAB — deterministic category ranking (CoinGecko, direct
+// client fetch, same domain/pattern already used everywhere in this app)
+// + portfolio-weighted exposure, both computed BEFORE handing anything to
+// the LLM — matching CryptoPulse's own architecture principle (compute
+// deterministically, narrate via LLM, never let the model invent numbers
+// or judgments from scratch). Category-to-coin mapping is by NAME keyword
+// match, not hardcoded category IDs — more robust to exact slug naming
+// than a guess that couldn't be independently verified against a live
+// fetch before building this. ═══
+const NARRATIVE_COIN_CATEGORY_KEYWORDS={
+  BTC:['layer 1'],
+  ETH:['smart contract platform','layer 1','ethereum ecosystem'],
+  SOL:['solana ecosystem','smart contract platform'],
+  LINK:['oracle'],
+  HYPE:['decentralized exchange','layer 1'],
+};
+const NARRATIVE_THRESHOLD_PCT=5; // 24h category move magnitude to count as a real "narrative," not noise
+async function fetchNarrativeCategories(){
+  const res=await cgFetch(`${CG}/coins/categories`);
+  if(!res.ok)throw new Error('CoinGecko categories '+res.status);
+  const list=await res.json();
+  if(!Array.isArray(list))throw new Error('Unexpected categories response shape');
+  return list
+    .map(c=>({id:c.id,name:c.name,marketCap:c.market_cap,changePct:c.market_cap_change_24h}))
+    .filter(c=>c.changePct!=null&&c.marketCap>0)
+    .sort((a,b)=>Math.abs(b.changePct)-Math.abs(a.changePct));
+}
+function computeNarrativeExposure(categories){
+  const tot=totals().val;
+  return syms().filter(sym=>statOf(sym).q>1e-12).map(sym=>{
+    const weight=tot>0?(statOf(sym).val/tot)*100:0;
+    const keywords=NARRATIVE_COIN_CATEGORY_KEYWORDS[sym]||[];
+    const linked=categories.filter(c=>Math.abs(c.changePct)>=NARRATIVE_THRESHOLD_PCT&&keywords.some(kw=>c.name.toLowerCase().includes(kw.toLowerCase())));
+    return{sym,weight,linked};
+  });
+}
+async function fetchNarrativeAnalysis(payload){
+  const res=await fetch(`${PULSE_WORKER_URL}/narrative-analysis`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  if(!res.ok)throw new Error('Worker narrative-analysis '+res.status);
+  const json=await res.json();
+  if(json.error)throw new Error(json.error);
+  return json;
+}
+function renderNarrativeCategoryList(categories){
+  const host=$('#narrativeCategoryList');if(!host)return;
+  const notable=categories.filter(c=>Math.abs(c.changePct)>=NARRATIVE_THRESHOLD_PCT).slice(0,10);
+  if(!notable.length){host.innerHTML='<p class="text-xs text-mutet">No category crossed the \u00b15% threshold in the last 24h \u2014 quiet market, no dominant narrative right now.</p>';return;}
+  host.innerHTML=notable.map(c=>{
+    const up=c.changePct>=0,color=up?'#3BF38B':'#FF5C72';
+    // \u00b120% maps to the full bar width \u2014 generous, since category-level
+    // (sector-aggregate) moves are usually smaller in magnitude than any
+    // single coin's own move.
+    const barPct=Math.max(2,Math.min(100,Math.abs(c.changePct)/20*100));
+    return`<div>
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-sm font-medium">${c.name}</span>
+        <span class="tnum font-bold text-sm" style="color:${color}">${up?'+':''}${c.changePct.toFixed(1)}%</span>
+      </div>
+      <div class="w-full rounded-full bg-panel2 overflow-hidden" style="height:6px">
+        <div style="width:${barPct}%;height:6px;background:${color};border-radius:9999px"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+function renderNarrativeExposureList(exposure){
+  const host=$('#narrativeExposureList');if(!host)return;
+  if(!exposure.length){host.innerHTML='<p class="text-xs text-mutet">No holdings this session.</p>';return;}
+  host.innerHTML=exposure.map(e=>{
+    const linkedTxt=e.linked.length?e.linked.map(l=>`${l.name} (${l.changePct>=0?'+':''}${l.changePct.toFixed(1)}%)`).join(', '):'no notable category linked right now';
+    return`<div class="flex items-center justify-between">
+      <div>
+        <span class="text-sm font-semibold">${e.sym}</span>
+        <p class="text-[10px] text-mutet">${linkedTxt}</p>
+      </div>
+      <span class="tnum font-semibold text-sm text-mutet">${e.weight.toFixed(1)}%</span>
+    </div>`;
+  }).join('');
+}
+function renderNarrativeAnalysis(result){
+  const body=$('#narrativeAnalysisBody'),ageEl=$('#narrativeAnalysisAge');
+  if(!body)return;
+  if(!result||!result.analysis){body.textContent='No analysis available.';return;}
+  body.textContent=result.analysis;
+  if(ageEl&&result.ts){
+    const ageMin=Math.round((Date.now()-result.ts)/60000);
+    ageEl.textContent=ageMin<60?`${ageMin}m ago`:`${(ageMin/60).toFixed(1)}h ago`;
+  }
+}
+async function initNarrativeTab(){
+  const metaEl=$('#narrativeMeta');
+  if(metaEl)metaEl.textContent='Loading\u2026';
+  let categories,exposure;
+  try{
+    categories=await fetchNarrativeCategories();
+    renderNarrativeCategoryList(categories);
+    exposure=computeNarrativeExposure(categories);
+    renderNarrativeExposureList(exposure);
+    setHealthDot('dotNarrative','live',`${categories.length} categories loaded`);
+    if(metaEl)metaEl.textContent='Live';
+  }catch(err){
+    console.error('Error fetching narrative categories:',err);
+    if(metaEl)metaEl.textContent='Error';
+    $('#narrativeCategoryList').innerHTML='<p class="text-xs text-mutet">Technical error: '+(err&&err.message?err.message:String(err))+'</p>';
+    setHealthDot('dotNarrative','error',err&&err.message?err.message:String(err));
+    return;
+  }
+  try{
+    const payload={
+      categories:categories.filter(c=>Math.abs(c.changePct)>=NARRATIVE_THRESHOLD_PCT).slice(0,10),
+      portfolioExposure:exposure.map(e=>({sym:e.sym,weight:e.weight,linked:e.linked.map(l=>({name:l.name,changePct:l.changePct}))})),
+    };
+    const result=await fetchNarrativeAnalysis(payload);
+    renderNarrativeAnalysis(result);
+  }catch(err){
+    console.error('Error fetching narrative analysis:',err);
+    $('#narrativeAnalysisBody').textContent='Technical error: '+(err&&err.message?err.message:String(err));
+  }
+}
+
 // POST their own composite point to D1, and call the /trader-analysis LLM
 // endpoint a second time — wasted quota and duplicate history rows for one
 // visit. Callers awaiting the return value all resolve together when the
@@ -5087,7 +5243,7 @@ function initAlertsSection(){
 function buildMobileNav(){const host=$('#navMobile');
   const groups=[
     [['dashboard','Dashboard'],['traderanalysis','Trader Analysis'],['mycrypto','My Crypto'],['dca','Average Cost'],['radar','Radar']],
-    [['scenario','Scenarios'],['cycles','Cycles'],['sentiment','Sentiment'],['capital','Capital']],
+    [['scenario','Scenarios'],['cycles','Cycles'],['sentiment','Sentiment'],['narrative','Narrative'],['capital','Capital']],
     [['settings','Settings']],
   ];
   groups.forEach((group,gi)=>{
@@ -8528,7 +8684,7 @@ window.loadHypeFunding=loadHypeFunding;
 // not change tabs), or inside the fullscreen chart modal. Also requires a
 // clearly horizontal gesture (bigger than vertical movement) past a real
 // distance threshold, so normal vertical page-scrolling never triggers it.
-const TAB_ORDER=['dashboard','mycrypto','dca','radar','scenario','cycles','sentiment','traderanalysis','capital','settings'];
+const TAB_ORDER=['dashboard','mycrypto','dca','radar','scenario','cycles','sentiment','narrative','traderanalysis','capital','settings'];
 function wireSwipeNav(){
   const main=document.querySelector('main');
   if(!main)return;
