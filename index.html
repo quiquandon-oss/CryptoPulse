@@ -1370,9 +1370,10 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <div class="rounded-2xl border border-line bg-panel p-5">
         <div class="flex items-center justify-between mb-2">
           <p class="text-sm font-semibold">AI Synthesis</p>
-          <span class="text-[10px] text-mutet" id="narrativeAnalysisAge">—</span>
+          <button id="narrativeAnalysisBtn" onclick="runNarrativeAnalysis()" class="text-xs font-semibold bg-panel2 hover:bg-line border border-line rounded-lg px-3 py-1.5 transition">Run Analysis</button>
         </div>
-        <div id="narrativeAnalysisBody" class="text-sm whitespace-pre-line">—</div>
+        <div id="narrativeAnalysisBody" class="text-sm whitespace-pre-line mb-1">—</div>
+        <span class="text-[10px] text-mutet" id="narrativeAnalysisAge"></span>
       </div>
     </section>
 
@@ -4938,6 +4939,15 @@ const NARRATIVE_COIN_CATEGORY_KEYWORDS={
   HYPE:['decentralized exchange','layer 1'],
 };
 const NARRATIVE_THRESHOLD_PCT=5; // 24h category move magnitude to count as a real "narrative," not noise
+// FIX: real-world use showed the notable-categories list dominated by thin,
+// illiquid categories (e.g. "Surge Launchpad," "Yoink.fun Launchpad," "TRY
+// Stablecoin") with mathematically-inflated % swings purely because a
+// category with only a few million dollars of market cap swings wildly on
+// small trades — that's noise, not a market narrative. It was also crowding
+// out substantive categories (AI, RWA, Layer 1, Oracle) that never made the
+// top-10-by-|change| cut despite being far more meaningful. A minimum
+// market-cap floor, applied BEFORE ranking by % change, fixes both at once.
+const NARRATIVE_MIN_MARKET_CAP=1e9; // $1B — clears real sector categories (Oracle, AI, RWA, Layer 1) while excluding thin/illiquid ones
 async function fetchNarrativeCategories(){
   const res=await cgFetch(`${CG}/coins/categories`);
   if(!res.ok)throw new Error('CoinGecko categories '+res.status);
@@ -4945,7 +4955,7 @@ async function fetchNarrativeCategories(){
   if(!Array.isArray(list))throw new Error('Unexpected categories response shape');
   return list
     .map(c=>({id:c.id,name:c.name,marketCap:c.market_cap,changePct:c.market_cap_change_24h}))
-    .filter(c=>c.changePct!=null&&c.marketCap>0)
+    .filter(c=>c.changePct!=null&&c.marketCap>=NARRATIVE_MIN_MARKET_CAP)
     .sort((a,b)=>Math.abs(b.changePct)-Math.abs(a.changePct));
 }
 function computeNarrativeExposure(categories){
@@ -5012,32 +5022,45 @@ function renderNarrativeAnalysis(result){
 async function initNarrativeTab(){
   const metaEl=$('#narrativeMeta');
   if(metaEl)metaEl.textContent='Loading\u2026';
-  let categories,exposure;
   try{
-    categories=await fetchNarrativeCategories();
+    const categories=await fetchNarrativeCategories();
     renderNarrativeCategoryList(categories);
-    exposure=computeNarrativeExposure(categories);
+    const exposure=computeNarrativeExposure(categories);
     renderNarrativeExposureList(exposure);
     setHealthDot('dotNarrative','live',`${categories.length} categories loaded`);
     if(metaEl)metaEl.textContent='Live';
+    // Stored for the manual "Run Analysis" button — the LLM synthesis is no
+    // longer triggered automatically on tab load (per real-world feedback:
+    // no reason to make every tab visit wait on an LLM call when the
+    // deterministic content above is already useful on its own).
+    narrativeLastCategories=categories;narrativeLastExposure=exposure;
+    const analysisBody=$('#narrativeAnalysisBody');
+    if(analysisBody)analysisBody.textContent='Tap "Run Analysis" for an AI read on the above.';
   }catch(err){
     console.error('Error fetching narrative categories:',err);
     if(metaEl)metaEl.textContent='Error';
     $('#narrativeCategoryList').innerHTML='<p class="text-xs text-mutet">Technical error: '+(err&&err.message?err.message:String(err))+'</p>';
     setHealthDot('dotNarrative','error',err&&err.message?err.message:String(err));
-    return;
   }
+}
+let narrativeLastCategories=null,narrativeLastExposure=null;
+async function runNarrativeAnalysis(){
+  const btn=$('#narrativeAnalysisBtn'),body=$('#narrativeAnalysisBody');
+  if(!narrativeLastCategories){if(body)body.textContent='Category data not loaded yet — revisit this tab first.';return;}
+  if(btn){btn.disabled=true;btn.textContent='Running\u2026';}
+  if(body)body.textContent='Running\u2026';
   try{
     const payload={
-      categories:categories.filter(c=>Math.abs(c.changePct)>=NARRATIVE_THRESHOLD_PCT).slice(0,10),
-      portfolioExposure:exposure.map(e=>({sym:e.sym,weight:e.weight,linked:e.linked.map(l=>({name:l.name,changePct:l.changePct}))})),
+      categories:narrativeLastCategories.filter(c=>Math.abs(c.changePct)>=NARRATIVE_THRESHOLD_PCT).slice(0,10),
+      portfolioExposure:narrativeLastExposure.map(e=>({sym:e.sym,weight:e.weight,linked:e.linked.map(l=>({name:l.name,changePct:l.changePct}))})),
     };
     const result=await fetchNarrativeAnalysis(payload);
     renderNarrativeAnalysis(result);
   }catch(err){
     console.error('Error fetching narrative analysis:',err);
-    $('#narrativeAnalysisBody').textContent='Technical error: '+(err&&err.message?err.message:String(err));
+    if(body)body.textContent='Technical error: '+(err&&err.message?err.message:String(err));
   }
+  if(btn){btn.disabled=false;btn.textContent='Run Analysis';}
 }
 
 // POST their own composite point to D1, and call the /trader-analysis LLM
