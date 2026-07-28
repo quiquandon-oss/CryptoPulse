@@ -5245,6 +5245,11 @@ function renderGeminiOutlook(result){
   const tilesHost=$('#outlookNarrativeTiles'),overallCard=$('#outlookOverallCard'),overallBody=$('#outlookOverallBody'),ageEl=$('#outlookAnalysisAge');
   if(!tilesHost)return;
   if(!result||!result.analysis){tilesHost.innerHTML='<p class="text-sm text-mutet">No analysis available.</p>';if(overallCard)overallCard.classList.add('hidden');return;}
+  // Exposed for the Regime Scorecard (a different tab) to read - this is a
+  // manually-triggered action, not run automatically every cycle, so the
+  // scorecard reuses whatever the last successful run produced rather than
+  // triggering its own Gemini call.
+  window.__lastGeminiOutlook=result;
   const{narrativeChunks,overallText}=splitOutlookNarrativeText(result.analysis);
   const scores=result.narrativeScores||[];
   const count=Math.max(narrativeChunks.length,scores.length);
@@ -7280,6 +7285,34 @@ function renderCyclesTab(){
       });
     }else{
       longTerm.push({label:'Cycle depth vs. history',display:'—',tag:'neutral',mag:0,available:false,reason:'Cycles tab pattern-fit not computed yet this session'});
+    }
+
+    // Gemini Outlook narratives (medium/long-term) — uses BTC's specific
+    // read from each narrative, since BTC is both this scorecard's own
+    // reference asset (per Track Record self-check, which tracks BTC's
+    // realized direction) and the portfolio's largest holding. Only
+    // available once the user has run the Outlook tab's analysis at least
+    // once this session — that's a manually-triggered action by design
+    // (Gemini calls aren't run automatically every cycle), so this reuses
+    // whatever the last successful run produced rather than triggering a
+    // fresh Gemini call from here.
+    const geminiOutlook=window.__lastGeminiOutlook;
+    if(geminiOutlook&&Array.isArray(geminiOutlook.narrativeScores)&&geminiOutlook.narrativeScores.length){
+      geminiOutlook.narrativeScores.forEach(n=>{
+        if(!n||!n.name)return;
+        const mBtc=n.medium&&n.medium.BTC,lBtc=n.long&&n.long.BTC;
+        if(mBtc!=null){
+          const gv=outlookGaugeValue(mBtc);
+          midTerm.push({label:`Gemini: ${n.name}`,display:mBtc,tag:gv===100?'bullish':gv===0?'bearish':'neutral',mag:(gv-50)/50,available:true});
+        }
+        if(lBtc!=null){
+          const gv=outlookGaugeValue(lBtc);
+          longTerm.push({label:`Gemini: ${n.name}`,display:lBtc,tag:gv===100?'bullish':gv===0?'bearish':'neutral',mag:(gv-50)/50,available:true});
+        }
+      });
+    }else{
+      midTerm.push({label:'Gemini Outlook',display:'—',tag:'neutral',mag:0,available:false,reason:'Run the Outlook tab\u2019s analysis at least once this session to include this'});
+      longTerm.push({label:'Gemini Outlook',display:'—',tag:'neutral',mag:0,available:false,reason:'Run the Outlook tab\u2019s analysis at least once this session to include this'});
     }
 
     const tagColor={bullish:'#00FF9C',bearish:'#FF2D55',neutral:'#F5B843'};
