@@ -4933,8 +4933,16 @@ async function _initSentimentTabImpl(){
 // fetch before building this. ═══
 const NARRATIVE_COIN_CATEGORY_KEYWORDS={
   BTC:['layer 1'],
-  ETH:['smart contract platform','layer 1','ethereum ecosystem'],
-  SOL:['solana ecosystem','smart contract platform'],
+  // Real World Assets explicitly tied to Ethereum/Avalanche networks (Ondo,
+  // Pendle, Centrifuge, per user-sourced research) - Artificial Intelligence
+  // added since Ethereum gets real if diffuse spillover as the settlement
+  // layer for many AI-agent ERC-20s, per earlier research this session.
+  ETH:['smart contract platform','layer 1','ethereum ecosystem','real world assets','artificial intelligence'],
+  // AI agent infrastructure is explicitly Solana-centric (the "primary
+  // chain" for agent launches, per earlier research and confirmed again by
+  // the user's own sourced narrative breakdown) - added alongside the
+  // existing L1/smart-contract-platform links.
+  SOL:['solana ecosystem','smart contract platform','artificial intelligence','ai agent'],
   LINK:['oracle'],
   HYPE:['decentralized exchange','layer 1'],
 };
@@ -5045,8 +5053,8 @@ async function initNarrativeTab(){
 }
 let narrativeLastCategories=null,narrativeLastExposure=null;
 async function runNarrativeAnalysis(){
-  const btn=$('#narrativeAnalysisBtn'),body=$('#narrativeAnalysisBody');
-  if(!narrativeLastCategories){if(body)body.textContent='Category data not loaded yet — revisit this tab first.';return;}
+  const btn=$('#narrativeAnalysisBtn'),body=$('#narrativeAnalysisBody'),ageEl=$('#narrativeAnalysisAge');
+  if(!narrativeLastCategories||!narrativeLastCategories.length){if(body)body.textContent='Category data not loaded yet — revisit this tab first.';return;}
   if(btn){btn.disabled=true;btn.textContent='Running\u2026';}
   if(body)body.textContent='Running\u2026';
   try{
@@ -5054,6 +5062,13 @@ async function runNarrativeAnalysis(){
       categories:narrativeLastCategories.filter(c=>Math.abs(c.changePct)>=NARRATIVE_THRESHOLD_PCT).slice(0,10),
       portfolioExposure:narrativeLastExposure.map(e=>({sym:e.sym,weight:e.weight,linked:e.linked.map(l=>({name:l.name,changePct:l.changePct}))})),
     };
+    // Diagnostic: the AI Synthesis once contradicted the visibly-rendered
+    // category data, and the exact mechanism couldn't be pinned down through
+    // code review alone. Logging what's actually sent (visible in the
+    // browser console) makes this directly checkable if it recurs, rather
+    // than guessing again.
+    console.log('narrative-analysis payload:',JSON.stringify(payload));
+    if(ageEl)ageEl.textContent=`Sending ${payload.categories.length} categor${payload.categories.length===1?'y':'ies'}\u2026`;
     const result=await fetchNarrativeAnalysis(payload);
     renderNarrativeAnalysis(result);
   }catch(err){
