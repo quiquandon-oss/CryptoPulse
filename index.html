@@ -4820,6 +4820,17 @@ async function _initSentimentTabImpl(){
       sectorRotation:window.__lastSectorRotation||null,
       technicalAlignment:window.__lastTechnicalAlignment||null,
       topHeadlines:window.__lastTopHeadlines||[],
+      // Flagged 9 Magnificent moves — reuses nineMagLastQuotes already
+      // fetched for the tile itself (no duplicate call). Same 3.5%
+      // threshold as the Worker uses to decide whether to attach a
+      // headline; a company can be flagged here with headline:null if it
+      // crossed the threshold but no headline was found — the Worker
+      // prompt handles that case explicitly rather than silently omitting it.
+      nineMagFlags:NINE_MAG_ORDER.map(sym=>{
+        const q=nineMagLastQuotes&&nineMagLastQuotes[sym];
+        if(!q||q.error||q.pct==null||Math.abs(q.pct)<3.5)return null;
+        return{sym,name:NINE_MAG_NAMES[sym]||sym,pct:q.pct,headline:(q.headlines&&q.headlines[0])?q.headlines[0].title:null};
+      }).filter(Boolean),
       // Populated only if the Liquidation tab was visited this session with BTC
       // focused — validated standalone on the Liquidation tab before being wired
       // in here per your instruction.
