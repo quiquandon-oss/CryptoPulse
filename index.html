@@ -196,11 +196,8 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <button data-view="traderanalysis" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 00-4 4v1a4 4 0 004 4 4 4 0 004-4V6a4 4 0 00-4-4z"/><path d="M6 11a6 6 0 0012 0M4 21h16M9 21v-4a3 3 0 116 0v4"/></svg> Trader Analysis
       </button>
-      <button data-view="narrative" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg> Narrative
-      </button>
       <button data-view="outlook" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></svg> Outlook
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></svg> Narrative
       </button>
       <button data-view="mycrypto" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5h3a2 2 0 010 4h-3v-4zm0 4v3"/></svg> My Crypto
@@ -1346,55 +1343,26 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       </div>
     </section>
 
-    <!-- =============== NARRATIVE =============== -->
-    <!-- Deliberately a separate tab from Trader Analysis and Sentiment —
-         different question ("what crypto-market theme is dominant right
-         now, and how exposed is my specific portfolio to it" vs "what's
-         BTC doing"), and deliberately not mixed into either's data. Category
-         ranking and portfolio exposure are computed deterministically
-         client-side (CoinGecko categories, direct fetch, same domain/key
-         already used everywhere in this app); the LLM (gpt-oss-120b, tested
-         for this route specifically) only narrates what's already computed,
-         explicitly allowed to say "no dominant narrative" rather than
-         forcing one every time. -->
-    <section id="v-narrative" class="hidden space-y-4">
-      <div class="rounded-2xl border border-line bg-panel p-5">
-        <div class="flex items-center justify-between mb-1">
-          <h2 class="font-semibold flex items-center gap-2">Narrative<span id="dotNarrative" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:2px;vertical-align:middle;"></span> <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'narrativeNote')">ⓘ Info</button></h2>
-          <span class="text-xs text-mutet" id="narrativeMeta">—</span>
-        </div>
-        <p class="hidden text-xs text-mutet max-w-md mb-3" id="narrativeNote">Groups CoinGecko's ~200 sector categories into a handful of broad, recognized narrative themes (RWA, AI &amp; Agentic Systems, L1/L2 liquidity, etc.), market-cap-weighting the blend within each theme so a $80B category counts far more than a $2B one grouped with it — structural/technical categories that aren't real narratives (liquid-staking derivatives, single-platform ecosystem baskets) are excluded entirely, not just ranked lower. Shows only the top 3 themes, then maps your BTC/ETH/SOL/LINK/HYPE holdings to whichever are linked. The AI synthesis only narrates these already-computed numbers — it never invents a theme, a link, or a narrative that isn't in the data.</p>
-        <div id="narrativeCategoryList" class="space-y-2">—</div>
-      </div>
-      <div class="rounded-2xl border border-line bg-panel p-5">
-        <p class="text-sm font-semibold mb-3">Your Portfolio Exposure</p>
-        <div id="narrativeExposureList" class="space-y-2">—</div>
-      </div>
-      <div class="rounded-2xl border border-line bg-panel p-5">
-        <div class="flex items-center justify-between mb-2">
-          <p class="text-sm font-semibold">AI Synthesis</p>
-          <button id="narrativeAnalysisBtn" onclick="runNarrativeAnalysis()" class="text-xs font-semibold bg-panel2 hover:bg-line border border-line rounded-lg px-3 py-1.5 transition">Run Analysis</button>
-        </div>
-        <div id="narrativeAnalysisBody" class="text-sm whitespace-pre-line mb-1">—</div>
-        <span class="text-[10px] text-mutet" id="narrativeAnalysisAge"></span>
-      </div>
-    </section>
-
-    <!-- =============== OUTLOOK (Gemini) =============== -->
-    <!-- Separate tab from Narrative by design (per explicit request): that
-         tab is short-term, deterministic-data-only, and constrained to
-         never invent anything CryptoPulse didn't compute. This one is
-         explicitly medium/long-term, and deliberately INVITES the model
-         (Gemini 2.5 Flash, via the user's own free-tier API key) to draw on
-         its own broader knowledge rather than being limited to a 24h
-         snapshot - the whole reason to bring in a second, more capable
-         model. Only the portfolio weights are CryptoPulse's own ground-truth
-         data; the narrative content is Gemini's synthesis, not something
-         being narrated from pre-computed numbers. -->
+    <!-- =============== NARRATIVE (formerly "Outlook", Gemini-powered) ===============
+         The old deterministic-only Narrative tab (CoinGecko categories,
+         constrained to never invent anything) was removed - this tab now
+         carries the "Narrative" name instead. Auto-triggered once on app
+         boot (see init()) in addition to the manual "Run Analysis" button -
+         Gemini calls aren't free of a real behavior-change tradeoff (one
+         call per app load now, not just when this tab is visited), but the
+         free tier is generous enough (~1,500 requests/day via Google AI
+         Studio) that this shouldn't be a practical problem for normal use.
+         Explicitly invites Gemini (via the user's own free-tier API key)
+         to draw on its own broader knowledge for medium/long-term
+         narrative synthesis, rather than being limited to a 24h snapshot -
+         the whole reason to use a second, more capable model here. Only
+         the portfolio weights are CryptoPulse's own ground-truth data; the
+         narrative content is Gemini's synthesis, not something narrated
+         from pre-computed numbers. -->
     <section id="v-outlook" class="hidden space-y-4">
       <div class="rounded-2xl border border-line bg-panel p-5">
         <div class="flex items-center justify-between mb-2">
-          <h2 class="font-semibold flex items-center gap-2">Gemini Outlook<span id="dotOutlook" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:2px;vertical-align:middle;"></span> <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'outlookNote')">ⓘ Info</button></h2>
+          <h2 class="font-semibold flex items-center gap-2">Gemini Narrative<span id="dotOutlook" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:2px;vertical-align:middle;"></span> <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'outlookNote')">ⓘ Info</button></h2>
           <button id="outlookAnalysisBtn" onclick="runOutlookAnalysis()" class="text-xs font-semibold bg-panel2 hover:bg-line border border-line rounded-lg px-3 py-1.5 transition">Run Analysis</button>
         </div>
         <p class="text-xs text-mutet">Medium &amp; long-term narrative and portfolio impact, powered by Gemini</p>
@@ -2125,9 +2093,9 @@ function wireModal(){
   });
   $('#chartModal').onclick=(e)=>{if(e.target===$('#chartModal'))closeChartModal();};
 }
-function setView(v){state.view=v;['dashboard','mycrypto','dca','scenario','cycles','capital','radar','sentiment','narrative','outlook','traderanalysis','settings'].forEach(x=>$('#v-'+x).classList.toggle('hidden',x!==v));
+function setView(v){state.view=v;['dashboard','mycrypto','dca','scenario','cycles','capital','radar','sentiment','outlook','traderanalysis','settings'].forEach(x=>$('#v-'+x).classList.toggle('hidden',x!==v));
   $$('#nav .navitem,#navMobile .navitem').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
-  $('#viewTitle').textContent={dashboard:'Dashboard',mycrypto:'My Crypto',dca:'Average Cost',scenario:'Scenarios',cycles:'Cycles',capital:'Capital',radar:'Radar',sentiment:'Sentiment',narrative:'Narrative',outlook:'Outlook',traderanalysis:'Trader Analysis',settings:'Settings'}[v];
+  $('#viewTitle').textContent={dashboard:'Dashboard',mycrypto:'My Crypto',dca:'Average Cost',scenario:'Scenarios',cycles:'Cycles',capital:'Capital',radar:'Radar',sentiment:'Sentiment',outlook:'Narrative',traderanalysis:'Trader Analysis',settings:'Settings'}[v];
   if(v==='dca'){fillAssets();$('#d_date').value=NOW();renderDcaAvgTable();renderDcaDonuts();}
   if(v==='dashboard'){renderPerf();renderAlloc();}
   if(v==='mycrypto'){renderCards();}
@@ -2136,7 +2104,6 @@ function setView(v){state.view=v;['dashboard','mycrypto','dca','scenario','cycle
   if(v==='capital'){renderCapital();}
   if(v==='radar'){initRadarTab();}
   if(v==='sentiment'){initSentimentTab();loadHypeFunding();}
-  if(v==='narrative'){initNarrativeTab();}
   if(v==='outlook'){initOutlookTab();}
   if(v==='traderanalysis'){renderManualNewsList();}
   if(v==='settings'){renderFredDebugPanel();initAlertsSection();}}
@@ -4953,209 +4920,10 @@ async function _initSentimentTabImpl(){
     console.error('Error rendering FRED debug panel:',err);
   }
 }
-// ---- Re-entrancy guard: boot prefetch, a manual tab visit, and the manual
-// "Refresh" button can all trigger this within seconds of each other. Without
-// this, overlapping calls each independently fire the ETF/technicals fetches,
-// ═══ NARRATIVE TAB — deterministic category ranking (CoinGecko, direct
-// client fetch, same domain/pattern already used everywhere in this app)
-// + portfolio-weighted exposure, both computed BEFORE handing anything to
-// the LLM — matching CryptoPulse's own architecture principle (compute
-// deterministically, narrate via LLM, never let the model invent numbers
-// or judgments from scratch). ═══
-// Maps raw CoinGecko categories (there are ~200+) into a handful of broad,
-// recognized narrative themes. Categories that don't match ANY theme are
-// treated as not narrative-relevant and excluded entirely — this is the
-// actual fix for "too many categories, most are noise": structural/
-// technical categories (liquid-staking derivatives, single-platform
-// ecosystem baskets, pure infrastructure) get filtered out here, not just
-// ranked lower. This is hand-curated, similar in spirit and ceiling to the
-// coin-category mapping below — a best-effort editorial judgment call, not
-// a perfect or permanent list.
-const NARRATIVE_THEME_MAP=[
-  {theme:'Real-World Asset (RWA) Tokenization',keywords:['real world assets','tokenized']},
-  {theme:'AI & Agentic Systems',keywords:['artificial intelligence','ai agent','ai framework','depin']},
-  {theme:'High-Performance L1/L2 Liquidity',keywords:['layer 1','layer 2','smart contract platform','solana ecosystem','superchain']},
-  {theme:'DeFi & Trading Infrastructure',keywords:['decentralized finance','defi','lending','yield','decentralized exchange']},
-  {theme:'Oracle & Data Infrastructure',keywords:['oracle']},
-  {theme:'Privacy',keywords:['privacy']},
-  {theme:'Gaming & Metaverse',keywords:['gaming','gamefi','metaverse']},
-  {theme:'Memecoins',keywords:['meme','dog-themed']},
-];
-const NARRATIVE_COIN_THEME_MAP={
-  ETH:['Real-World Asset (RWA) Tokenization','AI & Agentic Systems','High-Performance L1/L2 Liquidity'],
-  SOL:['AI & Agentic Systems','High-Performance L1/L2 Liquidity','Memecoins'],
-  LINK:['Oracle & Data Infrastructure'],
-  HYPE:['DeFi & Trading Infrastructure'],
-  // BTC deliberately has no theme mapping — per earlier research, its
-  // connection to these narratives is real but indirect (mining-company
-  // AI-compute pivots affect mining STOCKS, not BTC itself; broader tech-
-  // sentiment spillover isn't a specific narrative-category link). An
-  // honest "no notable theme linked" is more accurate than forcing one.
-};
-// FIX: real-world use showed the notable-categories list dominated by thin,
-// illiquid categories (e.g. "Surge Launchpad," "Yoink.fun Launchpad," "TRY
-// Stablecoin") with mathematically-inflated % swings purely because a
-// category with only a few million dollars of market cap swings wildly on
-// small trades — that's noise, not a market narrative. A minimum market-cap
-// floor, applied before clustering, filters this out at the source.
-const NARRATIVE_MIN_MARKET_CAP=1e9; // $1B — clears real sector categories while excluding thin/illiquid ones
-async function fetchNarrativeCategories(){
-  const res=await cgFetch(`${CG}/coins/categories`);
-  if(!res.ok)throw new Error('CoinGecko categories '+res.status);
-  const list=await res.json();
-  if(!Array.isArray(list))throw new Error('Unexpected categories response shape');
-  return list
-    .map(c=>({id:c.id,name:c.name,marketCap:c.market_cap,changePct:c.market_cap_change_24h}))
-    .filter(c=>c.changePct!=null&&c.marketCap>=NARRATIVE_MIN_MARKET_CAP)
-    .sort((a,b)=>Math.abs(b.changePct)-Math.abs(a.changePct));
-}
-// Clusters raw categories into curated themes, market-cap-weighting the
-// blend within each theme (so a $80B category counts far more than a $2B
-// one grouped into the same theme), then ranks themes by |change|. Verified
-// against data matching a real reported case before integration: correctly
-// surfaced RWA (+50.2%, matching the actual top mover) and a blended L1/L2
-// theme, while excluding Liquid Staked BTC/SOL, Telegram Apps, Pump.fun
-// Ecosystem, and Data Availability as not narrative-relevant.
-function clusterNarrativeThemes(categories){
-  const buckets={};
-  categories.forEach(c=>{
-    const nameLower=c.name.toLowerCase();
-    const match=NARRATIVE_THEME_MAP.find(t=>t.keywords.some(kw=>nameLower.includes(kw)));
-    if(!match)return; // not narrative-relevant — excluded, not just ranked lower
-    buckets[match.theme]=buckets[match.theme]||{theme:match.theme,members:[],wSum:0,wTotal:0};
-    buckets[match.theme].members.push(c);
-    buckets[match.theme].wSum+=c.changePct*c.marketCap;
-    buckets[match.theme].wTotal+=c.marketCap;
-  });
-  return Object.values(buckets).map(b=>({
-    theme:b.theme,
-    changePct:b.wTotal>0?b.wSum/b.wTotal:0,
-    members:b.members.sort((a,b2)=>b2.marketCap-a.marketCap),
-  })).sort((a,b)=>Math.abs(b.changePct)-Math.abs(a.changePct));
-}
-function computeNarrativeExposure(themes){
-  const tot=totals().val;
-  const topThemeNames=new Set(themes.slice(0,3).map(t=>t.theme));
-  return syms().filter(sym=>statOf(sym).q>1e-12).map(sym=>{
-    const weight=tot>0?(statOf(sym).val/tot)*100:0;
-    const myThemes=NARRATIVE_COIN_THEME_MAP[sym]||[];
-    const linked=themes.filter(t=>topThemeNames.has(t.theme)&&myThemes.includes(t.theme))
-      .map(t=>({name:t.theme,changePct:t.changePct}));
-    return{sym,weight,linked};
-  });
-}
-async function fetchNarrativeAnalysis(payload){
-  const res=await fetch(`${PULSE_WORKER_URL}/narrative-analysis`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-  if(!res.ok)throw new Error('Worker narrative-analysis '+res.status);
-  const json=await res.json();
-  if(json.error)throw new Error(json.error);
-  return json;
-}
-function renderNarrativeCategoryList(themes){
-  const host=$('#narrativeCategoryList');if(!host)return;
-  const top3=themes.slice(0,3);
-  if(!top3.length){host.innerHTML='<p class="text-xs text-mutet">No theme crossed the significance bar today \u2014 quiet market, no dominant narrative right now.</p>';return;}
-  host.innerHTML=top3.map(t=>{
-    const up=t.changePct>=0,color=up?'#3BF38B':'#FF5C72';
-    // \u00b120% maps to the full bar width \u2014 generous, since a market-cap-
-    // weighted theme blend moves less than any single raw category.
-    const barPct=Math.max(2,Math.min(100,Math.abs(t.changePct)/20*100));
-    const memberTxt=t.members.slice(0,3).map(m=>m.name).join(', ');
-    return`<div>
-      <div class="flex items-center justify-between mb-1">
-        <span class="text-sm font-medium">${t.theme}</span>
-        <span class="tnum font-bold text-sm" style="color:${color}">${up?'+':''}${t.changePct.toFixed(1)}%</span>
-      </div>
-      <div class="w-full rounded-full bg-panel2 overflow-hidden" style="height:6px">
-        <div style="width:${barPct}%;height:6px;background:${color};border-radius:9999px"></div>
-      </div>
-      <p class="text-[10px] text-mutet mt-1">${memberTxt}</p>
-    </div>`;
-  }).join('');
-}
-function renderNarrativeExposureList(exposure){
-  const host=$('#narrativeExposureList');if(!host)return;
-  if(!exposure.length){host.innerHTML='<p class="text-xs text-mutet">No holdings this session.</p>';return;}
-  host.innerHTML=exposure.map(e=>{
-    const linkedTxt=e.linked.length?e.linked.map(l=>`${l.name} (${l.changePct>=0?'+':''}${l.changePct.toFixed(1)}%)`).join(', '):'no notable category linked right now';
-    return`<div class="flex items-center justify-between">
-      <div>
-        <span class="text-sm font-semibold">${e.sym}</span>
-        <p class="text-[10px] text-mutet">${linkedTxt}</p>
-      </div>
-      <span class="tnum font-semibold text-sm text-mutet">${e.weight.toFixed(1)}%</span>
-    </div>`;
-  }).join('');
-}
-function renderNarrativeAnalysis(result){
-  const body=$('#narrativeAnalysisBody'),ageEl=$('#narrativeAnalysisAge');
-  if(!body)return;
-  if(!result||!result.analysis){body.textContent='No analysis available.';return;}
-  body.textContent=result.analysis;
-  if(ageEl&&result.ts){
-    const ageMin=Math.round((Date.now()-result.ts)/60000);
-    ageEl.textContent=ageMin<60?`${ageMin}m ago`:`${(ageMin/60).toFixed(1)}h ago`;
-  }
-}
-async function initNarrativeTab(){
-  const metaEl=$('#narrativeMeta');
-  if(metaEl)metaEl.textContent='Loading\u2026';
-  try{
-    const categories=await fetchNarrativeCategories();
-    const themes=clusterNarrativeThemes(categories);
-    renderNarrativeCategoryList(themes);
-    const exposure=computeNarrativeExposure(themes);
-    renderNarrativeExposureList(exposure);
-    setHealthDot('dotNarrative','live',`${categories.length} categories \u2192 ${themes.length} theme(s)`);
-    if(metaEl)metaEl.textContent='Live';
-    // Stored for the manual "Run Analysis" button — the LLM synthesis is no
-    // longer triggered automatically on tab load (per real-world feedback:
-    // no reason to make every tab visit wait on an LLM call when the
-    // deterministic content above is already useful on its own).
-    narrativeLastThemes=themes;narrativeLastExposure=exposure;
-    const analysisBody=$('#narrativeAnalysisBody');
-    if(analysisBody)analysisBody.textContent='Tap "Run Analysis" for an AI read on the above.';
-  }catch(err){
-    console.error('Error fetching narrative categories:',err);
-    if(metaEl)metaEl.textContent='Error';
-    $('#narrativeCategoryList').innerHTML='<p class="text-xs text-mutet">Technical error: '+(err&&err.message?err.message:String(err))+'</p>';
-    setHealthDot('dotNarrative','error',err&&err.message?err.message:String(err));
-  }
-}
-let narrativeLastThemes=null,narrativeLastExposure=null;
-async function runNarrativeAnalysis(){
-  const btn=$('#narrativeAnalysisBtn'),body=$('#narrativeAnalysisBody'),ageEl=$('#narrativeAnalysisAge');
-  if(!narrativeLastThemes||!narrativeLastThemes.length){if(body)body.textContent='No notable theme today — nothing to analyze.';return;}
-  if(btn){btn.disabled=true;btn.textContent='Running\u2026';}
-  if(body)body.textContent='Running\u2026';
-  try{
-    const payload={
-      // Already curated to the top 3 themes — no separate threshold filter
-      // needed here, the clustering step already did that work.
-      categories:narrativeLastThemes.slice(0,3).map(t=>({name:t.theme,changePct:t.changePct})),
-      portfolioExposure:narrativeLastExposure.map(e=>({sym:e.sym,weight:e.weight,linked:e.linked.map(l=>({name:l.name,changePct:l.changePct}))})),
-    };
-    // Diagnostic: the AI Synthesis once contradicted the visibly-rendered
-    // category data, and the exact mechanism couldn't be pinned down through
-    // code review alone. Logging what's actually sent (visible in the
-    // browser console) makes this directly checkable if it recurs, rather
-    // than guessing again.
-    console.log('narrative-analysis payload:',JSON.stringify(payload));
-    if(ageEl)ageEl.textContent=`Sending ${payload.categories.length} theme(s)\u2026`;
-    const result=await fetchNarrativeAnalysis(payload);
-    renderNarrativeAnalysis(result);
-  }catch(err){
-    console.error('Error fetching narrative analysis:',err);
-    if(body)body.textContent='Technical error: '+(err&&err.message?err.message:String(err));
-  }
-  if(btn){btn.disabled=false;btn.textContent='Run Analysis';}
-}
-
 // ═══ OUTLOOK TAB (Gemini) — separate from Narrative by design. Portfolio
-// weights are the only ground-truth data computed here (same pattern as
-// computeNarrativeExposure); the narrative content itself is Gemini's own
-// synthesis via the Worker's /gemini-outlook route, not something
-// CryptoPulse computed and is asking to be narrated. ═══
+// weights are the only ground-truth data computed here; the narrative
+// content itself is Gemini's own synthesis via the Worker's /gemini-outlook
+// route, not something CryptoPulse computed and is asking to be narrated. ═══
 function computeOutlookPortfolio(){
   const tot=totals().val;
   return syms().filter(sym=>statOf(sym).q>1e-12).map(sym=>({
@@ -5305,7 +5073,10 @@ async function runOutlookAnalysis(){
   if(btn){btn.disabled=false;btn.textContent='Run Analysis';}
 }
 
-// POST their own composite point to D1, and call the /trader-analysis LLM
+// ---- Re-entrancy guard: boot prefetch, a manual tab visit, and the manual
+// "Refresh" button can all trigger this within seconds of each other.
+// Without this, overlapping calls each independently fire the ETF/technicals
+// fetches, POST their own composite point to D1, and call the /trader-analysis LLM
 // endpoint a second time — wasted quota and duplicate history rows for one
 // visit. Callers awaiting the return value all resolve together when the
 // single in-flight run finishes.
@@ -5508,7 +5279,7 @@ function initAlertsSection(){
 function buildMobileNav(){const host=$('#navMobile');
   const groups=[
     [['dashboard','Dashboard'],['traderanalysis','Trader Analysis'],['mycrypto','My Crypto'],['dca','Average Cost'],['radar','Radar']],
-    [['scenario','Scenarios'],['cycles','Cycles'],['sentiment','Sentiment'],['narrative','Narrative'],['outlook','Outlook'],['capital','Capital']],
+    [['scenario','Scenarios'],['cycles','Cycles'],['sentiment','Sentiment'],['outlook','Narrative'],['capital','Capital']],
     [['settings','Settings']],
   ];
   groups.forEach((group,gi)=>{
@@ -7311,8 +7082,8 @@ function renderCyclesTab(){
         }
       });
     }else{
-      midTerm.push({label:'Gemini Outlook',display:'—',tag:'neutral',mag:0,available:false,reason:'Run the Outlook tab\u2019s analysis at least once this session to include this'});
-      longTerm.push({label:'Gemini Outlook',display:'—',tag:'neutral',mag:0,available:false,reason:'Run the Outlook tab\u2019s analysis at least once this session to include this'});
+      midTerm.push({label:'Gemini Outlook',display:'—',tag:'neutral',mag:0,available:false,reason:'Run the Narrative tab\u2019s analysis at least once this session to include this'});
+      longTerm.push({label:'Gemini Outlook',display:'—',tag:'neutral',mag:0,available:false,reason:'Run the Narrative tab\u2019s analysis at least once this session to include this'});
     }
 
     const tagColor={bullish:'#00FF9C',bearish:'#FF2D55',neutral:'#F5B843'};
@@ -8977,7 +8748,7 @@ window.loadHypeFunding=loadHypeFunding;
 // not change tabs), or inside the fullscreen chart modal. Also requires a
 // clearly horizontal gesture (bigger than vertical movement) past a real
 // distance threshold, so normal vertical page-scrolling never triggers it.
-const TAB_ORDER=['dashboard','mycrypto','dca','radar','scenario','cycles','sentiment','narrative','outlook','traderanalysis','capital','settings'];
+const TAB_ORDER=['dashboard','mycrypto','dca','radar','scenario','cycles','sentiment','outlook','traderanalysis','capital','settings'];
 function wireSwipeNav(){
   const main=document.querySelector('main');
   if(!main)return;
@@ -9018,6 +8789,19 @@ async function init(){LS.load();buildMobileNav();wire();paintNav();wireSwipeNav(
   // Radar badge blank and both tabs stale on first load.
   renderCyclesTab();
   initSentimentTab().catch(err=>console.error('Background sentiment prefetch failed:',err));
+  // Auto-trigger the Narrative tab's Gemini analysis on every app start, per
+  // explicit request — the manual "Run Analysis" button still works for
+  // re-running later in the session. Real behavior-change tradeoff worth
+  // naming: this is now one Gemini call per app load, not just when this
+  // tab is visited. The free tier is generous enough (~1,500 requests/day
+  // via Google AI Studio) that this shouldn't be a practical problem for
+  // normal use. Note: since this runs concurrently with renderCyclesTab()
+  // above, the Regime Scorecard's Gemini-derived factors will show as
+  // unavailable on this very first render (Gemini hasn't returned yet) and
+  // only pick up window.__lastGeminiOutlook on a later revisit/refresh of
+  // the Cycles tab — not an instant two-way sync, just eventual consistency.
+  initOutlookTab();
+  runOutlookAnalysis().catch(err=>console.error('Auto-triggered Gemini Narrative failed:',err));
   loadHypeFunding();
   setInterval(()=>{getFx();getFG();getPrices().then(render);if(state.view==='sentiment')loadHypeFunding();},60000);
   // FIX: the composite cycle (score/technicalScore/regimeMag/bottomScore/
