@@ -4971,6 +4971,30 @@ function computeOutlookPortfolio(){
     weight:tot>0?(statOf(sym).val/tot)*100:0,
   })).sort((a,b)=>b.weight-a.weight);
 }
+// ---- 24h cache for the Gemini Outlook/Narrative result. This is
+// medium/long-term synthesis (feeds the Regime Scorecard's mid/long-term
+// columns), so it shouldn't reset every time the app is opened — a fresh
+// Gemini call on every boot made those scorecard factors churn hour to
+// hour, which defeats the point of a medium/long-term read. Cached in
+// localStorage (not just window.__lastGeminiOutlook) so it survives a page
+// reload/new session, keyed off the Worker's own result.ts. The manual
+// "Run Analysis" button always bypasses this and forces a fresh call —
+// the cache only gates the automatic boot-time trigger.
+const OUTLOOK_CACHE_KEY='cp2_geminiOutlook';
+const OUTLOOK_CACHE_MS=24*60*60*1000;
+function loadOutlookCache(){
+  try{
+    const raw=localStorage.getItem(OUTLOOK_CACHE_KEY);
+    if(!raw)return null;
+    const cached=JSON.parse(raw);
+    if(!cached||!cached.ts||!cached.analysis)return null;
+    if(Date.now()-cached.ts>OUTLOOK_CACHE_MS)return null;
+    return cached;
+  }catch(e){return null;}
+}
+function saveOutlookCache(result){
+  try{if(result&&result.ts)localStorage.setItem(OUTLOOK_CACHE_KEY,JSON.stringify(result));}catch(e){console.error('Failed to cache Gemini outlook:',e);}
+}
 async function fetchGeminiOutlook(payload){
   const res=await fetch(`${PULSE_WORKER_URL}/gemini-outlook`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
   if(!res.ok){
@@ -5056,8 +5080,10 @@ function renderGeminiOutlook(result){
   // Exposed for the Regime Scorecard (a different tab) to read - this is a
   // manually-triggered action, not run automatically every cycle, so the
   // scorecard reuses whatever the last successful run produced rather than
-  // triggering its own Gemini call.
+  // triggering its own Gemini call. Also cached to localStorage for 24h so
+  // it survives a page reload instead of re-firing on every app open.
   window.__lastGeminiOutlook=result;
+  saveOutlookCache(result);
   const{narrativeChunks,overallText}=splitOutlookNarrativeText(result.analysis);
   const scores=result.narrativeScores||[];
   const count=Math.max(narrativeChunks.length,scores.length);
@@ -7170,12 +7196,10 @@ function renderCyclesTab(){
     // Gemini Outlook narratives (medium/long-term) — uses BTC's specific
     // read from each narrative, since BTC is both this scorecard's own
     // reference asset (per Track Record self-check, which tracks BTC's
-    // realized direction) and the portfolio's largest holding. Only
-    // available once the user has run the Outlook tab's analysis at least
-    // once this session — that's a manually-triggered action by design
-    // (Gemini calls aren't run automatically every cycle), so this reuses
-    // whatever the last successful run produced rather than triggering a
-    // fresh Gemini call from here.
+    // realized direction) and the portfolio's largest holding. Backed by
+    // window.__lastGeminiOutlook, which is populated either from a fresh
+    // manual "Run Analysis" or from the 24h localStorage cache on boot (see
+    // loadOutlookCache) — Gemini isn't called fresh from here.
     const geminiOutlook=window.__lastGeminiOutlook;
     if(geminiOutlook&&Array.isArray(geminiOutlook.narrativeScores)&&geminiOutlook.narrativeScores.length){
       geminiOutlook.narrativeScores.forEach(n=>{
@@ -7191,8 +7215,8 @@ function renderCyclesTab(){
         }
       });
     }else{
-      midTerm.push({label:'Gemini Outlook',display:'—',tag:'neutral',mag:0,available:false,reason:'Run the Narrative tab\u2019s analysis at least once this session to include this'});
-      longTerm.push({label:'Gemini Outlook',display:'—',tag:'neutral',mag:0,available:false,reason:'Run the Narrative tab\u2019s analysis at least once this session to include this'});
+      midTerm.push({label:'Gemini Outlook',display:'—',tag:'neutral',mag:0,available:false,reason:'Run the Narrative tab\u2019s analysis to include this (cached 24h once run)'});
+      longTerm.push({label:'Gemini Outlook',display:'—',tag:'neutral',mag:0,available:false,reason:'Run the Narrative tab\u2019s analysis to include this (cached 24h once run)'});
     }
 
     const tagColor={bullish:'#00FF9C',bearish:'#FF2D55',neutral:'#F5B843'};
@@ -8900,17 +8924,28 @@ async function init(){LS.load();buildMobileNav();wire();paintNav();wireSwipeNav(
   initSentimentTab().catch(err=>console.error('Background sentiment prefetch failed:',err));
   // Auto-trigger the Narrative tab's Gemini analysis on every app start, per
   // explicit request — the manual "Run Analysis" button still works for
-  // re-running later in the session. Real behavior-change tradeoff worth
-  // naming: this is now one Gemini call per app load, not just when this
-  // tab is visited. The free tier is generous enough (~1,500 requests/day
-  // via Google AI Studio) that this shouldn't be a practical problem for
-  // normal use. Note: since this runs concurrently with renderCyclesTab()
-  // above, the Regime Scorecard's Gemini-derived factors will show as
-  // unavailable on this very first render (Gemini hasn't returned yet) and
-  // only pick up window.__lastGeminiOutlook on a later revisit/refresh of
-  // the Cycles tab — not an instant two-way sync, just eventual consistency.
+  // re-running later. Gated behind a 24h localStorage cache (see
+  // loadOutlookCache/saveOutlookCache): a fresh, valid-within-24h result is
+  // reused and re-rendered immediately with no Gemini call at all, so the
+  // Regime Scorecard's medium/long-term Gemini factors stay stable across
+  // app opens instead of churning every time the app is opened. Only calls
+  // Gemini here when the cache is missing or older than 24h. Note: on an
+  // actual cache-miss fetch, since this runs concurrently with
+  // renderCyclesTab() above, the Regime Scorecard's Gemini-derived factors
+  // will show as unavailable on this very first render (Gemini hasn't
+  // returned yet) and only pick up window.__lastGeminiOutlook on a later
+  // revisit/refresh of the Cycles tab — not an instant two-way sync, just
+  // eventual consistency.
   initOutlookTab();
-  runOutlookAnalysis().catch(err=>console.error('Auto-triggered Gemini Narrative failed:',err));
+  {
+    const cachedOutlook=loadOutlookCache();
+    if(cachedOutlook){
+      window.__lastGeminiOutlook=cachedOutlook;
+      renderGeminiOutlook(cachedOutlook);
+    }else{
+      runOutlookAnalysis().catch(err=>console.error('Auto-triggered Gemini Narrative failed:',err));
+    }
+  }
   loadHypeFunding();
   setInterval(()=>{getFx();getFG();getPrices().then(render);if(state.view==='sentiment')loadHypeFunding();},60000);
   // FIX: the composite cycle (score/technicalScore/regimeMag/bottomScore/
