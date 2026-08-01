@@ -208,6 +208,9 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       <button data-view="radar" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M12 12L20 7M4 19l5-8"/><circle cx="12" cy="12" r="9"/></svg> Radar
       </button>
+      <button data-view="markets" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg> Markets
+      </button>
       <p class="text-[10px] uppercase tracking-wide text-mutet px-3 pt-3 pb-1">Market read</p>
       <button data-view="scenario" class="navitem flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-left transition">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h2M6 20V10M10 20V4M14 20v-6M18 20V8M22 20h-2"/></svg> Scenarios
@@ -1002,6 +1005,40 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       </div>
     </section>
 
+    <!-- =============== MARKETS (top 10 by market cap — general market
+         browse/reference tab, separate from the user's own holdings which
+         live in My Crypto/Dashboard). Data: CoinGecko Demo API via
+         cgFetch(), same source used everywhere else in the app. Search is
+         client-side only — filters the cached 10-coin response, no refetch.
+         Sparklines are lightweight inline SVG polylines built from
+         CoinGecko's own 7d sparkline_in_7d.price array, not separate
+         Chart.js instances (overkill for 10 tiny lines). =============== -->
+    <section id="v-markets" class="hidden space-y-4">
+      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+        <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
+          <h2 class="font-semibold">Top 10 by Market Cap<span id="dotMarkets" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h2>
+          <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'marketsNote')">ⓘ Info</button>
+        </div>
+        <p class="hidden text-xs text-mutet mb-3" id="marketsNote">Live snapshot of the 10 largest coins by market cap, from the same CoinGecko Demo API used across the app. Auto-refreshes every 60s while this tab is open, plus on manual Refresh (top right). Prices follow the USD/EUR toggle. This is a general market reference — separate from your own holdings, which live in My Crypto.</p>
+        <input id="marketsSearch" type="text" placeholder="Search by name or symbol…" class="w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm mb-4 outline-none focus:border-neon" />
+        <div id="marketsTrending" class="grid grid-cols-2 gap-3 mb-4"></div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs">
+            <thead class="text-mutet uppercase tracking-wide border-b border-line"><tr>
+              <th class="text-left font-medium px-3 py-2">#</th>
+              <th class="text-left font-medium px-3 py-2">Coin</th>
+              <th class="text-right font-medium px-3 py-2">Price</th>
+              <th class="text-right font-medium px-3 py-2">24h</th>
+              <th class="text-right font-medium px-3 py-2">24h Volume</th>
+              <th class="text-right font-medium px-3 py-2">7D</th>
+            </tr></thead>
+            <tbody id="marketsTbody"><tr><td colspan="6" class="px-3 py-6 text-center text-mutet">Loading…</td></tr></tbody>
+          </table>
+        </div>
+        <p id="marketsEmptyNote" class="hidden text-xs text-mutet text-center py-4">No coins match your search.</p>
+      </div>
+    </section>
+
     <!-- =============== SENTIMENT ENGINE (market context — Google Sheet / Gemini) =============== -->
     <section id="v-sentiment" class="hidden space-y-4">
       <!-- ═══ Sentiment Engine — powered by Pulse (Cloudflare Worker: Llama 3.1 8B +
@@ -1602,7 +1639,7 @@ const META={BTC:{id:'bitcoin',name:'Bitcoin',c:'#F7931A'},ETH:{id:'ethereum',nam
 const FX0=1.1385;
 const NOW=()=>new Date().toISOString().slice(0,10); // real today (device clock)
 function fxOnDate(d){const m=+d.slice(5,7);return m<=4?1.175:m===5?1.16:1.145;} // monthly approx used for embedded EUR txs
-const TABC={dashboard:'#3BF38B',mycrypto:'#8B7BFF',dca:'#F5B843',transactions:'#38BDF8',capital:'#06B6D4',scenario:'#A78BFA',radar:'#2A5ADA',sentiment:'#F472B6',settings:'#94A3B8'};
+const TABC={dashboard:'#3BF38B',mycrypto:'#8B7BFF',dca:'#F5B843',transactions:'#38BDF8',capital:'#06B6D4',scenario:'#A78BFA',radar:'#2A5ADA',markets:'#22D3EE',sentiment:'#F472B6',settings:'#94A3B8'};
 function paintNav(){document.querySelectorAll('.navitem').forEach(b=>{const c=TABC[b.dataset.view]||'#3BF38B';b.style.setProperty('--tc',c);});}
 
 const state={txs:[],prices:{},fx:FX0,ccy:'USD',view:'dashboard',coin:'ALL',range:'ALL',tType:'buy',tCcy:'USD',expanded:new Set(),capTxOpen:new Set(),detailCoin:null,detailRange:'30d',
@@ -2093,9 +2130,9 @@ function wireModal(){
   });
   $('#chartModal').onclick=(e)=>{if(e.target===$('#chartModal'))closeChartModal();};
 }
-function setView(v){state.view=v;['dashboard','mycrypto','dca','scenario','cycles','capital','radar','sentiment','outlook','traderanalysis','settings'].forEach(x=>$('#v-'+x).classList.toggle('hidden',x!==v));
+function setView(v){state.view=v;['dashboard','mycrypto','dca','scenario','cycles','capital','radar','markets','sentiment','outlook','traderanalysis','settings'].forEach(x=>$('#v-'+x).classList.toggle('hidden',x!==v));
   $$('#nav .navitem,#navMobile .navitem').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
-  $('#viewTitle').textContent={dashboard:'Dashboard',mycrypto:'My Crypto',dca:'Average Cost',scenario:'Scenarios',cycles:'Cycles',capital:'Capital',radar:'Radar',sentiment:'Sentiment',outlook:'Narrative',traderanalysis:'Trader Analysis',settings:'Settings'}[v];
+  $('#viewTitle').textContent={dashboard:'Dashboard',mycrypto:'My Crypto',dca:'Average Cost',scenario:'Scenarios',cycles:'Cycles',capital:'Capital',radar:'Radar',markets:'Markets',sentiment:'Sentiment',outlook:'Narrative',traderanalysis:'Trader Analysis',settings:'Settings'}[v];
   if(v==='dca'){fillAssets();$('#d_date').value=NOW();renderDcaAvgTable();renderDcaDonuts();}
   if(v==='dashboard'){renderPerf();renderAlloc();}
   if(v==='mycrypto'){renderCards();}
@@ -2103,13 +2140,15 @@ function setView(v){state.view=v;['dashboard','mycrypto','dca','scenario','cycle
   if(v==='cycles'){renderCyclesTab();}
   if(v==='capital'){renderCapital();}
   if(v==='radar'){initRadarTab();}
+  if(v==='markets'){initMarketsTab();}
   if(v==='sentiment'){initSentimentTab();loadHypeFunding();}
   if(v==='outlook'){initOutlookTab();}
   if(v==='traderanalysis'){renderManualNewsList();}
   if(v==='settings'){renderFredDebugPanel();initAlertsSection();}}
 function setCcy(c){state.ccy=c;LS.ccy();
   $$('#ccyToggle button').forEach(b=>{const on=b.dataset.ccy===c;b.className=`px-3 py-1.5 rounded-lg text-xs font-bold ${on?'text-ink bg-white':'text-mutet'}`;});
-  render();}
+  render();
+  if(state.view==='markets'&&state.marketsData)renderTopMarkets(state.marketsData);}
 
 /* ---- live refresh ---- */
 const FX_REFRESH_MS=12*60*60000; // 12h → ~1-2x/day for the AUTOMATIC cycle. Manual refresh (force=true) always bypasses this.
@@ -2154,7 +2193,7 @@ async function getPrices(){const ids=syms().map(s=>META[s]?.id).filter(Boolean);
     setStatus(true);}catch(e){setStatus(false);}}
 function setStatus(ok){$('#statusLine').textContent=ok?'● live prices':'● embedded snapshot';$('#statusLine').style.color=ok?'#3BF38B':'#7A8499';}
 function spin(on){const ic=$('#refreshIcon');ic.style.transition='transform .8s';ic.style.transform=on?'rotate(360deg)':'';if(!on)setTimeout(()=>{ic.style.transition='none';ic.style.transform='';},800);}
-async function refresh(){spin(true);await Promise.all([getFx(true),getPrices()]);render();spin(false);}
+async function refresh(){spin(true);await Promise.all([getFx(true),getPrices()]);render();if(state.view==='markets')fetchTopMarkets();spin(false);}
 
 /* ════════════════════════════════════════════════════════════════
    RADAR — buy-window analysis, works for any coin in META
@@ -2453,6 +2492,7 @@ function wireRadar(){
   };
   // Radar has its own hourly cycle, decoupled from the app's 60s price loop
   setInterval(()=>{if(state.view==='radar'){ensureRadarData(state.radar.coin);updateRadarLive();}},RADAR_REFRESH_MS);
+  setInterval(()=>{if(state.view==='markets')fetchTopMarkets();},MARKETS_REFRESH_MS);
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -5276,9 +5316,77 @@ function initAlertsSection(){
 
 
 /* ---- wire ---- */
+// ---- MARKETS tab: general top-10-by-market-cap browse/reference table,
+// separate from the portfolio tracking done elsewhere in the app. Fetched
+// on-demand each time the tab is opened (same pattern as Sentiment/Radar —
+// no background polling while the tab isn't visible), plus a boot-time
+// interval that only actually fetches while state.view==='markets'.
+const MARKETS_REFRESH_MS=60000;
+function fmtCompact(n){
+  const abs=Math.abs(n||0);
+  if(abs>=1e9)return(abs/1e9).toFixed(2)+'B';
+  if(abs>=1e6)return(abs/1e6).toFixed(1)+'M';
+  if(abs>=1e3)return(abs/1e3).toFixed(0)+'K';
+  return abs.toFixed(0);
+}
+function marketsPriceIn(usd){const fx=state.fx||FX0;return state.ccy==='USD'?usd:usd/fx;}
+function sparklineSvg(prices,up){
+  if(!prices||prices.length<2)return'<span class="text-mutet">—</span>';
+  const w=64,h=24,min=Math.min(...prices),max=Math.max(...prices),range=(max-min)||1;
+  const pts=prices.map((p,i)=>`${(i/(prices.length-1)*w).toFixed(1)},${(h-((p-min)/range*h)).toFixed(1)}`).join(' ');
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline points="${pts}" fill="none" stroke="${up?'#3BF38B':'#F5606C'}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+async function fetchTopMarkets(){
+  try{
+    const r=await cgFetch(`${CG}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=10&page=1&sparkline=true&price_change_percentage=24h`);
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const data=await r.json();
+    if(!Array.isArray(data)||!data.length)throw new Error('empty response');
+    state.marketsData=data;state.marketsFetchedAt=Date.now();
+    renderTopMarkets(data);
+    setHealthDot('dotMarkets','live','Live · updated '+new Date().toLocaleTimeString());
+  }catch(err){
+    console.error('Markets fetch failed:',err);
+    if(state.marketsData){setHealthDot('dotMarkets','stale','Refresh failed — showing last good data from '+new Date(state.marketsFetchedAt).toLocaleTimeString());}
+    else{setHealthDot('dotMarkets','error','Failed to load market data');
+      const tb=$('#marketsTbody');if(tb)tb.innerHTML='<tr><td colspan="6" class="px-3 py-6 text-center text-down">Couldn\'t load market data. Try Refresh.</td></tr>';}
+  }
+}
+function renderTopMarkets(data){
+  const host=$('#marketsTbody'),empty=$('#marketsEmptyNote');if(!host)return;
+  const q=($('#marketsSearch')?.value||'').trim().toLowerCase();
+  const filtered=q?data.filter(c=>c.name.toLowerCase().includes(q)||c.symbol.toLowerCase().includes(q)):data;
+  if(empty)empty.classList.toggle('hidden',filtered.length>0);
+  host.innerHTML=filtered.map(c=>{
+    const up=(c.price_change_percentage_24h||0)>=0;
+    return `<tr class="border-b border-line/50">
+      <td class="px-3 py-2 text-mutet">${c.market_cap_rank??'—'}</td>
+      <td class="px-3 py-2"><div class="flex items-center gap-2"><img src="${c.image}" width="20" height="20" class="rounded-full" alt="${c.symbol}"/><span class="font-medium">${c.name}</span><span class="text-mutet">${c.symbol.toUpperCase()}</span></div></td>
+      <td class="px-3 py-2 text-right tnum">${moneyIn(marketsPriceIn(c.current_price),state.ccy,pdec(c.current_price))}</td>
+      <td class="px-3 py-2 text-right tnum font-medium ${up?'text-up':'text-down'}">${pctS(c.price_change_percentage_24h)}</td>
+      <td class="px-3 py-2 text-right tnum text-mutet">${symC()}${fmtCompact(marketsPriceIn(c.total_volume))}</td>
+      <td class="px-3 py-2 text-right">${sparklineSvg(c.sparkline_in_7d?.price,up)}</td>
+    </tr>`;}).join('');
+  renderMarketsTrending(data);
+}
+function renderMarketsTrending(data){
+  const host=$('#marketsTrending');if(!host)return;
+  const sorted=[...data].sort((a,b)=>(b.price_change_percentage_24h||0)-(a.price_change_percentage_24h||0));
+  const gainers=sorted.slice(0,3),losers=sorted.slice(-3).reverse();
+  const row=(label,list)=>`<div class="bg-panel2 rounded-xl p-3">
+    <p class="text-[10px] text-mutet mb-2">${label} <span class="text-[9px]">(top 10 by mcap)</span></p>
+    ${list.map(c=>{const u=(c.price_change_percentage_24h||0)>=0;return `<div class="flex items-center justify-between text-xs py-0.5">
+      <span class="flex items-center gap-1.5"><img src="${c.image}" width="14" height="14" class="rounded-full" alt=""/>${c.symbol.toUpperCase()}</span>
+      <span class="font-semibold ${u?'text-up':'text-down'}">${pctS(c.price_change_percentage_24h)}</span>
+    </div>`;}).join('')}
+  </div>`;
+  host.innerHTML=row('📈 Top gainers',gainers)+row('📉 Top losers',losers);
+}
+function initMarketsTab(){fetchTopMarkets();}
+
 function buildMobileNav(){const host=$('#navMobile');
   const groups=[
-    [['dashboard','Dashboard'],['traderanalysis','Trader Analysis'],['mycrypto','My Crypto'],['dca','Average Cost'],['radar','Radar']],
+    [['dashboard','Dashboard'],['traderanalysis','Trader Analysis'],['mycrypto','My Crypto'],['dca','Average Cost'],['radar','Radar'],['markets','Markets']],
     [['scenario','Scenarios'],['cycles','Cycles'],['sentiment','Sentiment'],['outlook','Narrative'],['capital','Capital']],
     [['settings','Settings']],
   ];
@@ -5295,6 +5403,7 @@ function wire(){
   $$('#nav .navitem').forEach(b=>b.onclick=()=>setView(b.dataset.view));
   $$('#ccyToggle button').forEach(b=>b.onclick=()=>setCcy(b.dataset.ccy));
   $('#refreshBtn').onclick=refresh;$('#goDca').onclick=()=>setView('dca');
+  {const mSearch=$('#marketsSearch');if(mSearch)mSearch.oninput=()=>{if(state.marketsData)renderTopMarkets(state.marketsData);};}
   {const scenDateInp=$('#scenDatePicker');if(scenDateInp)scenDateInp.onchange=renderScenarioDateReadout;}
   $('#sentimentRefreshBtn').onclick=async()=>{
     const btn=$('#sentimentRefreshBtn'),icon=$('#sentimentRefreshIcon');
