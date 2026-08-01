@@ -4144,10 +4144,39 @@ const COMPOSITE_SOURCES_DEFAULTS=[
   // variation (44-58 range) every reading from Jul 21 onward. Weight left at
   // 2 here as a leftover from the broken era — now that it's a working
   // signal, this could reasonably be revisited upward.
-  {id:'fng',label:'Fear & Greed Index',weight:28,confidence:1.0},
+  // ---- 2nd correlation-informed pass (this session), now against the FULL
+  // D1 history (482 paired samples at 24h lag, vs. 12-13 points in the
+  // first pass above) — same Pearson methodology as the Worker's own
+  // /analysis endpoint, replicated directly against D1 to check this
+  // session's hypothesis that reactive/price-derived sources were dragging
+  // the whole composite. That hypothesis was WRONG for most of them:
+  // funding (r=+0.12) and longshort (r=+0.29) actually show real positive
+  // forward correlation — among the best in the whole set — so they're left
+  // untouched here rather than cut as originally planned. onchain (r=-0.07)
+  // and etfflows (r=-0.15) also turned out NOT to be the strong leading
+  // signals assumed going in — left unchanged rather than bumped up.
+  // Only 3 sources actually justified a change against real numbers:
+  //   fng: r=-0.01 (basically zero) despite being the single biggest
+  //     weight in the whole composite — cut hard.
+  //   global (Market Cap 24h): r=-0.26 — a real signal, but CONTRARIAN: a
+  //     big recent 24h move tends to partly reverse, yet this source's 0-100
+  //     score is currently read the same bullish-up direction as everything
+  //     else in the sum. Trimmed as a stopgap; the score's polarity for this
+  //     one source likely needs an actual sign flip in its scoring function,
+  //     not just a weight change — flagged for a follow-up, not done here.
+  //   usd: r=-0.22, one of the stronger measured signals, yet still sitting
+  //     at the smallest weight in the whole list (a leftover from when this
+  //     feed was confirmed broken/frozen, see prior note) — raised now that
+  //     the feed's been confirmed working since Jul 21.
+  // ninemag showed a huge r=-0.57 but on only 58 samples (it's a very
+  // recently added source) — exactly the small-sample, easy-to-overfit
+  // situation the first pass's own note already warned about, so
+  // deliberately left alone pending more data, same discipline as
+  // cryptonews/geopolitics were held to last time.
+  {id:'fng',label:'Fear & Greed Index',weight:14,confidence:1.0},
   {id:'funding',label:'Funding Rate (BTC/ETH, Hyperliquid)',weight:15,confidence:1.0},
   {id:'longshort',label:'Long/Short Proxy (HL funding, 5-asset avg)',weight:10,confidence:0.5},
-  {id:'global',label:'Market Cap 24h (global)',weight:12,confidence:1.0},
+  {id:'global',label:'Market Cap 24h (global)',weight:6,confidence:1.0},
   {id:'cryptonews',label:'Crypto News (CoinTelegraph)',weight:15,confidence:0.7},
   {id:'macrogeo',label:'Macro Economy (Investing.com)',weight:8,confidence:0.7},
   {id:'geopolitics',label:'Geopolitics (BBC World)',weight:10,confidence:0.6},
@@ -4156,7 +4185,7 @@ const COMPOSITE_SOURCES_DEFAULTS=[
   {id:'onchain',label:'On-Chain Activity (BTC)',weight:8,confidence:0.5},
   {id:'oil',label:'Brent Oil (Hyperliquid xyz:BRENTOIL)',weight:6,confidence:0.6},
   {id:'yield10y',label:'10Y Treasury Yield (FRED)',weight:5,confidence:0.6},
-  {id:'usd',label:'US Dollar Strength (Hyperliquid xyz:EUR, inverted)',weight:2,confidence:0.6},
+  {id:'usd',label:'US Dollar Strength (Hyperliquid xyz:EUR, inverted)',weight:8,confidence:0.6},
   {id:'nasdaq',label:'Nasdaq Composite (FRED)',weight:6,confidence:0.7},
   {id:'sp500',label:'S&P 500 (FRED)',weight:6,confidence:0.7},
   {id:'ninemag',label:'9 Magnificent (tech/AI basket, cap-weighted)',weight:8,confidence:0.6},
