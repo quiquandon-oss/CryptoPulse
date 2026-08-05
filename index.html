@@ -6209,7 +6209,7 @@ const CURRENT_CYCLE_START_PRICE=63900;
 function computeRegimeBacktest(history){
   const HORIZONS=[{label:'1d',days:1},{label:'7d',days:7},{label:'30d',days:30}];
   return HORIZONS.map(h=>{
-    let hits=0,total=0;
+    let hits=0,total=0,ups=0; // ups: count of resolved windows where BTC was actually up — feeds the naive baseline below
     const targetMs=h.days*86400000,tolerance=targetMs*0.3; // within 30% of the horizon length counts as "close enough"
     history.forEach(row=>{
       // FIX: was checking row.btcPrice, which doesn't exist on these objects
@@ -6231,9 +6231,19 @@ function computeRegimeBacktest(history){
       const realizedUp=(closest.btc-row.btc)/row.btc>0;
       const predictedUp=row.regimeMag>0;
       total++;
+      if(realizedUp)ups++;
       if(predictedUp===realizedUp)hits++;
     });
-    return{label:h.label,hits,total,hitRate:total>0?hits/total:null};
+    const hitRate=total>0?hits/total:null;
+    // Naive baseline: the accuracy a constant guess of whichever direction was
+    // actually more common over this same window would have scored, with zero
+    // signal. A hit-rate that doesn't clear this isn't demonstrating edge — it's
+    // just agreeing with a trending market. This is the same check already used
+    // in CryptoPulseV2's calibration (Brier vs. naive-baseline), adapted here for
+    // a boolean hit-rate instead of a probabilistic score.
+    const naiveRate=total>0?Math.max(ups,total-ups)/total:null;
+    const beatsNaive=(hitRate!=null&&naiveRate!=null)?hitRate>naiveRate:null;
+    return{label:h.label,hits,total,hitRate,naiveRate,beatsNaive};
   });
 }
 function renderRegimeBacktest(history){
@@ -6246,10 +6256,20 @@ function renderRegimeBacktest(history){
     return;
   }
   const results=computeRegimeBacktest(history);
+  const MIN_N=20; // below this, the beats/misses-naive verdict is noise, not a real read — matches V2's calibration convention
   el.innerHTML='<p class="text-[10px] uppercase tracking-wide text-mutet mb-2">Track record (self-check)'+dotSpan+'</p>'+
     '<div class="grid grid-cols-3 gap-2">'+
-    results.map(r=>`<div class="text-center"><p class="text-[9px] text-mutet">${r.label} forward</p><p class="font-bold text-sm tnum">${r.total>0?(r.hitRate*100).toFixed(0)+'%':'—'}</p><p class="text-[9px] text-mutet tnum">${r.total} call${r.total===1?'':'s'}</p></div>`).join('')+
-    '</div><p class="text-[9px] text-mutet mt-2">% of past scorecard readings (excluding near-zero/no-call ones) where the overall lean matched BTC\u2019s realized direction over that horizon. Early numbers with few calls aren\u2019t statistically reliable — treat as directional, not confident, until more history accumulates.</p>';
+    results.map(r=>{
+      const naiveTxt=r.total>0&&r.naiveRate!=null?`${(r.naiveRate*100).toFixed(0)}% naive`:'';
+      let verdict='',verdictColor='text-mutet';
+      if(r.total>0){
+        if(r.total<MIN_N){verdict='n too low';}
+        else if(r.beatsNaive){verdict='beats naive';verdictColor='text-emerald-400';}
+        else{verdict='no edge vs naive';verdictColor='text-rose-400';}
+      }
+      return `<div class="text-center"><p class="text-[9px] text-mutet">${r.label} forward</p><p class="font-bold text-sm tnum">${r.total>0?(r.hitRate*100).toFixed(0)+'%':'—'}</p><p class="text-[9px] text-mutet tnum">${r.total} call${r.total===1?'':'s'}</p>${r.total>0?`<p class="text-[8px] text-mutet tnum mt-1">${naiveTxt}</p><p class="text-[8px] font-semibold ${verdictColor}">${verdict}</p>`:''}</div>`;
+    }).join('')+
+    '</div><p class="text-[9px] text-mutet mt-2">% of past scorecard readings (excluding near-zero/no-call ones) where the overall lean matched BTC\u2019s realized direction over that horizon. Naive baseline = the accuracy a constant guess of whichever direction was actually more common over that same window would have scored with zero real signal — a hit-rate that doesn\u2019t clear it is matching a trending market, not demonstrating edge. Early numbers with few calls aren\u2019t statistically reliable — treat as directional, not confident, until more history accumulates.</p>';
   setHealthDot('dotTrackRecord','live',`Computed OK from ${history.length} history point(s)`);
 }
 // ═══ Whale Movements — standalone tile only. Reuses the already-deployed
