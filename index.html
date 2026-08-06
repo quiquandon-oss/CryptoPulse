@@ -1432,6 +1432,26 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <p class="text-sm" id="traderAnalysisBody" style="white-space:pre-line">—</p>
       </div>
 
+      <!-- ═══ Foufi Daily — automated digest of Foufi's (@CryptoFoufi) latest
+           YouTube video. His own 5-point framework (macro/geopolitical,
+           TradFi correlation, Ichimoku/MA technical, liquidity/sentiment,
+           on-chain/institutional flow) shaped this app's Sentiment Engine
+           and Regime Scorecard in the first place — this tile reports what
+           he actually said, structured the same way, as an external
+           cross-check. Read-only, informational: does NOT feed the
+           Sentiment composite or Regime Scorecard. Backend: an hourly
+           Worker cron detects new uploads via his channel RSS and hands
+           the video URL straight to Gemini's native YouTube understanding
+           (no transcript scraping — YouTube blocks that from Workers'
+           shared IPs regardless of endpoint, confirmed the hard way). ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold flex items-center gap-2">Foufi Daily<span id="dotFoufiDigest" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:2px;vertical-align:middle;"></span> <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'foufiDigestNote')">ⓘ Info</button></h2>
+        </div>
+        <p class="hidden text-[10px] text-mutet mt-1 mb-2" id="foufiDigestNote">Automated digest of Foufi's (@CryptoFoufi) latest YouTube video — the French crypto analyst whose 5-point framework shaped this app's Sentiment Engine and Regime Scorecard. An hourly Worker cron checks his channel and, when a new video appears, hands the URL directly to Gemini to extract what he actually said, structured around those same 5 points. Informational only — this does not feed the Sentiment composite or Regime Scorecard.</p>
+        <div id="foufiDigestBody"><p class="text-xs text-mutet">Loading…</p></div>
+      </div>
+
       <!-- ═══ Manual news injection — for a real headline you found yourself
            that the 5 automated feeds (CoinTelegraph/Investing.com/BBC/CoinDesk+
            TheBlock/SoSoValue) may have missed or buried. Feeds the SAME
@@ -4679,6 +4699,61 @@ function renderTraderAnalysis(result){
   if(!host)return;
   host.textContent=result.analysis;
   if(status)status.textContent=result.fromCache?`Cached (${result.cacheAgeMin}m old)`:'Live';
+}
+// ── Foufi Daily — reads the pre-computed digest (GET /foufi-latest, no
+// Gemini cost) rather than triggering a new check itself. The actual
+// check-for-new-video + summarize step runs server-side on an hourly cron
+// (checkFoufiDigest in PulseWorker); this just displays whatever it last
+// found. Cheap enough to call on every boot, unlike the Narrative tab's
+// Gemini call which is deliberately cache-gated.
+function foufiLeanBadge(lean){
+  const map={bullish:{c:'#3BF38B',bg:'rgba(59,243,139,0.14)'},bearish:{c:'#F5606C',bg:'rgba(245,96,108,0.14)'},neutral:{c:'#94A3B8',bg:'rgba(148,163,184,0.14)'}};
+  const s=map[lean]||map.neutral;
+  return `<span style="color:${s.c};background:${s.bg};padding:2px 9px;border-radius:9999px;font-size:10px;font-weight:600;text-transform:capitalize;white-space:nowrap;">${lean||'neutral'}</span>`;
+}
+async function loadFoufiDigest(){
+  const body=$('#foufiDigestBody');if(!body)return;
+  try{
+    const res=await fetch(`${PULSE_WORKER_URL}/foufi-latest`);
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    const{digest}=await res.json();
+    if(!digest){
+      body.innerHTML='<p class="text-xs text-mutet">No digest yet — starts accumulating once the hourly check finds a new video.</p>';
+      setHealthDot('dotFoufiDigest','live','Computed OK — no digest yet');
+      return;
+    }
+    const dateStr=digest.publishedTs?new Date(digest.publishedTs).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'';
+    // status!=='ok' covers a Gemini/API error for that video; summary.raw
+    // (no parseError needed here) means Gemini answered but didn't follow
+    // the FOUFI_JSON structure — show the raw text rather than hide it.
+    if(digest.status!=='ok'||!digest.summary||digest.summary.raw){
+      const fallbackText=digest.summary?.raw||digest.summary?.parseError||'Could not process this video.';
+      body.innerHTML=`<div class="flex items-center justify-between mb-2 gap-2">
+        <a href="${digest.url}" target="_blank" rel="noopener" class="text-xs font-medium text-white hover:underline truncate">${digest.title}</a>
+        ${dateStr?`<span class="text-[10px] text-mutet shrink-0">${dateStr}</span>`:''}
+      </div>
+      <p class="text-xs text-mutet" style="white-space:pre-line">${fallbackText}</p>`;
+      setHealthDot('dotFoufiDigest','stale','Latest check did not produce a structured summary — see card for detail');
+      return;
+    }
+    const s=digest.summary;
+    body.innerHTML=`<div class="flex items-center justify-between mb-1 gap-2">
+      <a href="${digest.url}" target="_blank" rel="noopener" class="text-xs font-medium text-white hover:underline truncate">${digest.title}</a>
+      ${foufiLeanBadge(digest.overallLean)}
+    </div>
+    ${dateStr?`<p class="text-[10px] text-mutet mb-2">${dateStr}</p>`:''}
+    <div class="space-y-1.5 text-xs leading-relaxed">
+      <p><span class="text-mutet">Macro/Geopolitical — </span>${s.macro||'not addressed in this video'}</p>
+      <p><span class="text-mutet">TradFi correlation — </span>${s.tradfi||'not addressed in this video'}</p>
+      <p><span class="text-mutet">Technical — </span>${s.technical||'not addressed in this video'}</p>
+      <p><span class="text-mutet">Liquidity/Sentiment — </span>${s.liquidity||'not addressed in this video'}</p>
+      <p><span class="text-mutet">On-chain/Institutional — </span>${s.onchain||'not addressed in this video'}</p>
+    </div>`;
+    setHealthDot('dotFoufiDigest','live',`Computed OK — ${digest.title}`);
+  }catch(err){
+    body.innerHTML='<p class="text-xs text-mutet">Could not load — '+err.message+'</p>';
+    setHealthDot('dotFoufiDigest','error',err.message);
+  }
 }
 // ════════════════════════════════════════════════════════════════
 // THREE-WAY READ — Sentiment / Technical / Combined, shown side by side.
@@ -8998,6 +9073,7 @@ async function init(){LS.load();buildMobileNav();wire();paintNav();wireSwipeNav(
     }
   }
   loadHypeFunding();
+  loadFoufiDigest(); // cheap D1 read, no Gemini cost — safe on every boot
   setInterval(()=>{getFx();getFG();getPrices().then(render);if(state.view==='sentiment')loadHypeFunding();},60000);
   // FIX: the composite cycle (score/technicalScore/regimeMag/bottomScore/
   // globalMcap — everything the Dashboard, Cycles tiles, and D1 history rely
