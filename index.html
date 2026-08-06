@@ -1433,23 +1433,32 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       </div>
 
       <!-- ═══ Foufi Daily — automated digest of Foufi's (@CryptoFoufi) latest
-           YouTube video. His own 5-point framework (macro/geopolitical,
-           TradFi correlation, Ichimoku/MA technical, liquidity/sentiment,
-           on-chain/institutional flow) shaped this app's Sentiment Engine
-           and Regime Scorecard in the first place — this tile reports what
-           he actually said, structured the same way, as an external
+           YouTube videos. He posts twice daily: ~06:00 UTC (overnight/macro-
+           flavored) and ~17:30-19:30 UTC (technical/TradFi-flavored),
+           confirmed against a real week of titles — plus a Sunday PM
+           weekly-close special and a month-boundary PM monthly special.
+           His own 5-point framework shaped this app's Sentiment Engine and
+           Regime Scorecard in the first place — this tile reports what he
+           actually said, scored per-topic and per-coin, as an external
            cross-check. Read-only, informational: does NOT feed the
-           Sentiment composite or Regime Scorecard. Backend: an hourly
-           Worker cron detects new uploads via his channel RSS and hands
-           the video URL straight to Gemini's native YouTube understanding
-           (no transcript scraping — YouTube blocks that from Workers'
-           shared IPs regardless of endpoint, confirmed the hard way). ═══ -->
+           Sentiment composite or Regime Scorecard (deliberately, pending
+           enough history to know if it should). Backend: an hourly Worker
+           cron detects new uploads via RSS and hands the video URL straight
+           to Gemini's native YouTube understanding — no transcript
+           scraping (YouTube blocks that from Workers' shared IPs
+           regardless of endpoint, confirmed the hard way). ═══ -->
       <div class="rounded-2xl border border-line bg-panel p-5">
         <div class="flex items-center justify-between mb-1">
           <h2 class="font-semibold flex items-center gap-2">Foufi Daily<span id="dotFoufiDigest" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:2px;vertical-align:middle;"></span> <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'foufiDigestNote')">ⓘ Info</button></h2>
         </div>
-        <p class="hidden text-[10px] text-mutet mt-1 mb-2" id="foufiDigestNote">Automated digest of Foufi's (@CryptoFoufi) latest YouTube video — the French crypto analyst whose 5-point framework shaped this app's Sentiment Engine and Regime Scorecard. An hourly Worker cron checks his channel and, when a new video appears, hands the URL directly to Gemini to extract what he actually said, structured around those same 5 points. Informational only — this does not feed the Sentiment composite or Regime Scorecard.</p>
-        <div id="foufiDigestBody"><p class="text-xs text-mutet">Loading…</p></div>
+        <p class="hidden text-[10px] text-mutet mt-1 mb-2" id="foufiDigestNote">Automated digest of Foufi's (@CryptoFoufi) two daily videos — the French crypto analyst whose 5-point framework shaped this app's Sentiment Engine and Regime Scorecard. An hourly Worker cron checks his channel and, when a new video appears, hands the URL directly to Gemini to extract what he actually said: a market summary, separate macro-economy/micro-economy/TradFi-correlation reads, and a per-coin -2..+2 score for whichever of BTC/ETH/SOL/LINK/HYPE he actually addressed (most videos only cover BTC — "not addressed" for the others is the normal case, not missing data). Informational only — this does not feed the Sentiment composite or Regime Scorecard.</p>
+        <div id="foufiDigestBody" class="grid grid-cols-1 sm:grid-cols-2 gap-3"><p class="text-xs text-mutet">Loading…</p></div>
+        <div class="mt-3 pt-3 border-t border-line">
+          <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleFoufiRecap(this)">▸ History &amp; recap table</button>
+          <div id="foufiRecapWrap" class="hidden mt-2">
+            <div id="foufiRecapBody" class="max-h-96 overflow-y-auto text-[10px]"><p class="text-mutet">Loading…</p></div>
+          </div>
+        </div>
       </div>
 
       <!-- ═══ Manual news injection — for a real headline you found yourself
@@ -4700,59 +4709,135 @@ function renderTraderAnalysis(result){
   host.textContent=result.analysis;
   if(status)status.textContent=result.fromCache?`Cached (${result.cacheAgeMin}m old)`:'Live';
 }
-// ── Foufi Daily — reads the pre-computed digest (GET /foufi-latest, no
-// Gemini cost) rather than triggering a new check itself. The actual
-// check-for-new-video + summarize step runs server-side on an hourly cron
-// (checkFoufiDigest in PulseWorker); this just displays whatever it last
-// found. Cheap enough to call on every boot, unlike the Narrative tab's
-// Gemini call which is deliberately cache-gated.
+// ── Foufi Daily — reads pre-computed digests (GET /foufi-latest / GET
+// /foufi-recent, no Gemini cost) rather than triggering a new check itself.
+// The actual check-for-new-video + summarize step runs server-side on an
+// hourly cron (checkFoufiDigest in PulseWorker); this just displays whatever
+// it last found. Cheap enough to call on every boot, unlike the Narrative
+// tab's Gemini call which is deliberately cache-gated.
 function foufiLeanBadge(lean){
   const map={bullish:{c:'#3BF38B',bg:'rgba(59,243,139,0.14)'},bearish:{c:'#F5606C',bg:'rgba(245,96,108,0.14)'},neutral:{c:'#94A3B8',bg:'rgba(148,163,184,0.14)'}};
   const s=map[lean]||map.neutral;
   return `<span style="color:${s.c};background:${s.bg};padding:2px 9px;border-radius:9999px;font-size:10px;font-weight:600;text-transform:capitalize;white-space:nowrap;">${lean||'neutral'}</span>`;
+}
+// Coin scores are -2..+2 (or null = not addressed). Same color logic as
+// leans, just keyed off a number instead of a word.
+function foufiScoreChip(sym,score){
+  if(score==null)return'';
+  const c=score>0?'#3BF38B':score<0?'#F5606C':'#94A3B8';
+  const bg=score>0?'rgba(59,243,139,0.14)':score<0?'rgba(245,96,108,0.14)':'rgba(148,163,184,0.14)';
+  const sign=score>0?'+':'';
+  return`<span style="color:${c};background:${bg};padding:2px 7px;border-radius:6px;font-size:10px;font-weight:600;white-space:nowrap;">${sym} ${sign}${score}</span>`;
+}
+function foufiVideoTypeLabel(digest){
+  if(digest.specialEdition==='weekly_close')return'Weekly close';
+  if(digest.specialEdition==='monthly_close')return'Monthly close';
+  if(digest.videoType==='morning')return'Morning';
+  if(digest.videoType==='evening')return'Evening';
+  return'—';
+}
+function renderFoufiCard(digest){
+  if(!digest)return'<div class="rounded-xl border border-line bg-panel2 p-3"><p class="text-xs text-mutet">No video yet.</p></div>';
+  const dateStr=digest.publishedTs?new Date(digest.publishedTs).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'';
+  const typeLabel=foufiVideoTypeLabel(digest);
+  const header=`<div class="flex items-center justify-between mb-1 gap-2">
+    <span class="text-[10px] font-semibold uppercase tracking-wide ${digest.specialEdition?'text-neon':'text-mutet'}">${typeLabel}${dateStr?' · '+dateStr:''}</span>
+  </div>
+  <a href="${digest.url}" target="_blank" rel="noopener" class="text-xs font-medium text-white hover:underline block mb-2" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${digest.title}</a>`;
+  // status!=='ok' covers a Gemini/API error; summary.raw (Gemini answered
+  // but didn't follow the FOUFI_JSON structure) both fall back to showing
+  // whatever text is available rather than hiding the card entirely.
+  if(digest.status!=='ok'||!digest.summary||digest.summary.raw){
+    const fallbackText=digest.summary?.raw||digest.summary?.parseError||'Could not process this video.';
+    return`<div class="rounded-xl border border-line bg-panel2 p-3">${header}<p class="text-xs text-mutet" style="white-space:pre-line">${fallbackText}</p></div>`;
+  }
+  const s=digest.summary;
+  const coins=s.coins||{};
+  const chips=['BTC','ETH','SOL','LINK','HYPE'].map(sym=>foufiScoreChip(sym,coins[sym]?.score)).filter(Boolean).join(' ');
+  return`<div class="rounded-xl border border-line bg-panel2 p-3">${header}
+    <p class="text-xs mb-2 leading-relaxed">${s.market_summary||''}</p>
+    ${chips?`<div class="flex flex-wrap gap-1.5 mb-2">${chips}</div>`:''}
+    <div class="space-y-1 text-[10px] leading-relaxed text-mutet">
+      <p><span class="font-semibold text-white/70">Macro </span>${foufiLeanBadge(s.macro?.lean)} ${s.macro?.text||'not addressed'}</p>
+      <p><span class="font-semibold text-white/70">Micro </span>${foufiLeanBadge(s.micro?.lean)} ${s.micro?.text||'not addressed'}</p>
+      <p><span class="font-semibold text-white/70">TradFi </span>${foufiLeanBadge(s.tradfi?.lean)} ${s.tradfi?.text||'not addressed'}</p>
+    </div>
+  </div>`;
 }
 async function loadFoufiDigest(){
   const body=$('#foufiDigestBody');if(!body)return;
   try{
     const res=await fetch(`${PULSE_WORKER_URL}/foufi-latest`);
     if(!res.ok)throw new Error('HTTP '+res.status);
-    const{digest}=await res.json();
-    if(!digest){
-      body.innerHTML='<p class="text-xs text-mutet">No digest yet — starts accumulating once the hourly check finds a new video.</p>';
+    const{latest}=await res.json();
+    if(!latest||!latest.length){
+      body.innerHTML='<p class="text-xs text-mutet col-span-2">No digest yet — starts accumulating once the hourly check finds a new video.</p>';
       setHealthDot('dotFoufiDigest','live','Computed OK — no digest yet');
       return;
     }
-    const dateStr=digest.publishedTs?new Date(digest.publishedTs).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'';
-    // status!=='ok' covers a Gemini/API error for that video; summary.raw
-    // (no parseError needed here) means Gemini answered but didn't follow
-    // the FOUFI_JSON structure — show the raw text rather than hide it.
-    if(digest.status!=='ok'||!digest.summary||digest.summary.raw){
-      const fallbackText=digest.summary?.raw||digest.summary?.parseError||'Could not process this video.';
-      body.innerHTML=`<div class="flex items-center justify-between mb-2 gap-2">
-        <a href="${digest.url}" target="_blank" rel="noopener" class="text-xs font-medium text-white hover:underline truncate">${digest.title}</a>
-        ${dateStr?`<span class="text-[10px] text-mutet shrink-0">${dateStr}</span>`:''}
-      </div>
-      <p class="text-xs text-mutet" style="white-space:pre-line">${fallbackText}</p>`;
-      setHealthDot('dotFoufiDigest','stale','Latest check did not produce a structured summary — see card for detail');
-      return;
-    }
-    const s=digest.summary;
-    body.innerHTML=`<div class="flex items-center justify-between mb-1 gap-2">
-      <a href="${digest.url}" target="_blank" rel="noopener" class="text-xs font-medium text-white hover:underline truncate">${digest.title}</a>
-      ${foufiLeanBadge(digest.overallLean)}
-    </div>
-    ${dateStr?`<p class="text-[10px] text-mutet mb-2">${dateStr}</p>`:''}
-    <div class="space-y-1.5 text-xs leading-relaxed">
-      <p><span class="text-mutet">Macro/Geopolitical — </span>${s.macro||'not addressed in this video'}</p>
-      <p><span class="text-mutet">TradFi correlation — </span>${s.tradfi||'not addressed in this video'}</p>
-      <p><span class="text-mutet">Technical — </span>${s.technical||'not addressed in this video'}</p>
-      <p><span class="text-mutet">Liquidity/Sentiment — </span>${s.liquidity||'not addressed in this video'}</p>
-      <p><span class="text-mutet">On-chain/Institutional — </span>${s.onchain||'not addressed in this video'}</p>
-    </div>`;
-    setHealthDot('dotFoufiDigest','live',`Computed OK — ${digest.title}`);
+    // Order left-to-right as Morning then Evening regardless of which
+    // array position each came back in (published_ts DESC means the most
+    // recent — usually the evening video — arrives first).
+    const morning=latest.find(d=>d.videoType==='morning')||null;
+    const evening=latest.find(d=>d.videoType==='evening')||null;
+    const ordered=(morning||evening)?[morning,evening]:latest;
+    body.innerHTML=ordered.map(renderFoufiCard).join('');
+    const newestTitle=latest[0]?.title||'';
+    setHealthDot('dotFoufiDigest','live',`Computed OK — ${newestTitle}`);
   }catch(err){
-    body.innerHTML='<p class="text-xs text-mutet">Could not load — '+err.message+'</p>';
+    body.innerHTML='<p class="text-xs text-mutet col-span-2">Could not load — '+err.message+'</p>';
     setHealthDot('dotFoufiDigest','error',err.message);
+  }
+}
+let foufiRecapLoaded=false;
+function toggleFoufiRecap(btn){
+  const wrap=$('#foufiRecapWrap');if(!wrap)return;
+  const hidden=wrap.classList.toggle('hidden');
+  btn.textContent=(hidden?'▸':'▾')+' History & recap table';
+  if(!hidden&&!foufiRecapLoaded){foufiRecapLoaded=true;loadFoufiRecap();}
+}
+async function loadFoufiRecap(){
+  const host=$('#foufiRecapBody');if(!host)return;
+  try{
+    const res=await fetch(`${PULSE_WORKER_URL}/foufi-recent?days=90`);
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    const{rows}=await res.json();
+    if(!rows||!rows.length){host.innerHTML='<p class="text-mutet">No history yet.</p>';return;}
+    const scoreCell=v=>v==null?'<span class="text-mutet">—</span>':`<span style="color:${v>0?'#3BF38B':v<0?'#F5606C':'#94A3B8'}">${v>0?'+':''}${v}</span>`;
+    const leanCell=v=>v?foufiLeanBadge(v):'<span class="text-mutet">—</span>';
+    const rowsHtml=rows.map(d=>{
+      const dateStr=d.publishedTs?new Date(d.publishedTs).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'—';
+      const coins=d.summary?.coins||{};
+      const typeLabel=foufiVideoTypeLabel(d);
+      const sentiment=d.sentimentScoreThatDay;
+      return`<tr class="border-t border-line/50">
+        <td class="py-1 pr-2 whitespace-nowrap">${dateStr}</td>
+        <td class="py-1 pr-2 whitespace-nowrap ${d.specialEdition?'text-neon':''}">${typeLabel}</td>
+        <td class="py-1 pr-2">${scoreCell(coins.BTC?.score)}</td>
+        <td class="py-1 pr-2">${scoreCell(coins.ETH?.score)}</td>
+        <td class="py-1 pr-2">${leanCell(d.summary?.macro?.lean)}</td>
+        <td class="py-1 pr-2">${leanCell(d.summary?.micro?.lean)}</td>
+        <td class="py-1 pr-2">${leanCell(d.summary?.tradfi?.lean)}</td>
+        <td class="py-1 pr-2 whitespace-nowrap">${sentiment==null?'<span class="text-mutet">—</span>':sentiment.toFixed(0)}</td>
+        <td class="py-1"><a href="${d.url}" target="_blank" rel="noopener" class="text-mutet hover:text-white">↗</a></td>
+      </tr>`;
+    }).join('');
+    host.innerHTML=`<table class="w-full">
+      <thead><tr class="text-mutet text-left">
+        <th class="py-1 pr-2 font-normal">Date</th>
+        <th class="py-1 pr-2 font-normal">Type</th>
+        <th class="py-1 pr-2 font-normal">BTC</th>
+        <th class="py-1 pr-2 font-normal">ETH</th>
+        <th class="py-1 pr-2 font-normal">Macro</th>
+        <th class="py-1 pr-2 font-normal">Micro</th>
+        <th class="py-1 pr-2 font-normal">TradFi</th>
+        <th class="py-1 pr-2 font-normal" title="CryptoPulse's own Sentiment composite (0-100), closest reading within 4h of this video">Sentiment</th>
+        <th class="py-1"></th>
+      </tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>`;
+  }catch(err){
+    host.innerHTML='<p class="text-mutet">Could not load — '+err.message+'</p>';
   }
 }
 // ════════════════════════════════════════════════════════════════
