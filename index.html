@@ -4219,10 +4219,44 @@ const COMPOSITE_SOURCES_DEFAULTS=[
   {id:'nasdaq',label:'Nasdaq Composite (FRED)',weight:6,confidence:0.7},
   {id:'sp500',label:'S&P 500 (FRED)',weight:6,confidence:0.7},
   {id:'ninemag',label:'9 Magnificent (tech/AI basket, cap-weighted)',weight:8,confidence:0.6},
+  // Started low deliberately: a same-day ad-hoc backtest against 5 resolved
+  // calls (Jul29-Aug5, real BTC price vs. score direction by the time of
+  // Foufi's own next video) came back 2 misses, 1 uneven-horizon match, 2
+  // partial — not enough signal either way at n=5, same "small samples lie"
+  // trap this app has already caught itself in twice (V2's early 95% BTC
+  // read, this app's own old 99% Track Record). Revisit via the Sentiment
+  // Correlation Explorer once real history accumulates.
+  {id:'foufi',label:'Foufi Daily (YouTube analyst, BTC score)',weight:6,confidence:0.4},
   {id:'etfflows',label:'BTC ETF Flows (SoSoValue)',weight:10,confidence:0.8},
   {id:'hypefunding',label:'HYPE Perp Funding (Hyperliquid)',weight:4,confidence:0.4},
   {id:'gold',label:'Gold (Hyperliquid xyz:GOLD)',weight:5,confidence:0.5},
 ];
+// Feeds the Sentiment composite with Foufi's BTC score only (not
+// ETH/SOL/LINK/HYPE - those stay tile/recap-table-only). BTC is the one
+// coin present in every video (morning videos are BTC-only), so it's the
+// only signal that won't go stale twice a day the way any other coin's
+// would. -2..+2 mapped to 0-100 (-2->0, -1->25, 0->50, +1->75, +2->100).
+// Excludes itself from this cycle (throws, same pattern as every other
+// source's unavailability - NOT a silent 50, which was already found and
+// fixed as a real bug for `fng`) when there's no usable BTC score, or when
+// the newest usable digest is >30h old — normal AM/PM cadence is ~12h
+// apart, so 30h gives real buffer before treating a broken pipeline as a
+// confident-but-stale reading. Also stashes the raw digests on
+// window.__lastFoufiLatest for the Regime Scorecard's short-term factor to
+// reuse, so that doesn't need its own fetch.
+async function srcFoufi(){
+  const res=await fetch(`${PULSE_WORKER_URL}/foufi-latest`);
+  if(!res.ok)throw new Error('HTTP '+res.status);
+  const{latest}=await res.json();
+  window.__lastFoufiLatest=latest||null;
+  if(!latest||!latest.length)throw new Error('no Foufi digest yet');
+  const usable=latest.find(d=>d.status==='ok'&&d.summary?.coins?.BTC?.score!=null);
+  if(!usable)throw new Error('no usable BTC score in latest Foufi digests');
+  const ageHours=(Date.now()-usable.publishedTs)/3600000;
+  if(ageHours>30)throw new Error(`latest usable Foufi digest is ${ageHours.toFixed(0)}h old (>30h cutoff)`);
+  const score=usable.summary.coins.BTC.score;
+  return{score:((score+2)/4)*100};
+}
 function loadSentimentWeights(){
   let overrides={};
   try{overrides=JSON.parse(localStorage.getItem('cp2_sentiment_weights')||'{}');}catch(e){}
@@ -4288,6 +4322,7 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
     ['nasdaq',()=>srcFredSeries('nasdaq')],
     ['sp500',()=>srcFredSeries('sp500')],
     ['ninemag',srcNineMagnificent],
+    ['foufi',srcFoufi],
     ['etfflows',()=>srcEtfFlowsFromExisting(etfResultsFromPanel)],
     ['cryptonews',()=>srcNewsRss('crypto')],
     ['macrogeo',()=>srcNewsRss('macro')],
@@ -7287,6 +7322,14 @@ function renderCyclesTab(){
       latestSources.ninemag!=null
         ?{label:'9 Magnificent (tech/AI basket)',display:latestSources.ninemag,tag:tagOf(latestSources.ninemag,55,45),mag:magOf01(latestSources.ninemag),available:true}
         :{label:'9 Magnificent (tech/AI basket)',display:'—',tag:'neutral',mag:0,available:false,reason:'Not included in the latest Sentiment reading (source likely failed that cycle)'},
+      // Foufi: reuses the EXACT SAME number the Sentiment composite's
+      // 'foufi' source computed (BTC score, -2..+2 mapped to 0-100) rather
+      // than a second formula from window.__lastFoufiLatest directly - one
+      // signal, two places it's surfaced, so they can never silently
+      // disagree with each other for no real reason.
+      latestSources.foufi!=null
+        ?{label:'Foufi (YouTube analyst, BTC)',display:latestSources.foufi,tag:tagOf(latestSources.foufi,55,45),mag:magOf01(latestSources.foufi),available:true}
+        :{label:'Foufi (YouTube analyst, BTC)',display:'—',tag:'neutral',mag:0,available:false,reason:'Not included in the latest Sentiment reading (source likely failed that cycle, or no usable digest within the last 30h)'},
     ];
     // ---- Liquidation cluster pull (SHORT-TERM ONLY, days). Deliberately
     // computed fresh here at a FIXED 1-day horizon, independent of whatever
