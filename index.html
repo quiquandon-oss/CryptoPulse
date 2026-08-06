@@ -4738,7 +4738,14 @@ function foufiVideoTypeLabel(digest){
 }
 function renderFoufiCard(digest){
   if(!digest)return'<div class="rounded-xl border border-line bg-panel2 p-3"><p class="text-xs text-mutet">No video yet.</p></div>';
-  const dateStr=digest.publishedTs?new Date(digest.publishedTs).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'';
+  // timeZone:'UTC' is deliberate, not a default omission: video_type/
+  // special_edition are classified server-side on the UTC hour/weekday/day-
+  // of-month (see classifyFoufiVideo in PulseWorker). Using the viewer's
+  // local timezone here could show "Evening" under a different calendar
+  // date than the classification actually used - e.g. an evening video
+  // published Aug 5 19:36 UTC lands as Aug 6 local for anyone UTC+5 or
+  // later, breaking the AM/PM-same-day pairing this card exists to show.
+  const dateStr=digest.publishedTs?new Date(digest.publishedTs).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'}):'';
   const typeLabel=foufiVideoTypeLabel(digest);
   const header=`<div class="flex items-center justify-between mb-1 gap-2">
     <span class="text-[10px] font-semibold uppercase tracking-wide ${digest.specialEdition?'text-neon':'text-mutet'}">${typeLabel}${dateStr?' · '+dateStr:''}</span>
@@ -4753,11 +4760,17 @@ function renderFoufiCard(digest){
   }
   const s=digest.summary;
   const coins=s.coins||{};
-  const chips=['BTC','ETH','SOL','LINK','HYPE'].map(sym=>foufiScoreChip(sym,coins[sym]?.score)).filter(Boolean).join(' ');
+  // Score chip PLUS the reasoning behind it - previously only the bare
+  // chip showed (e.g. "SOL 0" with no explanation), which was the actual
+  // gap: the analysis existed in the data, just wasn't rendered anywhere.
+  const coinRows=['BTC','ETH','SOL','LINK','HYPE']
+    .filter(sym=>coins[sym]?.score!=null)
+    .map(sym=>`<p><span class="inline-block w-14">${foufiScoreChip(sym,coins[sym].score)}</span>${coins[sym].note||''}</p>`)
+    .join('');
   return`<div class="rounded-xl border border-line bg-panel2 p-3">${header}
     <p class="text-xs mb-2 leading-relaxed">${s.market_summary||''}</p>
-    ${chips?`<div class="flex flex-wrap gap-1.5 mb-2">${chips}</div>`:''}
-    <div class="space-y-1 text-[10px] leading-relaxed text-mutet">
+    ${coinRows?`<div class="space-y-1 text-[10px] leading-relaxed text-mutet mb-2">${coinRows}</div>`:''}
+    <div class="space-y-1 text-[10px] leading-relaxed text-mutet border-t border-line/50 pt-2">
       <p><span class="font-semibold text-white/70">Macro </span>${foufiLeanBadge(s.macro?.lean)} ${s.macro?.text||'not addressed'}</p>
       <p><span class="font-semibold text-white/70">Micro </span>${foufiLeanBadge(s.micro?.lean)} ${s.micro?.text||'not addressed'}</p>
       <p><span class="font-semibold text-white/70">TradFi </span>${foufiLeanBadge(s.tradfi?.lean)} ${s.tradfi?.text||'not addressed'}</p>
@@ -4806,7 +4819,7 @@ async function loadFoufiRecap(){
     const scoreCell=v=>v==null?'<span class="text-mutet">—</span>':`<span style="color:${v>0?'#3BF38B':v<0?'#F5606C':'#94A3B8'}">${v>0?'+':''}${v}</span>`;
     const leanCell=v=>v?foufiLeanBadge(v):'<span class="text-mutet">—</span>';
     const rowsHtml=rows.map(d=>{
-      const dateStr=d.publishedTs?new Date(d.publishedTs).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'—';
+      const dateStr=d.publishedTs?new Date(d.publishedTs).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'}):'—';
       const coins=d.summary?.coins||{};
       const typeLabel=foufiVideoTypeLabel(d);
       const sentiment=d.sentimentScoreThatDay;
