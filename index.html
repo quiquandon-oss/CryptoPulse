@@ -6256,12 +6256,23 @@ const APP_TRACKING_START='2026-04-11'; // matches the sidebar's "Tracking since"
 // USD only, deliberately: there's no historical EUR/USD series embedded, so
 // converting a historical USD value into EUR would need today's rate applied
 // to the past, which is an approximation this panel avoids by just staying in USD.
+// FIX: previously excluded accrued interest — seriesUSD (which the Actual
+// history line and the new Baseline/Break-even chart reference lines all
+// derive from) explicitly adds interestEUR(d)*(state.fx||FX0); this
+// function didn't. That meant "baseline", "Actual", and all three Bear/
+// Base/Bull predicted $ figures in the text panel below were computed by
+// a DIFFERENT formula than the chart's own Baseline line and Actual line
+// — confirmed by direct comparison, same bug class as the earlier totals()
+// vs. cur mismatch. Fixed to match seriesUSD exactly, so every number in
+// this tab (chart lines, text panel, predicted figures) now derives from
+// one consistent definition of "portfolio value at date d".
 function portfolioValueUsdAt(d){
   let val=0;
   syms().forEach(a=>{
     const q=qtyOf(a,d);
     if(q>1e-12)val+=q*(d?histPx(a,d):pxUsd(a));
   });
+  val+=interestEUR(d)*(state.fx||FX0);
   return val;
 }
 function renderScenarioTracking(){
