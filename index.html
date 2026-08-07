@@ -6229,6 +6229,23 @@ function interpScenario(arr,Ts,T){
   const cagr=Math.pow(v1/v0,1/(t1-t0));
   return v1*Math.pow(cagr,T-t1);
 }
+// Extends interpScenario to also handle T<0 (before the earliest
+// checkpoint) — mirrors the SAME methodology interpScenario already uses to
+// extrapolate FORWARD beyond the last checkpoint (CAGR implied by the
+// nearest segment), applied to the FIRST segment instead, run in reverse.
+// interpScenario itself deliberately isn't changed (it's used elsewhere for
+// forward-only date-picker lookups where T<0 is already clamped before
+// this would matter) — this is a separate wrapper so that behavior can't
+// drift. Used to extend the Scenario tab's fan chart back to your tracking
+// start date, so Bear/Base/Bull can be judged against real history instead
+// of only from "Now" forward.
+function interpScenarioExtended(arr,Ts,T){
+  if(T<Ts[0]){
+    const cagr=Math.pow(arr[1]/arr[0],1/(Ts[1]-Ts[0]));
+    return arr[0]*Math.pow(cagr,T);
+  }
+  return interpScenario(arr,Ts,T);
+}
 // ---- Scenario tracking vs. reality: scores Bear/Base/Bull against what
 // actually happened, using the app's OWN first recorded transaction date as
 // the baseline. Real backfill, not a wait-for-a-future-date placeholder —
@@ -6347,13 +6364,19 @@ function renderScenario(){
   const t=totals();
   const cost=t.cost;
   // Actual portfolio history — computed FIRST now, not after cur/the fan
-  // chart math, because cur is derived from its own last point below.
-  // Reuses seriesCcy, the exact same series the Dashboard's own
+  // chart math, because cur AND the fan's backward extent both derive from
+  // it below. Reuses seriesCcy, the exact same series the Dashboard's own
   // performance chart already shows (real transaction-derived holdings ×
   // historical price, not a new data source).
   const nowMs=new Date((NOW()>TODAY?NOW():TODAY)+'T00:00:00Z').getTime();
   const YEAR_MS=365.25*86400000;
   const histRaw=seriesCcy('ALL');
+  // seriesCcy returns x as an ISO date STRING ("2026-04-11"), not a numeric
+  // timestamp — confirmed by reading days()/seriesUSD directly rather than
+  // assuming. Parsed here before the T-space conversion; skipping this
+  // would silently produce NaN for every point (string minus number).
+  const historySeries=histRaw.map(p=>({x:(new Date(p.x+'T00:00:00Z').getTime()-nowMs)/YEAR_MS,y:p.y}));
+  const historyStartLabel=histRaw.length?fmtDate(histRaw[0].x):null;
   // FIX: cur previously came from totals().val, which excludes accrued
   // interest (totals() only sums statOf() per held asset — interestEUR()
   // is never called there). seriesCcy's own last point DOES include it
@@ -6381,23 +6404,33 @@ function renderScenario(){
   // Band WIDTH (not the Base case itself) is adjusted by how much the Regime
   // Scorecard's short/medium/long buckets currently agree — see
   // regimeSigmaMultiplier() for why this is safe to do and moving the center
-  // wouldn't be. ----
+  // wouldn't be.
+  //
+  // Extends BACK to your tracking start date (not just forward from Now) —
+  // per explicit request, so Bear/Base/Bull can be judged against what
+  // actually happened the whole time, not just from today forward. Uses
+  // interpScenarioExtended (CAGR implied by the 0->6M segment, run in
+  // reverse) rather than re-anchoring the whole model at the start value —
+  // that would've required either redefining what "6M/2Y/5Y" mean (they'd
+  // shift to "from start" instead of "from now" everywhere else in this
+  // tab, including the date-picker cards) or a second, differently-anchored
+  // model joined at Now. This keeps every existing meaning intact and just
+  // extends the SAME curve backward. ----
   const basePortSigma=computePortSigma();
   const{mult:sigmaMult,reason:sigmaReason}=regimeSigmaMultiplier();
   const portSigma=basePortSigma*sigmaMult;
-  const Ts=[0,0.5,2,5];
-  const base=SCEN.base.map(m=>cur*m);
-  const upper=Ts.map((T,i)=>T===0?cur:base[i]*Math.exp(portSigma*Math.sqrt(T)));
-  const lower=Ts.map((T,i)=>T===0?cur:base[i]*Math.exp(-portSigma*Math.sqrt(T)));
+  const TsFwd=[0,0.5,2,5];
+  const xMin=historySeries.length?historySeries[0].x:0;
+  const Ts=xMin<0?[xMin,...TsFwd]:TsFwd.slice();
+  const base=Ts.map(T=>T===0?cur:cur*interpScenarioExtended(SCEN.base,TsFwd,T));
+  // Math.abs(T): uncertainty grows the further from Now in EITHER direction
+  // (same sqrt(time) scaling either way) — sqrt() of a negative T would be
+  // NaN otherwise for the historical point.
+  const upper=Ts.map((T,i)=>T===0?cur:base[i]*Math.exp(portSigma*Math.sqrt(Math.abs(T))));
+  const lower=Ts.map((T,i)=>T===0?cur:base[i]*Math.exp(-portSigma*Math.sqrt(Math.abs(T))));
   const scenFanState={Ts,base,upper,lower,portSigma,cur};
   scenFanLastState=scenFanState;scenFanLastBreakEven=cost;
-  // seriesCcy returns x as an ISO date STRING ("2026-04-11"), not a numeric
-  // timestamp — confirmed by reading days()/seriesUSD directly rather than
-  // assuming. Parsed here before the T-space conversion below; skipping
-  // this would silently produce NaN for every point (string minus number).
-  const historySeries=histRaw.map(p=>({x:(new Date(p.x+'T00:00:00Z').getTime()-nowMs)/YEAR_MS,y:p.y}));
   scenFanLastHistory=historySeries;
-  const historyStartLabel=histRaw.length?fmtDate(histRaw[0].x):null;
   scenFanLastHistoryStartLabel=historyStartLabel;
   const cv=$('#scenChart');
   const cfg=buildFanChartConfig(scenFanState,{breakEven:cost,zoomEnabled:true,zoomMode:'xy',onPanComplete:scenZoomStateChanged,onZoomComplete:scenZoomStateChanged,historySeries,historyStartLabel,viewMax:1});
@@ -7807,10 +7840,17 @@ function buildFanChartConfig(state,opts){
     {label:'-1σ',data:lowerPts,borderColor:'transparent',backgroundColor:'rgba(255,92,114,0.12)',fill:'-1',pointRadius:0,tension:0.3,
       datalabels:{display:(ctx)=>ctx.dataIndex>0,align:'bottom',offset:6,color:'#FF5C72',font:{size:fs.label,weight:'600'},formatter:v=>fmtShort(v.y)}},
   ];
+  // xMin: how far left the axis/other reference lines need to reach when
+  // history is present. Computed early (before break-even) so break-even
+  // can span the full visible range too, not just the forward portion.
+  const xMin=(opts.historySeries&&opts.historySeries.length)?Math.min(0,opts.historySeries[0].x):0;
   // Optional flat break-even reference line — the Scenario tab needs this
-  // (that's the whole point of that tab); Cycles doesn't pass one.
+  // (that's the whole point of that tab); Cycles doesn't pass one. Spans
+  // from xMin (not always literally 0) so it's visible across the
+  // historical portion too, when present — cost basis is a constant
+  // regardless of which point in time you're looking at.
   if(opts.breakEven!=null){
-    datasets.push({label:'Break-even',data:[{x:0,y:opts.breakEven},{x:5,y:opts.breakEven}],
+    datasets.push({label:'Break-even',data:[{x:xMin,y:opts.breakEven},{x:5,y:opts.breakEven}],
       borderColor:'#F5B843',borderWidth:1.5,borderDash:[4,4],pointRadius:0,fill:false,tension:0});
   }
   // Optional actual-history overlay — opt-in via opts.historySeries (an
@@ -7821,11 +7861,9 @@ function buildFanChartConfig(state,opts){
   // color (cyan — not reused elsewhere in this chart) so "what actually
   // happened" is never visually confused with the Bear/Base/Bull
   // projection lines it sits next to.
-  let xMin=0;
   if(opts.historySeries&&opts.historySeries.length){
     datasets.push({label:'Actual',data:opts.historySeries,borderColor:'#38BDF8',borderWidth:2,fill:false,pointRadius:0,tension:0.15,
       datalabels:{display:false}});
-    xMin=Math.min(0,opts.historySeries[0].x);
   }
   // Default INITIAL view window, separate from the data range itself (which
   // still goes all the way to T=5 regardless). With history overlaid, the
