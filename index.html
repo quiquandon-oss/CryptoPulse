@@ -6464,6 +6464,14 @@ function renderScenario(){
   const xMin=historySeries.length?historySeries[0].x:0;
   const Ts=xMin<0?[xMin,...TsFwd]:TsFwd.slice();
   const base=Ts.map(T=>T===0?cur:cur*interpScenarioExtended(SCEN.base,TsFwd,T));
+  // Actual Bear/Bull curves, not just the statistical ±1σ band above — per
+  // explicit request, added alongside it rather than replacing it. Same
+  // backward-extension methodology as Base (interpScenarioExtended, CAGR
+  // from the nearest segment run in reverse for the historical point), so
+  // Bear/Bull also reach back to the tracking start date and can be
+  // compared against actual history the whole time, not just from Now.
+  const bear=Ts.map(T=>T===0?cur:cur*interpScenarioExtended(SCEN.bear,TsFwd,T));
+  const bull=Ts.map(T=>T===0?cur:cur*interpScenarioExtended(SCEN.bull,TsFwd,T));
   // Band width uses portSigma*sqrt(|T|), which is mathematically correct
   // (zero uncertainty about a known, already-realized "Now" value) but
   // reads as a rendering glitch on screen — a literal pinch-to-a-point at
@@ -6478,7 +6486,7 @@ function renderScenario(){
   const MIN_BAND_T=0.01; // ~3.65 days
   const upper=Ts.map((T,i)=>base[i]*Math.exp(portSigma*Math.sqrt(Math.max(Math.abs(T),MIN_BAND_T))));
   const lower=Ts.map((T,i)=>base[i]*Math.exp(-portSigma*Math.sqrt(Math.max(Math.abs(T),MIN_BAND_T))));
-  const scenFanState={Ts,base,upper,lower,portSigma,cur};
+  const scenFanState={Ts,base,upper,lower,bear,bull,portSigma,cur};
   scenFanLastState=scenFanState;scenFanLastBreakEven=cost;
   scenFanLastHistory=historySeries;
   scenFanLastHistoryStartLabel=historyStartLabel;
@@ -7879,7 +7887,7 @@ function regimeSigmaMultiplier(){
 // onPanComplete, onZoomComplete} — all optional.
 function buildFanChartConfig(state,opts){
   opts=opts||{};
-  const{Ts,base,upper,lower}=state;
+  const{Ts,base,upper,lower,bear,bull}=state;
   const TICK_LABELS={0:'Now',0.5:'6M',2:'2Y',5:'5Y'};
   const fmtShort=v=>symC()+(Math.abs(v)>=1000?(v/1000).toFixed(1)+'K':v.toFixed(0));
   // Real (x,y) points instead of evenly-spaced categories — a linear x-axis
@@ -7897,6 +7905,25 @@ function buildFanChartConfig(state,opts){
     {label:'-1σ',data:lowerPts,borderColor:'transparent',backgroundColor:'rgba(255,92,114,0.12)',fill:'-1',pointRadius:0,tension:0.3,
       datalabels:{display:(ctx)=>ctx.dataIndex>0,align:'bottom',offset:6,color:'#FF5C72',font:{size:fs.label,weight:'600'},formatter:v=>fmtShort(v.y)}},
   ];
+  // Optional actual Bear/Bull curves — added ALONGSIDE the ±1σ statistical
+  // band above, not replacing it, per explicit choice. These are the real
+  // named-scenario numbers the text panel below already references
+  // ("Bear predicted"/"Bull predicted"), which until now had nothing to
+  // compare against visually — only the generic ±1σ envelope was drawn.
+  // Solid-ish dashed lines (not filled areas, unlike ±1σ) so they read as
+  // distinct named curves rather than blending into the existing bands;
+  // same red/green identity the text panel already uses for Bear/Bull.
+  // No datalabels — the chart already has 3 sets of $ labels (+1σ/Base/
+  // -1σ); a 5th and 6th would crowd a small screen. Legend + hover tooltip
+  // carry the values instead.
+  if(bear){
+    datasets.push({label:'Bear',data:Ts.map((T,i)=>({x:T,y:bear[i]})),borderColor:'#FF5C72',borderWidth:1.5,borderDash:[6,3],fill:false,pointRadius:0,tension:0.3,
+      datalabels:{display:false}});
+  }
+  if(bull){
+    datasets.push({label:'Bull',data:Ts.map((T,i)=>({x:T,y:bull[i]})),borderColor:'#3BF38B',borderWidth:1.5,borderDash:[6,3],fill:false,pointRadius:0,tension:0.3,
+      datalabels:{display:false}});
+  }
   // xMin: how far left the axis/other reference lines need to reach when
   // history is present. Computed early (before break-even) so break-even
   // can span the full visible range too, not just the forward portion.
