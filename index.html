@@ -6284,6 +6284,34 @@ function renderScenarioTracking(){
   const closestColor=closest==='Bear'?'#FF5C72':closest==='Bull'?'#3BF38B':'#94A3B8';
   const errVsBase=basePred!==0?(curUsd-basePred)/basePred*100:0;
   const daysSince=Math.round(T*365.25);
+  // ---- Break-even crossing date(s) — scans the real daily USD history
+  // (seriesUSD, the same series the Dashboard/Scenario chart already
+  // compute) for every date the portfolio's value crossed its own cost
+  // basis, up or down. Fresh from real data on every render, not a stored/
+  // cached date — naturally reflects each new day as it resolves rather
+  // than needing to be recomputed by hand. Cost basis in USD specifically
+  // (avg(a,'USD')), matching this panel's existing USD-only methodology
+  // (see the comment on baselinePrice above for why: no historical EUR/USD
+  // series to convert against honestly).
+  const costUsd=syms().reduce((s,a)=>{const q=qtyOf(a);return q>1e-12?s+q*avg(a,'USD'):s;},0);
+  let crossingHtml='';
+  if(costUsd>0){
+    const histUsd=seriesUSD('ALL');
+    const crossings=[];
+    for(let i=1;i<histUsd.length;i++){
+      const prevAbove=histUsd[i-1].y>=costUsd,currAbove=histUsd[i].y>=costUsd;
+      if(prevAbove!==currAbove)crossings.push({date:histUsd[i].x,direction:currAbove?'up':'down'});
+    }
+    if(crossings.length){
+      const last=crossings[crossings.length-1];
+      const dirWord=last.direction==='up'?'above':'below',dirColor=last.direction==='up'?'#3BF38B':'#FF5C72';
+      crossingHtml='<p class="text-[10px] text-mutet mt-1">Break-even: crossed <span style="color:'+dirColor+'" class="font-semibold">'+dirWord+'</span> on <span class="text-white font-semibold">'+fmtDate(last.date)+'</span>'+
+        (crossings.length>1?' — '+crossings.length+' crossings total since '+APP_TRACKING_START+' (real volatility, not one clean date)':'')+'.</p>';
+    }else{
+      const neverAbove=histUsd.every(p=>p.y<costUsd);
+      crossingHtml='<p class="text-[10px] text-mutet mt-1">Break-even: '+(neverAbove?'not yet reached':'never dropped below')+' since '+APP_TRACKING_START+'.</p>';
+    }
+  }
   host.innerHTML=
     '<div class="grid grid-cols-3 gap-2 mb-3 text-center">'+
       '<div><p class="text-[10px] text-mutet">Bear predicted</p><p class="font-bold tnum text-down text-xs">'+moneyIn(bearPred,'USD',0)+'</p></div>'+
@@ -6293,6 +6321,7 @@ function renderScenarioTracking(){
     '<p>Actual: <span class="font-bold tnum text-white">'+moneyIn(curUsd,'USD',0)+'</span> ('+(actualRet>=0?'+':'')+actualRet.toFixed(0)+'% since baseline) — tracking closest to <span class="font-bold" style="color:'+closestColor+'">'+closest.toUpperCase()+'</span>'+
     (Math.abs(errVsBase)>=15?' <span style="color:#F5B843">— '+Math.abs(errVsBase).toFixed(0)+'% off Base, worth revisiting the assumptions</span>':'')+
     '</p>'+
+    crossingHtml+
     '<p class="text-[10px] text-mutet mt-2">Baseline: '+APP_TRACKING_START+' (your first recorded transaction) @ '+moneyIn(baselinePrice,'USD',0)+' ('+daysSince+'d ago). Figures shown in USD to avoid approximating a historical EUR/USD rate.</p>';
 }
 // ---- Macro context caption: surfaces the Regime Scorecard's Oil/Geopolitics/
