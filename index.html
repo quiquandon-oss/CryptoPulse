@@ -6423,11 +6423,20 @@ function renderScenario(){
   const xMin=historySeries.length?historySeries[0].x:0;
   const Ts=xMin<0?[xMin,...TsFwd]:TsFwd.slice();
   const base=Ts.map(T=>T===0?cur:cur*interpScenarioExtended(SCEN.base,TsFwd,T));
-  // Math.abs(T): uncertainty grows the further from Now in EITHER direction
-  // (same sqrt(time) scaling either way) — sqrt() of a negative T would be
-  // NaN otherwise for the historical point.
-  const upper=Ts.map((T,i)=>T===0?cur:base[i]*Math.exp(portSigma*Math.sqrt(Math.abs(T))));
-  const lower=Ts.map((T,i)=>T===0?cur:base[i]*Math.exp(-portSigma*Math.sqrt(Math.abs(T))));
+  // Band width uses portSigma*sqrt(|T|), which is mathematically correct
+  // (zero uncertainty about a known, already-realized "Now" value) but
+  // reads as a rendering glitch on screen — a literal pinch-to-a-point at
+  // the exact center of the chart. MIN_BAND_T is a small floor on the
+  // effective time used inside the sqrt, purely for legibility — chosen
+  // per explicit request over the alternative (leaving the true pinch and
+  // labeling it), so this IS a deliberate small cosmetic overstatement of
+  // near-Now uncertainty, not a recalibration. Away from Now it does
+  // nothing — sqrt(|T|) already exceeds this floor past a few days out, so
+  // the band's real shape/width at 6M/2Y/5Y (and correspondingly far into
+  // the historical portion) is completely unaffected.
+  const MIN_BAND_T=0.01; // ~3.65 days
+  const upper=Ts.map((T,i)=>base[i]*Math.exp(portSigma*Math.sqrt(Math.max(Math.abs(T),MIN_BAND_T))));
+  const lower=Ts.map((T,i)=>base[i]*Math.exp(-portSigma*Math.sqrt(Math.max(Math.abs(T),MIN_BAND_T))));
   const scenFanState={Ts,base,upper,lower,portSigma,cur};
   scenFanLastState=scenFanState;scenFanLastBreakEven=cost;
   scenFanLastHistory=historySeries;
