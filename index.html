@@ -6345,7 +6345,27 @@ function renderScenarioReviewBanner(){
 function renderScenario(){
   setHealthDot('dotPortfolioScenarios','static','Static model — 2019\u20132024 historical cycles, not live data');
   const t=totals();
-  const cur=t.val,cost=t.cost;
+  const cost=t.cost;
+  // Actual portfolio history — computed FIRST now, not after cur/the fan
+  // chart math, because cur is derived from its own last point below.
+  // Reuses seriesCcy, the exact same series the Dashboard's own
+  // performance chart already shows (real transaction-derived holdings ×
+  // historical price, not a new data source).
+  const nowMs=new Date((NOW()>TODAY?NOW():TODAY)+'T00:00:00Z').getTime();
+  const YEAR_MS=365.25*86400000;
+  const histRaw=seriesCcy('ALL');
+  // FIX: cur previously came from totals().val, which excludes accrued
+  // interest (totals() only sums statOf() per held asset — interestEUR()
+  // is never called there). seriesCcy's own last point DOES include it
+  // (seriesUSD adds interestEUR(d) explicitly). That mismatch meant the
+  // "Actual" history line's endpoint and the Bear/Base/Bull projection's
+  // T=0 starting point were two independently-computed values that could
+  // visibly disagree — confirmed as a real inconsistency, not just a
+  // display preference, by reading both code paths directly. Deriving cur
+  // from histRaw's own last point instead guarantees the projection
+  // starts exactly where the actual line ends, by construction, rather
+  // than by two formulas happening to agree.
+  const cur=histRaw.length?histRaw[histRaw.length-1].y:t.val;
   const need=(cost/cur-1)*100;
   $('#scBeqVal').textContent=money(cost);
   if(need>0){
@@ -6369,18 +6389,8 @@ function renderScenario(){
   const base=SCEN.base.map(m=>cur*m);
   const upper=Ts.map((T,i)=>T===0?cur:base[i]*Math.exp(portSigma*Math.sqrt(T)));
   const lower=Ts.map((T,i)=>T===0?cur:base[i]*Math.exp(-portSigma*Math.sqrt(T)));
-  const scenFanState={Ts,base,upper,lower,portSigma};
+  const scenFanState={Ts,base,upper,lower,portSigma,cur};
   scenFanLastState=scenFanState;scenFanLastBreakEven=cost;
-  // Actual portfolio history overlaid on the same chart — reuses seriesCcy,
-  // the exact same computed series the Dashboard's own performance chart
-  // already shows (real transaction-derived holdings × historical price,
-  // not a new data source). Converted from real calendar dates into the
-  // chart's existing "years from now" T coordinate (negative = past) so it
-  // sits on the same linear axis as the Bear/Base/Bull projection, rather
-  // than needing a second chart to compare them side by side.
-  const nowMs=new Date((NOW()>TODAY?NOW():TODAY)+'T00:00:00Z').getTime();
-  const YEAR_MS=365.25*86400000;
-  const histRaw=seriesCcy('ALL');
   // seriesCcy returns x as an ISO date STRING ("2026-04-11"), not a numeric
   // timestamp — confirmed by reading days()/seriesUSD directly rather than
   // assuming. Parsed here before the T-space conversion below; skipping
@@ -6409,7 +6419,15 @@ function renderScenarioDateReadout(){
     const d=new Date();d.setFullYear(d.getFullYear()+1);
     inp.value=d.toISOString().slice(0,10);
   }
-  const t=totals();const cur=t.val,cost=t.cost;
+  // FIX: same bug as renderScenario() had — totals().val excludes accrued
+  // interest, which made these date-specific Bear/Base/Bull $ values
+  // inconsistent with both the chart's projection AND the "Actual" history
+  // line's endpoint. Reads the single shared, already-corrected cur from
+  // scenFanLastState instead of recomputing independently. cost is
+  // unaffected by this (interest isn't a cost basis), so it still comes
+  // from totals() as before.
+  const cur=scenFanLastState?scenFanLastState.cur:totals().val;
+  const cost=totals().cost;
   const target=new Date(inp.value+'T00:00:00');
   const T=Math.max(0,(target-new Date())/(365.25*86400000));
   const Ts=[0,0.5,2,5];
