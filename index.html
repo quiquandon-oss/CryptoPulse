@@ -6390,7 +6390,7 @@ function renderScenario(){
   const historyStartLabel=histRaw.length?fmtDate(histRaw[0].x):null;
   scenFanLastHistoryStartLabel=historyStartLabel;
   const cv=$('#scenChart');
-  const cfg=buildFanChartConfig(scenFanState,{breakEven:cost,zoomEnabled:true,zoomMode:'xy',onPanComplete:scenZoomStateChanged,onZoomComplete:scenZoomStateChanged,historySeries,historyStartLabel});
+  const cfg=buildFanChartConfig(scenFanState,{breakEven:cost,zoomEnabled:true,zoomMode:'xy',onPanComplete:scenZoomStateChanged,onZoomComplete:scenZoomStateChanged,historySeries,historyStartLabel,viewMax:1});
   if(scenChartInst){scenChartInst.data=cfg.data;scenChartInst.options=cfg.options;scenChartInst.update();}
   else scenChartInst=new Chart(cv,cfg);
   const sigmaNoteEl=$('#scenSigmaNote');if(sigmaNoteEl)sigmaNoteEl.textContent=sigmaReason;
@@ -7809,6 +7809,15 @@ function buildFanChartConfig(state,opts){
       datalabels:{display:false}});
     xMin=Math.min(0,opts.historySeries[0].x);
   }
+  // Default INITIAL view window, separate from the data range itself (which
+  // still goes all the way to T=5 regardless). With history overlaid, the
+  // full history-to-5Y span made the history segment a barely-visible
+  // sliver against a 5-year projection. Opt-in via opts.viewMax so the
+  // Cycles tab (same builder, no history overlay, no sliver problem) keeps
+  // its existing 0-5 default untouched. Zoom/pan stay fully enabled with no
+  // limits set, so scrolling/pinching out to see 2Y/5Y still works exactly
+  // as before — this only changes what's on-screen before you touch it.
+  const viewMax=opts.viewMax??5;
   const zoomOn=opts.zoomEnabled||opts.isFullscreen;
   return{type:'line',data:{datasets},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:16,right:12}},
     animation:{duration:400,easing:'easeOutQuart'},
@@ -7822,7 +7831,7 @@ function buildFanChartConfig(state,opts){
       }:undefined,
     },
     scales:{
-      x:{type:'linear',min:xMin,max:5,grid:{display:false},
+      x:{type:'linear',min:xMin,max:viewMax,grid:{display:false},
         afterBuildTicks:axis=>{
           const ticks=Object.keys(TICK_LABELS).map(v=>({value:+v}));
           // Add one tick at the actual history start, labeled with its
@@ -7867,7 +7876,7 @@ function openScenFanFullscreen(){
   const modal=$('#scenChartFullscreen');if(!modal)return;
   modal.classList.remove('hidden');
   const cv=$('#scenChartFull');
-  const cfg=buildFanChartConfig(scenFanLastState,{isFullscreen:true,breakEven:scenFanLastBreakEven,zoomEnabled:true,zoomMode:'xy',historySeries:scenFanLastHistory,historyStartLabel:scenFanLastHistoryStartLabel});
+  const cfg=buildFanChartConfig(scenFanLastState,{isFullscreen:true,breakEven:scenFanLastBreakEven,zoomEnabled:true,zoomMode:'xy',historySeries:scenFanLastHistory,historyStartLabel:scenFanLastHistoryStartLabel,viewMax:1});
   if(scenChartFullInst)scenChartFullInst.destroy();
   scenChartFullInst=new Chart(cv,cfg);
 }
