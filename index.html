@@ -6371,8 +6371,26 @@ function renderScenario(){
   const lower=Ts.map((T,i)=>T===0?cur:base[i]*Math.exp(-portSigma*Math.sqrt(T)));
   const scenFanState={Ts,base,upper,lower,portSigma};
   scenFanLastState=scenFanState;scenFanLastBreakEven=cost;
+  // Actual portfolio history overlaid on the same chart — reuses seriesCcy,
+  // the exact same computed series the Dashboard's own performance chart
+  // already shows (real transaction-derived holdings × historical price,
+  // not a new data source). Converted from real calendar dates into the
+  // chart's existing "years from now" T coordinate (negative = past) so it
+  // sits on the same linear axis as the Bear/Base/Bull projection, rather
+  // than needing a second chart to compare them side by side.
+  const nowMs=new Date((NOW()>TODAY?NOW():TODAY)+'T00:00:00Z').getTime();
+  const YEAR_MS=365.25*86400000;
+  const histRaw=seriesCcy('ALL');
+  // seriesCcy returns x as an ISO date STRING ("2026-04-11"), not a numeric
+  // timestamp — confirmed by reading days()/seriesUSD directly rather than
+  // assuming. Parsed here before the T-space conversion below; skipping
+  // this would silently produce NaN for every point (string minus number).
+  const historySeries=histRaw.map(p=>({x:(new Date(p.x+'T00:00:00Z').getTime()-nowMs)/YEAR_MS,y:p.y}));
+  scenFanLastHistory=historySeries;
+  const historyStartLabel=histRaw.length?fmtDate(histRaw[0].x):null;
+  scenFanLastHistoryStartLabel=historyStartLabel;
   const cv=$('#scenChart');
-  const cfg=buildFanChartConfig(scenFanState,{breakEven:cost,zoomEnabled:true,zoomMode:'xy',onPanComplete:scenZoomStateChanged,onZoomComplete:scenZoomStateChanged});
+  const cfg=buildFanChartConfig(scenFanState,{breakEven:cost,zoomEnabled:true,zoomMode:'xy',onPanComplete:scenZoomStateChanged,onZoomComplete:scenZoomStateChanged,historySeries,historyStartLabel});
   if(scenChartInst){scenChartInst.data=cfg.data;scenChartInst.options=cfg.options;scenChartInst.update();}
   else scenChartInst=new Chart(cv,cfg);
   const sigmaNoteEl=$('#scenSigmaNote');if(sigmaNoteEl)sigmaNoteEl.textContent=sigmaReason;
@@ -7777,6 +7795,20 @@ function buildFanChartConfig(state,opts){
     datasets.push({label:'Break-even',data:[{x:0,y:opts.breakEven},{x:5,y:opts.breakEven}],
       borderColor:'#F5B843',borderWidth:1.5,borderDash:[4,4],pointRadius:0,fill:false,tension:0});
   }
+  // Optional actual-history overlay — opt-in via opts.historySeries (an
+  // array of {x,y} points already converted to the same "years from now"
+  // T coordinate space, x<0 for the past). Deliberately NOT the default:
+  // only the Scenario tab passes this, so the Cycles tab's own fan chart
+  // (same builder function) is completely unaffected. Solid, distinct
+  // color (cyan — not reused elsewhere in this chart) so "what actually
+  // happened" is never visually confused with the Bear/Base/Bull
+  // projection lines it sits next to.
+  let xMin=0;
+  if(opts.historySeries&&opts.historySeries.length){
+    datasets.push({label:'Actual',data:opts.historySeries,borderColor:'#38BDF8',borderWidth:2,fill:false,pointRadius:0,tension:0.15,
+      datalabels:{display:false}});
+    xMin=Math.min(0,opts.historySeries[0].x);
+  }
   const zoomOn=opts.zoomEnabled||opts.isFullscreen;
   return{type:'line',data:{datasets},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:16,right:12}},
     animation:{duration:400,easing:'easeOutQuart'},
@@ -7790,9 +7822,16 @@ function buildFanChartConfig(state,opts){
       }:undefined,
     },
     scales:{
-      x:{type:'linear',min:0,max:5,grid:{display:false},
-        afterBuildTicks:axis=>{axis.ticks=Object.keys(TICK_LABELS).map(v=>({value:+v}));},
-        ticks:{color:'#7A8499',font:{size:fs.tick},callback:v=>TICK_LABELS[v]??''}},
+      x:{type:'linear',min:xMin,max:5,grid:{display:false},
+        afterBuildTicks:axis=>{
+          const ticks=Object.keys(TICK_LABELS).map(v=>({value:+v}));
+          // Add one tick at the actual history start, labeled with its
+          // real date rather than a generic "-Ny" — a raw year-count
+          // means little at a glance, an actual date does.
+          if(xMin<0)ticks.unshift({value:xMin});
+          axis.ticks=ticks;
+        },
+        ticks:{color:'#7A8499',font:{size:fs.tick},callback:v=>TICK_LABELS[v]??(v===xMin&&opts.historyStartLabel?opts.historyStartLabel:'')}},
       y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#7A8499',font:{size:fs.tick-1},callback:v=>fmtShort(v)}}}
   }};
 }
@@ -7822,13 +7861,13 @@ function closeCycFanFullscreen(){
   modal.classList.add('hidden');
   if(cycFanChartFullInst){cycFanChartFullInst.destroy();cycFanChartFullInst=null;}
 }
-let scenFanLastState=null,scenFanLastBreakEven=0,scenChartFullInst=null;
+let scenFanLastState=null,scenFanLastBreakEven=0,scenChartFullInst=null,scenFanLastHistory=null,scenFanLastHistoryStartLabel=null;
 function openScenFanFullscreen(){
   if(!scenFanLastState)return; // nothing rendered yet
   const modal=$('#scenChartFullscreen');if(!modal)return;
   modal.classList.remove('hidden');
   const cv=$('#scenChartFull');
-  const cfg=buildFanChartConfig(scenFanLastState,{isFullscreen:true,breakEven:scenFanLastBreakEven,zoomEnabled:true,zoomMode:'xy'});
+  const cfg=buildFanChartConfig(scenFanLastState,{isFullscreen:true,breakEven:scenFanLastBreakEven,zoomEnabled:true,zoomMode:'xy',historySeries:scenFanLastHistory,historyStartLabel:scenFanLastHistoryStartLabel});
   if(scenChartFullInst)scenChartFullInst.destroy();
   scenChartFullInst=new Chart(cv,cfg);
 }
