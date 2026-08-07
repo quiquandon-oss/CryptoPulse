@@ -6330,7 +6330,8 @@ function renderScenarioTracking(){
       '<div><p class="text-[10px] text-mutet">Bull predicted</p><p class="font-bold tnum text-up text-xs">'+moneyIn(bullPred,'USD',0)+'</p></div>'+
     '</div>'+
     '<p>Actual: <span class="font-bold tnum text-white">'+moneyIn(curUsd,'USD',0)+'</span> ('+(actualRet>=0?'+':'')+actualRet.toFixed(0)+'% since baseline) — tracking closest to <span class="font-bold" style="color:'+closestColor+'">'+closest.toUpperCase()+'</span>'+
-    (Math.abs(errVsBase)>=15?' <span style="color:#F5B843">— '+Math.abs(errVsBase).toFixed(0)+'% off Base, worth revisiting the assumptions</span>':'')+
+    ' <span class="text-mutet">('+(errVsBase>=0?'+':'')+errVsBase.toFixed(0)+'% vs. Base)</span>'+
+    (Math.abs(errVsBase)>=15?' <span style="color:#F5B843">— worth revisiting the assumptions</span>':'')+
     '</p>'+
     crossingHtml+
     '<p class="text-[10px] text-mutet mt-2">Baseline: '+APP_TRACKING_START+' (your first recorded transaction) @ '+moneyIn(baselinePrice,'USD',0)+' ('+daysSince+'d ago). Figures shown in USD to avoid approximating a historical EUR/USD rate.</p>';
