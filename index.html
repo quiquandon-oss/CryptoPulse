@@ -4394,7 +4394,42 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
     window.__sourceErrors=window.__sourceErrors||{};
     window.__sourceErrors.gold={message:e.message,at:new Date().toLocaleTimeString('en-US')};
   }
-  const active=COMPOSITE_SOURCES.filter(s=>sourceValues[s.id]).map(s=>({...s,value:sourceValues[s.id]}));
+  // Foufi's dominant_driver/secondary_driver, when present and fresh (same
+  // 30h window srcFoufi itself uses), apply a modest TEMPORARY weight boost
+  // to the source(s) mapped to that category — naturally expires when the
+  // next digest replaces this one (~12h), never a permanent reweight, and
+  // never suppresses any source's own live read. Deliberately narrow: only
+  // usd/geopolitics/global are mapped, because those are the only sources
+  // with a correlation distinguishable from noise in the Pareto analysis —
+  // boosting an already-unconfirmed source based on a narrative label would
+  // compound one weak signal with another. 'micro' has no mapped source yet
+  // (logged as uncovered, not faked); 'none' or a stale/missing digest means
+  // no boost, composite runs exactly as it did before this feature existed.
+  const FOUFI_DRIVER_SOURCE_MAP={macro:['usd','geopolitics'],tradfi:['global']};
+  const FOUFI_DRIVER_BOOST=1.5;
+  function getFoufiDriverBoost(){
+    const latest=window.__lastFoufiLatest;
+    if(!latest||!latest.length)return{boosted:[],driver:null,uncovered:false};
+    const usable=latest.find(d=>d.status==='ok'&&d.summary?.coins?.BTC?.score!=null);
+    if(!usable)return{boosted:[],driver:null,uncovered:false};
+    const ageHours=(Date.now()-usable.publishedTs)/3600000;
+    if(ageHours>30)return{boosted:[],driver:null,uncovered:false};
+    const drivers=[usable.summary?.dominant_driver,usable.summary?.secondary_driver].filter(d=>d&&d!=='none');
+    const boosted=new Set();
+    let uncovered=false;
+    drivers.forEach(d=>{
+      const mapped=FOUFI_DRIVER_SOURCE_MAP[d];
+      if(mapped)mapped.forEach(id=>boosted.add(id));
+      else if(d==='micro')uncovered=true;
+    });
+    return{boosted:[...boosted],driver:drivers[0]||null,uncovered};
+  }
+  const foufiDriverBoost=getFoufiDriverBoost();
+  window.__lastFoufiDriverBoost=foufiDriverBoost; // for UI/debug visibility
+  const active=COMPOSITE_SOURCES.filter(s=>sourceValues[s.id]).map(s=>{
+    const boosted=foufiDriverBoost.boosted.includes(s.id);
+    return{...s,baseWeight:s.weight,weight:boosted?s.weight*FOUFI_DRIVER_BOOST:s.weight,value:sourceValues[s.id],driverBoosted:boosted};
+  });
   const composite=computeComposite(active);
   if(composite==null)return{ok:false,activeCount:0};
   // ---- FIX: completeness gate. A composite computed from just 1-2 of the
@@ -4409,7 +4444,7 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
   // history/calibration/backtests going forward — it doesn't touch or
   // retroactively flag the already-written rows from before this fix. ----
   const totalPossibleWeight=COMPOSITE_SOURCES.reduce((s,src)=>s+src.weight,0)||1;
-  const activeWeight=active.reduce((s,src)=>s+src.weight,0);
+  const activeWeight=active.reduce((s,src)=>s+src.baseWeight,0);
   const sourceCompleteness=activeWeight/totalPossibleWeight;
   const COMPLETENESS_FLOOR=0.5;
   if(sourceCompleteness<COMPLETENESS_FLOOR){
