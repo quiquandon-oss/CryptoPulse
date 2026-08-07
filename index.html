@@ -6470,8 +6470,15 @@ function renderScenario(){
   scenFanLastState=scenFanState;scenFanLastBreakEven=cost;
   scenFanLastHistory=historySeries;
   scenFanLastHistoryStartLabel=historyStartLabel;
+  // Baseline: portfolio's total VALUE on the day tracking started —
+  // literally the Actual history line's own first point, since
+  // APP_TRACKING_START and this series' start date are the same day.
+  // Already in state.ccy (from seriesCcy above), matching the chart —
+  // no separate USD-only lookup needed here, unlike the text panel.
+  const baselineVal=histRaw.length?histRaw[0].y:null;
+  scenFanLastBaseline=baselineVal;
   const cv=$('#scenChart');
-  const cfg=buildFanChartConfig(scenFanState,{breakEven:cost,zoomEnabled:true,zoomMode:'xy',onPanComplete:scenZoomStateChanged,onZoomComplete:scenZoomStateChanged,historySeries,historyStartLabel,viewMax:1});
+  const cfg=buildFanChartConfig(scenFanState,{breakEven:cost,baseline:baselineVal,zoomEnabled:true,zoomMode:'xy',onPanComplete:scenZoomStateChanged,onZoomComplete:scenZoomStateChanged,historySeries,historyStartLabel,viewMax:1});
   if(scenChartInst){scenChartInst.data=cfg.data;scenChartInst.options=cfg.options;scenChartInst.update();}
   else scenChartInst=new Chart(cv,cfg);
   const sigmaNoteEl=$('#scenSigmaNote');if(sigmaNoteEl)sigmaNoteEl.textContent=sigmaReason;
@@ -7891,6 +7898,20 @@ function buildFanChartConfig(state,opts){
     datasets.push({label:'Break-even',data:[{x:xMin,y:opts.breakEven},{x:5,y:opts.breakEven}],
       borderColor:'#F5B843',borderWidth:1.5,borderDash:[4,4],pointRadius:0,fill:false,tension:0});
   }
+  // Optional flat baseline reference line — your portfolio's total VALUE on
+  // the day tracking started, as opposed to Break-even (your cost basis,
+  // which grows with every purchase since). These are genuinely different
+  // numbers that can diverge a lot, and until now Baseline only existed as
+  // text ("+15% since baseline") with nothing on the chart to compare it
+  // against — hence the confusion this is fixing. Distinct color AND dash
+  // pattern from Break-even specifically so the two lines can't blend
+  // together at a glance. Starts at xMin (the same point the Actual line's
+  // own first point sits at, by construction) rather than needing a
+  // separate lookup.
+  if(opts.baseline!=null){
+    datasets.push({label:'Baseline (start value)',data:[{x:xMin,y:opts.baseline},{x:5,y:opts.baseline}],
+      borderColor:'#A78BFA',borderWidth:1.5,borderDash:[2,3],pointRadius:0,fill:false,tension:0});
+  }
   // Optional actual-history overlay — opt-in via opts.historySeries (an
   // array of {x,y} points already converted to the same "years from now"
   // T coordinate space, x<0 for the past). Deliberately NOT the default:
@@ -7918,7 +7939,7 @@ function buildFanChartConfig(state,opts){
     plugins:{
       legend:{display:true,position:'bottom',labels:{color:'#7A8499',boxWidth:10,boxHeight:10,font:{size:fs.legend},padding:12}},
       crosshair:{enabled:true,datasetIndex:1},
-      tooltip:{filter:item=>item.dataset.label!=='Break-even',callbacks:{label:c=>c.dataset.label+': '+money(c.raw.y)}},
+      tooltip:{filter:item=>!['Break-even','Baseline (start value)'].includes(item.dataset.label),callbacks:{label:c=>c.dataset.label+': '+money(c.raw.y)}},
       zoom:zoomOn?{
         pan:{enabled:true,mode:opts.zoomMode||'x',onPanComplete:opts.onPanComplete},
         zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:opts.zoomMode||'x',onZoomComplete:opts.onZoomComplete}
@@ -7964,13 +7985,13 @@ function closeCycFanFullscreen(){
   modal.classList.add('hidden');
   if(cycFanChartFullInst){cycFanChartFullInst.destroy();cycFanChartFullInst=null;}
 }
-let scenFanLastState=null,scenFanLastBreakEven=0,scenChartFullInst=null,scenFanLastHistory=null,scenFanLastHistoryStartLabel=null;
+let scenFanLastState=null,scenFanLastBreakEven=0,scenChartFullInst=null,scenFanLastHistory=null,scenFanLastHistoryStartLabel=null,scenFanLastBaseline=null;
 function openScenFanFullscreen(){
   if(!scenFanLastState)return; // nothing rendered yet
   const modal=$('#scenChartFullscreen');if(!modal)return;
   modal.classList.remove('hidden');
   const cv=$('#scenChartFull');
-  const cfg=buildFanChartConfig(scenFanLastState,{isFullscreen:true,breakEven:scenFanLastBreakEven,zoomEnabled:true,zoomMode:'xy',historySeries:scenFanLastHistory,historyStartLabel:scenFanLastHistoryStartLabel,viewMax:1});
+  const cfg=buildFanChartConfig(scenFanLastState,{isFullscreen:true,breakEven:scenFanLastBreakEven,baseline:scenFanLastBaseline,zoomEnabled:true,zoomMode:'xy',historySeries:scenFanLastHistory,historyStartLabel:scenFanLastHistoryStartLabel,viewMax:1});
   if(scenChartFullInst)scenChartFullInst.destroy();
   scenChartFullInst=new Chart(cv,cfg);
 }
