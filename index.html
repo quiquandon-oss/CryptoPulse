@@ -553,17 +553,23 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
     <section id="v-scenario" class="hidden space-y-4">
       <div id="scenReviewBanner"></div>
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
-        <div class="flex items-start justify-between mb-4">
+        <div class="flex items-start justify-between mb-3">
           <div><h2 class="font-semibold flex items-center gap-2">Portfolio Scenarios<span id="dotPortfolioScenarios" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span> <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'scenGrowthNote')">ⓘ Info</button></h2><p class="text-xs text-mutet mt-0.5">2019–2024 market cycles · not financial advice</p></div>
-          <div class="flex items-start gap-2">
-            <div class="text-right shrink-0 ml-3">
-              <p class="text-[10px] uppercase tracking-wide text-mutet">Break-even</p>
-              <p class="grot font-bold tnum" id="scBeqVal">—</p>
-              <p class="text-[10px] mt-0.5" id="scBeqNeed">—</p>
-            </div>
-            <button id="scenExpandBtn" class="px-2 py-1 rounded-md text-mutet hover:text-white" title="Fullscreen" onclick="openScenFanFullscreen()">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
-            </button>
+          <button id="scenExpandBtn" class="px-2 py-1 rounded-md text-mutet hover:text-white shrink-0" title="Fullscreen" onclick="openScenFanFullscreen()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
+          </button>
+        </div>
+        <!-- FIX: Break-even used to live in a narrow shrink-0 side column
+             next to the title, on the same row. Once the crossing-date
+             text got longer ("+57% needed to break even — around DD/MM/
+             YYYY"), that column had no room to wrap it and it overflowed
+             past the right edge of the screen. Full-width row instead, so
+             the text wraps naturally. -->
+        <div class="mb-4">
+          <p class="text-[10px] uppercase tracking-wide text-mutet">Break-even</p>
+          <div class="flex items-baseline gap-2 flex-wrap">
+            <p class="grot font-bold tnum" id="scBeqVal">—</p>
+            <p class="text-[10px]" id="scBeqNeed">—</p>
           </div>
         </div>
         <div class="flex items-center justify-between mb-1.5">
@@ -6880,6 +6886,18 @@ function renderScenarioReviewBanner(){
   });
 }
 function renderScenario(){
+  // FIX: real bug, confirmed from a screenshot — the fullscreen chart once
+  // showed "Actual: $2,057.82" at Now while every other panel in the app
+  // showed ~$2,462, the same real value. cur (and therefore historySeries'
+  // own last point) is derived from seriesCcy('ALL'), which — same as the
+  // portfolio-logging bug already found and fixed — can transiently read
+  // an incomplete total if this renders before all held assets' live
+  // prices have loaded this cycle. Reuses the SAME allHeldPricesLive()
+  // guard already proven there: skip this whole update while prices are
+  // mid-load, keeping whatever was last correctly computed rather than
+  // briefly showing (and, if fullscreen happens to be open at that exact
+  // moment, freezing) a wrong number.
+  if(!allHeldPricesLive())return;
   setHealthDot('dotPortfolioScenarios','static','Static model — 2019\u20132024 historical cycles, not live data');
   const t=totals();
   const cost=t.cost;
@@ -6994,6 +7012,7 @@ function renderScenario(){
   const cfg=buildFanChartConfig(scenFanState,{breakEven:cost,baseline:baselineVal,bearLevel,bullLevel,zoomEnabled:true,zoomMode:'xy',onPanComplete:scenZoomStateChanged,onZoomComplete:scenZoomStateChanged,historySeries,historyStartLabel,viewMax:1});
   if(scenChartInst){scenChartInst.data=cfg.data;scenChartInst.options=cfg.options;scenChartInst.update();}
   else scenChartInst=new Chart(cv,cfg);
+  renderScenFanFullscreen();
   const sigmaNoteEl=$('#scenSigmaNote');if(sigmaNoteEl)sigmaNoteEl.textContent=sigmaReason;
   renderScenarioDateReadout();
   renderScenarioTracking();
@@ -8468,6 +8487,20 @@ function buildFanChartConfig(state,opts){
   // as before — this only changes what's on-screen before you touch it.
   const viewMax=opts.viewMax??5;
   const zoomOn=opts.zoomEnabled||opts.isFullscreen;
+  // FIX: pan/zoom previously had no limits at all — a user could drag the
+  // content completely out of the visible viewport with nothing to look at
+  // but empty canvas, no way back except "Reset zoom". Bounds computed from
+  // every actual value being plotted (bands, flat reference lines, Actual
+  // history), not a guess — so panning/zooming is constrained to the real
+  // data range on both axes, matching the zoomMode:'xy' already in use here.
+  const allY=[...upper,...lower,...base];
+  if(opts.breakEven!=null)allY.push(opts.breakEven);
+  if(opts.baseline!=null)allY.push(opts.baseline);
+  if(opts.bearLevel!=null)allY.push(opts.bearLevel);
+  if(opts.bullLevel!=null)allY.push(opts.bullLevel);
+  if(opts.historySeries)opts.historySeries.forEach(p=>allY.push(p.y));
+  const yDataMin=Math.min(...allY),yDataMax=Math.max(...allY);
+  const yPad=(yDataMax-yDataMin)*0.15||yDataMax*0.1||100;
   return{type:'line',data:{datasets},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:16,right:12}},
     animation:{duration:400,easing:'easeOutQuart'},
     // Explicit interaction mode — same as lineChart()'s already-proven
@@ -8488,7 +8521,11 @@ function buildFanChartConfig(state,opts){
       tooltip:{filter:item=>!['Break-even','Baseline (start value)','Bear','Bull'].includes(item.dataset.label),callbacks:{label:c=>c.dataset.label+': '+money(c.raw.y)}},
       zoom:zoomOn?{
         pan:{enabled:true,mode:opts.zoomMode||'x',onPanComplete:opts.onPanComplete},
-        zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:opts.zoomMode||'x',onZoomComplete:opts.onZoomComplete}
+        zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:opts.zoomMode||'x',onZoomComplete:opts.onZoomComplete},
+        limits:{
+          x:{min:xMin,max:5,minRange:(5-xMin)*0.05},
+          y:{min:yDataMin-yPad,max:yDataMax+yPad,minRange:(yDataMax-yDataMin)*0.1||10}
+        }
       }:undefined,
     },
     scales:{
@@ -8536,10 +8573,26 @@ function openScenFanFullscreen(){
   if(!scenFanLastState)return; // nothing rendered yet
   const modal=$('#scenChartFullscreen');if(!modal)return;
   modal.classList.remove('hidden');
+  renderScenFanFullscreen();
+}
+// FIX: real bug, confirmed from a screenshot — the fullscreen chart was
+// only ever built ONCE, at the moment openScenFanFullscreen() ran, and
+// never touched again by the periodic 60s render cycle. Left open across
+// a refresh, it silently froze at whatever data existed the instant it was
+// opened — which, if that happened to land during a transient incomplete-
+// price window (same root cause already found and fixed for portfolio
+// logging), could freeze in a visibly wrong "Actual" value with no way to
+// notice or correct it short of closing and reopening. Now a safe no-op
+// when the modal is closed (checked internally, same pattern as
+// renderPerfFullscreen), wired into renderScenario()'s own render cycle so
+// it refreshes on the same 60s cadence as everything else on this tab.
+function renderScenFanFullscreen(){
+  const modal=$('#scenChartFullscreen');if(!modal||modal.classList.contains('hidden'))return;
+  if(!scenFanLastState)return;
   const cv=$('#scenChartFull');
   const cfg=buildFanChartConfig(scenFanLastState,{isFullscreen:true,breakEven:scenFanLastBreakEven,baseline:scenFanLastBaseline,bearLevel:scenFanLastBearLevel,bullLevel:scenFanLastBullLevel,zoomEnabled:true,zoomMode:'xy',historySeries:scenFanLastHistory,historyStartLabel:scenFanLastHistoryStartLabel,viewMax:1});
-  if(scenChartFullInst)scenChartFullInst.destroy();
-  scenChartFullInst=new Chart(cv,cfg);
+  if(scenChartFullInst){scenChartFullInst.data=cfg.data;scenChartFullInst.options=cfg.options;scenChartFullInst.update();}
+  else scenChartFullInst=new Chart(cv,cfg);
 }
 function closeScenFanFullscreen(){
   const modal=$('#scenChartFullscreen');if(!modal)return;
