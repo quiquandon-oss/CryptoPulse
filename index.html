@@ -581,7 +581,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <p id="scenSigmaNote" class="text-[10px] text-mutet mb-1"></p>
           <p class="text-[10px] text-mutet">🤏 pinch / scroll / drag to zoom · compare vs break-even</p>
         </div>
-        <div class="h-[340px] sm:h-[420px]"><canvas id="scenChart"></canvas></div>
+        <div class="h-[440px] sm:h-[560px]"><canvas id="scenChart"></canvas></div>
       </div>
 
       <!-- Fullscreen scenario fan chart overlay: own Chart.js instance, same
@@ -8474,8 +8474,21 @@ function buildFanChartConfig(state,opts){
   // happened" is never visually confused with the Bear/Base/Bull
   // projection lines it sits next to.
   if(opts.historySeries&&opts.historySeries.length){
-    datasets.push({label:'Actual',data:opts.historySeries,borderColor:'#38BDF8',borderWidth:2,fill:false,pointRadius:0,tension:0.15,
-      datalabels:{display:false}});
+    // FIX: the Actual line never labeled its own value anywhere, including
+    // at today's endpoint — confirmed via a real screenshot + a direct D1
+    // check that this caused genuine confusion: the correctly-computed
+    // current value ($2,461.86, matching every other panel exactly) had no
+    // visible label of its own, while Base's label at the HISTORY START
+    // point (a different point, ~4 months ago, correctly lower) sat close
+    // by on a cramped axis and got mistaken for "today's value" instead.
+    // Only the LAST point gets a label — not every point, which would
+    // clutter an already-busy chart — styled distinctly (cyan, bold,
+    // "Now: $X" prefix) so it can't be confused with any other label here.
+    const lastIdx=opts.historySeries.length-1;
+    datasets.push({label:'Actual',data:opts.historySeries,borderColor:'#38BDF8',borderWidth:2,fill:false,tension:0.15,
+      pointRadius:(ctx)=>ctx.dataIndex===lastIdx?4:0,pointBackgroundColor:'#38BDF8',pointBorderColor:'#0B0E14',pointBorderWidth:2,
+      datalabels:{display:(ctx)=>ctx.dataIndex===lastIdx,align:'left',offset:10,color:'#38BDF8',font:{size:fs.label+1,weight:'700'},
+        formatter:v=>'Now: '+fmtShort(v.y)}});
   }
   // Default INITIAL view window, separate from the data range itself (which
   // still goes all the way to T=5 regardless). With history overlaid, the
