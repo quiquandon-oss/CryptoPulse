@@ -291,7 +291,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            renderDashboardSummary(). -->
       <div class="rounded-2xl border border-line bg-panel p-4 mb-4">
         <div class="grid grid-cols-3 gap-2 mb-2">
-          <div class="rounded-xl bg-panel2 p-3 text-center">
+          <div class="rounded-xl bg-panel2 p-3 text-center cursor-pointer active:opacity-70 transition" onclick="goToGauge('sentiment','sentTriGrid')">
             <p class="text-[10px] text-mutet mb-1">Sentiment</p>
             <svg viewBox="0 0 200 112" class="w-full max-w-[130px] mx-auto -mb-1">
               <defs><linearGradient id="gaugeGradSent" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -306,7 +306,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             <p class="flex items-center justify-center gap-2 mt-1.5"><span id="dashSentDot" class="inline-block w-3 h-3 rounded-full shrink-0"></span><span id="dashSentLabel" class="text-xs font-medium leading-tight">Loading…</span></p>
             <p id="dash24hSent" class="text-[9px] font-semibold tnum mt-2.5 pt-1.5 border-t border-line/40">—</p>
           </div>
-          <div class="rounded-xl bg-panel2 p-3 text-center">
+          <div class="rounded-xl bg-panel2 p-3 text-center cursor-pointer active:opacity-70 transition" onclick="goToGauge('sentiment','sentTechAnalysisCard')">
             <p class="text-[10px] text-mutet mb-1">Technical</p>
             <svg viewBox="0 0 200 112" class="w-full max-w-[130px] mx-auto -mb-1">
               <defs><linearGradient id="gaugeGradTech" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -321,7 +321,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             <p class="flex items-center justify-center gap-2 mt-1.5"><span id="dashTechDot" class="inline-block w-3 h-3 rounded-full shrink-0"></span><span id="dashTechLabel" class="text-xs font-medium leading-tight">Loading…</span></p>
             <p id="dash24hTech" class="text-[9px] font-semibold tnum mt-2.5 pt-1.5 border-t border-line/40">—</p>
           </div>
-          <div id="dashCombinedCard" class="rounded-xl bg-panel2 p-3 text-center border-2 border-line/60">
+          <div id="dashCombinedCard" class="rounded-xl bg-panel2 p-3 text-center border-2 border-line/60 cursor-pointer active:opacity-70 transition" onclick="goToGauge('sentiment','sentTriGrid')">
             <p class="text-[10px] text-mutet mb-1">Combined</p>
             <svg viewBox="0 0 200 112" class="w-full max-w-[130px] mx-auto -mb-1">
               <defs><linearGradient id="gaugeGradCombined" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -338,7 +338,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           </div>
         </div>
         <div class="grid grid-cols-2 gap-2">
-          <div class="rounded-xl bg-panel2 p-3 text-center">
+          <div class="rounded-xl bg-panel2 p-3 text-center cursor-pointer active:opacity-70 transition" onclick="goToGauge('cycles','cycHeroCard')">
             <p class="text-[10px] text-mutet mb-1">Market Bottom</p>
             <p class="grot font-bold tnum text-lg js-bScore">—</p>
             <svg viewBox="0 0 200 30" class="w-full max-w-[190px] mx-auto mt-2">
@@ -353,7 +353,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             <p class="flex items-center justify-center gap-2 mt-1.5"><span id="dashBottomDot" class="inline-block w-3 h-3 rounded-full shrink-0"></span><span id="dashBottomLabelPlain" class="text-xs font-medium leading-tight">—</span></p>
             <p id="dash24hBottom" class="text-[9px] font-semibold tnum mt-2.5 pt-1.5 border-t border-line/40">—</p>
           </div>
-          <div class="rounded-xl bg-panel2 p-3 text-center">
+          <div class="rounded-xl bg-panel2 p-3 text-center cursor-pointer active:opacity-70 transition" onclick="goToGauge('cycles','cycRegimeScorecard')">
             <p class="text-[10px] text-mutet mb-1">Cycle Scorecard</p>
             <span id="dashScorecardDot" class="inline-block w-4 h-4 rounded-full mt-1"></span>
             <p id="dashScorecardLabel" class="text-xs font-medium mt-1.5 leading-tight">Loading…</p>
@@ -1063,7 +1063,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            Combined is a genuinely computed weighted average of the two (adjustable
            in Settings) — never an LLM guess. Radar's badge and the Dashboard/
            Scenario Bottom Signal are untouched by any of this. ═══ -->
-      <div class="grid grid-cols-3 gap-2">
+      <div class="grid grid-cols-3 gap-2" id="sentTriGrid">
         <div class="rounded-2xl border border-line bg-panel p-3 text-center">
           <p class="text-[10px] text-mutet mb-1">Sentiment</p>
           <p id="triScoreSentiment" class="grot font-bold tnum text-2xl">—</p>
@@ -1269,7 +1269,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            path (see fetchPulseTechnicalEval), not dependent on Pulse's own
            CoinGecko fetch, which is a separate, less-used fallback route on
            Pulse's Worker side. -->
-      <div class="rounded-2xl border border-line bg-panel p-5 space-y-4">
+      <div class="rounded-2xl border border-line bg-panel p-5 space-y-4" id="sentTechAnalysisCard">
         <div class="flex items-center justify-between">
           <div>
             <h2 class="font-semibold mb-1">Technical Analysis (BTC)<span id="dotTechAnalysis" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h2>
@@ -1477,6 +1477,13 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
     <!-- =============== FOUFI (own top-level tab, moved out of Trader
          Analysis so it isn't buried behind a scroll + a collapsible) =============== -->
     <section id="v-foufi" class="hidden space-y-4">
+      <div id="foufiFullscreenModal" class="hidden fixed inset-0 z-50 bg-panel p-4 flex flex-col">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-semibold">Foufi Daily</h3>
+          <button class="px-2.5 py-1.5 rounded-md text-xs bg-panel2 hover:text-white border border-line" onclick="closeFoufiFullscreen()">✕ Close</button>
+        </div>
+        <div id="foufiFullscreenBody" class="flex-1 overflow-y-auto"></div>
+      </div>
       <!-- ═══ Foufi Daily — automated digest of Foufi's (@CryptoFoufi) latest
            YouTube videos. He posts twice daily: ~06:00 UTC (overnight/macro-
            flavored) and ~17:30-19:30 UTC (technical/TradFi-flavored),
@@ -2167,6 +2174,21 @@ function wireModal(){
     renderDetailChart();
   });
   $('#chartModal').onclick=(e)=>{if(e.target===$('#chartModal'))closeChartModal();};
+}
+// Tap-a-gauge-to-see-detail: switches tab then scrolls to the specific
+// section within it, rather than just landing at the top of a long tab.
+// rAF (not setTimeout) so it fires right after the view's hidden/visible
+// class toggle has applied and layout has settled, before measuring the
+// scroll position — the static card layout is already in the DOM either
+// way (just hidden), so this doesn't need to wait for any data fetch.
+function goToGauge(view,scrollTargetId){
+  setView(view);
+  if(scrollTargetId){
+    requestAnimationFrame(()=>{
+      const el=document.getElementById(scrollTargetId);
+      if(el)el.scrollIntoView({behavior:'smooth',block:'start'});
+    });
+  }
 }
 function setView(v){state.view=v;['dashboard','mycrypto','dca','scenario','cycles','capital','radar','markets','sentiment','outlook','traderanalysis','foufi','settings'].forEach(x=>$('#v-'+x).classList.toggle('hidden',x!==v));
   $$('#nav .navitem,#navMobile .navitem').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
@@ -4826,8 +4848,10 @@ function renderFoufiCard(digest){
   // later, breaking the AM/PM-same-day pairing this card exists to show.
   const dateStr=digest.publishedTs?new Date(digest.publishedTs).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'}):'';
   const typeLabel=foufiVideoTypeLabel(digest);
+  const vid=digest.videoId||digest.video_id;
   const header=`<div class="flex items-center justify-between mb-1 gap-2">
     <span class="text-[10px] font-semibold uppercase tracking-wide ${digest.specialEdition?'text-neon':'text-mutet'}">${typeLabel}${dateStr?' · '+dateStr:''}</span>
+    ${vid?`<button onclick="openFoufiFullscreen('${vid}')" class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-1.5 py-0.5 shrink-0" title="Read fullscreen">⛶</button>`:''}
   </div>
   <a href="${digest.url}" target="_blank" rel="noopener" class="text-xs font-medium text-white hover:underline mb-2" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${digest.title}</a>`;
   // status!=='ok' covers a Gemini/API error; summary.raw (Gemini answered
@@ -4864,6 +4888,45 @@ function renderFoufiCard(digest){
     </div>
   </div>`;
 }
+// Fullscreen reading variant — same data as renderFoufiCard, larger type and
+// more breathing room for actually reading the analysis on a phone instead
+// of skimming a small grid card. No line-clamp on the title, no card border
+// (the fullscreen modal itself is the frame).
+function renderFoufiCardFullscreen(digest){
+  if(!digest)return'<p class="text-sm text-mutet">No video found.</p>';
+  const dateStr=digest.publishedTs?new Date(digest.publishedTs).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'}):'';
+  const typeLabel=foufiVideoTypeLabel(digest);
+  const header=`<p class="text-xs font-semibold uppercase tracking-wide mb-1 ${digest.specialEdition?'text-neon':'text-mutet'}">${typeLabel}${dateStr?' · '+dateStr:''}</p>
+  <a href="${digest.url}" target="_blank" rel="noopener" class="text-base font-semibold text-white hover:underline block mb-4">${digest.title}</a>`;
+  if(digest.status!=='ok'||!digest.summary||digest.summary.raw){
+    const fallbackText=digest.summary?.raw||digest.summary?.parseError||'Could not process this video.';
+    return`${header}<p class="text-sm text-mutet" style="white-space:pre-line">${fallbackText}</p>`;
+  }
+  const s=digest.summary;
+  const coins=s.coins||{};
+  const coinRows=['BTC','ETH','SOL','LINK','HYPE']
+    .filter(sym=>coins[sym]?.score!=null)
+    .map(sym=>`<p style="margin-bottom:8px"><span style="display:inline-block;width:64px">${foufiScoreChip(sym,coins[sym].score)}</span><span class="text-sm">${coins[sym].note||''}</span></p>`)
+    .join('');
+  return`${header}
+    <p class="text-sm mb-4 leading-relaxed">${s.market_summary||''}</p>
+    ${coinRows?`<div class="text-sm leading-relaxed text-mutet mb-4">${coinRows}</div>`:''}
+    <div class="text-sm leading-relaxed text-mutet border-t border-line/50 pt-3 space-y-2">
+      <p><span class="font-semibold" style="color:rgba(255,255,255,.7)">Macro </span>${foufiLeanBadge(s.macro?.lean)} ${s.macro?.text||'not addressed'}</p>
+      <p><span class="font-semibold" style="color:rgba(255,255,255,.7)">Micro </span>${foufiLeanBadge(s.micro?.lean)} ${s.micro?.text||'not addressed'}</p>
+      <p><span class="font-semibold" style="color:rgba(255,255,255,.7)">TradFi </span>${foufiLeanBadge(s.tradfi?.lean)} ${s.tradfi?.text||'not addressed'}</p>
+    </div>`;
+}
+function openFoufiFullscreen(videoId){
+  const digest=foufiAllDigestsById[videoId];
+  const modal=$('#foufiFullscreenModal');const body=$('#foufiFullscreenBody');
+  if(!modal||!body)return;
+  body.innerHTML=renderFoufiCardFullscreen(digest);
+  modal.classList.remove('hidden');
+}
+function closeFoufiFullscreen(){
+  const modal=$('#foufiFullscreenModal');if(modal)modal.classList.add('hidden');
+}
 async function loadFoufiDigest(){
   const body=$('#foufiDigestBody');if(!body)return;
   try{
@@ -4881,6 +4944,7 @@ async function loadFoufiDigest(){
     const morning=latest.find(d=>d.videoType==='morning')||null;
     const evening=latest.find(d=>d.videoType==='evening')||null;
     const ordered=(morning||evening)?[morning,evening]:latest;
+    cacheFoufiDigests(latest);
     body.innerHTML=ordered.map(renderFoufiCard).join('');
     const newestTitle=latest[0]?.title||'';
     setHealthDot('dotFoufiDigest','live',`Computed OK — ${newestTitle}`);
@@ -4899,6 +4963,13 @@ async function loadFoufiDigest(){
 let foufiRecapLoaded=false;
 let foufiRecapAllRows=[];
 let foufiRecapFilter='all';
+// Unified lookup so the fullscreen reader can find ANY digest regardless of
+// which of the two separate fetches (side-by-side AM/PM cards vs. the
+// history browser) it came from — both populate this by videoId.
+let foufiAllDigestsById={};
+function cacheFoufiDigests(list){
+  (list||[]).forEach(d=>{const id=d.videoId||d.video_id;if(id)foufiAllDigestsById[id]=d;});
+}
 function foufiTypeKey(d){
   if(d.specialEdition==='weekly_close')return'weekly_close';
   if(d.specialEdition==='monthly_close')return'monthly_close';
@@ -4953,6 +5024,7 @@ async function loadFoufiRecap(){
     if(!res.ok)throw new Error('HTTP '+res.status);
     const{rows}=await res.json();
     foufiRecapAllRows=rows||[];
+    cacheFoufiDigests(rows);
     renderFoufiTypeSelector();
     renderFoufiRecapList();
   }catch(err){
