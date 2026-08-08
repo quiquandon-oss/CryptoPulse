@@ -4566,15 +4566,23 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
   // compound one weak signal with another. 'micro' has no mapped source yet
   // (logged as uncovered, not faked); 'none' or a stale/missing digest means
   // no boost, composite runs exactly as it did before this feature existed.
+  //
+  // major_catalyst gets the SAME treatment, mapped to 'regulatory' — a
+  // genuinely new structured signal (not a narration of data already in the
+  // composite, which is why Trader Analysis/Gemini's outputs deliberately
+  // do NOT get this treatment) that had nowhere to feed in before. Same
+  // usable digest, same freshness window, same multiplier — this doesn't
+  // override regulatory's own measured direction, only amplifies it, same
+  // as every other driver-boosted source.
   const FOUFI_DRIVER_SOURCE_MAP={macro:['usd','geopolitics'],tradfi:['global']};
   const FOUFI_DRIVER_BOOST=1.5;
   function getFoufiDriverBoost(){
     const latest=window.__lastFoufiLatest;
-    if(!latest||!latest.length)return{boosted:[],driver:null,uncovered:false};
+    if(!latest||!latest.length)return{boosted:[],driver:null,uncovered:false,catalystName:null};
     const usable=latest.find(d=>d.status==='ok'&&d.summary?.coins?.BTC?.score!=null);
-    if(!usable)return{boosted:[],driver:null,uncovered:false};
+    if(!usable)return{boosted:[],driver:null,uncovered:false,catalystName:null};
     const ageHours=(Date.now()-usable.publishedTs)/3600000;
-    if(ageHours>30)return{boosted:[],driver:null,uncovered:false};
+    if(ageHours>30)return{boosted:[],driver:null,uncovered:false,catalystName:null};
     const drivers=[usable.summary?.dominant_driver,usable.summary?.secondary_driver].filter(d=>d&&d!=='none');
     const boosted=new Set();
     let uncovered=false;
@@ -4583,7 +4591,9 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
       if(mapped)mapped.forEach(id=>boosted.add(id));
       else if(d==='micro')uncovered=true;
     });
-    return{boosted:[...boosted],driver:drivers[0]||null,uncovered};
+    const catalystName=usable.summary?.major_catalyst?.name||null;
+    if(catalystName)boosted.add('regulatory');
+    return{boosted:[...boosted],driver:drivers[0]||null,uncovered,catalystName};
   }
   const foufiDriverBoost=getFoufiDriverBoost();
   window.__lastFoufiDriverBoost=foufiDriverBoost; // for UI/debug visibility
@@ -7071,11 +7081,6 @@ function renderWhaleTile(){
       transfers:[...classified].sort((a,b)=>b.usd-a.usd).slice(0,8).map(t=>({symbol:t.symbol,usd:t.usd,direction:t.direction,from:t.from,to:t.to})),
       concentration
     };
-    // Persists exactly what was just computed above (classification,
-    // concentration flags) — no new computation, just a write. Fire-and-
-    // forget: a logging failure must never affect the tile's own render,
-    // matching how whale-analysis's own narration call below is handled.
-    fetch(`${PULSE_WORKER_URL}/whale-log`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transfers:classified,concentration})}).catch(()=>{});
     const badge=concentration.elevated
       ?'<div class="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg" style="background:rgba(245,184,67,0.12);border:1px solid rgba(245,184,67,0.3)"><span style="color:#F5B843">⚠</span><span class="text-xs font-semibold" style="color:#F5B843">Elevated exchange activity in this snapshot — often coincides with more volatile price action, though this is a pattern flag, not a validated prediction</span></div>'
       :'';
