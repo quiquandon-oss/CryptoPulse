@@ -1476,9 +1476,9 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         </div>
         <p class="text-sm" id="traderAnalysisBody" style="white-space:pre-line">—</p>
         <div class="border-t border-line/50 mt-3 pt-3">
-          <button id="traderCrosscheckBtn" onclick="runTraderAnalysisCrosscheck()" class="text-xs font-medium bg-panel2 hover:bg-line border border-line rounded-lg px-3 py-1.5" disabled>Cross-check with Gemini</button>
-          <p class="text-[10px] text-mutet mt-1.5" id="traderCrosscheckNote">A second, independent look at the read above against Gemini's own broader knowledge — not live search (see ⓘ), and not run automatically to conserve shared quota.</p>
-          <p class="text-xs mt-2 hidden" id="traderCrosscheckResult" style="white-space:pre-line"></p>
+          <button id="traderGeminiBtn" onclick="runTraderAnalysisGemini()" class="text-xs font-medium bg-panel2 hover:bg-line border border-line rounded-lg px-3 py-1.5" disabled>Get Gemini's independent read</button>
+          <p class="text-[10px] text-mutet mt-1.5" id="traderGeminiNote">Gemini's own full analysis from the same underlying data as the read above — not a review of it, a separate independent take (may supplement with its own broader knowledge, clearly flagged when it does). Not live search (see ⓘ), and not run automatically to conserve shared quota.</p>
+          <p class="text-sm mt-3 hidden" id="traderGeminiResult" style="white-space:pre-line"></p>
         </div>
       </div>
 
@@ -4923,47 +4923,49 @@ function wireManualNewsPanel(){
   }
 }
 // Cached alongside the last successful Trader Analysis render so the
-// on-demand cross-check button (see /trader-analysis-crosscheck in
-// PulseWorker) has what it needs without refetching anything.
-let traderAnalysisLastText=null,traderAnalysisLastPrice=null;
+// on-demand "Gemini's independent read" button (see /trader-analysis-gemini
+// in PulseWorker) has the SAME full data payload without refetching or
+// rebuilding anything — genuinely the same snapshot both models see, not a
+// second, possibly-drifted assembly of the same data.
+let traderAnalysisLastText=null,traderAnalysisLastPayload=null;
 function renderTraderAnalysis(result){
   const host=$('#traderAnalysisBody'),status=$('#traderAnalysisStatus');
   if(!host)return;
   host.textContent=result.analysis;
   if(status)status.textContent=result.fromCache?`Cached (${result.cacheAgeMin}m old)`:'Live';
   traderAnalysisLastText=result.analysis;
-  const btn=$('#traderCrosscheckBtn');if(btn)btn.disabled=!traderAnalysisLastText;
-  // A fresh Trader Analysis render invalidates any prior cross-check result
-  // (it was reviewing the OLD narrative) — hide it rather than leave a
-  // stale cross-check sitting under a now-different read.
-  const resultEl=$('#traderCrosscheckResult');if(resultEl)resultEl.classList.add('hidden');
+  const btn=$('#traderGeminiBtn');if(btn)btn.disabled=!traderAnalysisLastPayload;
+  // A fresh Trader Analysis render invalidates any prior Gemini read (it
+  // was independently analyzing the OLD snapshot) — hide it rather than
+  // leave a stale read sitting under a now-different snapshot.
+  const resultEl=$('#traderGeminiResult');if(resultEl)resultEl.classList.add('hidden');
 }
-async function runTraderAnalysisCrosscheck(){
-  const btn=$('#traderCrosscheckBtn'),resultEl=$('#traderCrosscheckResult');
-  if(!btn||!resultEl||!traderAnalysisLastText)return;
+async function runTraderAnalysisGemini(){
+  const btn=$('#traderGeminiBtn'),resultEl=$('#traderGeminiResult');
+  if(!btn||!resultEl||!traderAnalysisLastPayload)return;
   btn.disabled=true;
-  btn.textContent='Checking…';
+  btn.textContent='Analyzing…';
   resultEl.classList.remove('hidden');
-  resultEl.className='text-xs mt-2 text-mutet';
-  resultEl.textContent='Asking Gemini for an independent look…';
+  resultEl.className='text-sm mt-3 text-mutet';
+  resultEl.textContent='Asking Gemini for its own independent read…';
   try{
-    const res=await fetch(`${PULSE_WORKER_URL}/trader-analysis-crosscheck`,{
+    const res=await fetch(`${PULSE_WORKER_URL}/trader-analysis-gemini`,{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({narrative:traderAnalysisLastText,price:traderAnalysisLastPrice})
+      body:JSON.stringify(traderAnalysisLastPayload)
     });
     if(!res.ok){
       let detail='';try{const j=await res.json();detail=j.error||'';}catch(e){}
       throw new Error('HTTP '+res.status+(detail?': '+detail:''));
     }
     const json=await res.json();
-    resultEl.className='text-xs mt-2';
-    resultEl.textContent=json.crosscheck||'(empty response)';
+    resultEl.className='text-sm mt-3';
+    resultEl.textContent=json.analysis||'(empty response)';
   }catch(err){
-    resultEl.className='text-xs mt-2 text-down';
-    resultEl.textContent='Could not cross-check — '+err.message;
+    resultEl.className='text-sm mt-3 text-down';
+    resultEl.textContent='Could not get Gemini\'s read — '+err.message;
   }finally{
     btn.disabled=false;
-    btn.textContent='Cross-check again';
+    btn.textContent='Get Gemini\'s independent read again';
   }
 }
 // ── Foufi Daily — reads pre-computed digests (GET /foufi-latest / GET
@@ -5470,7 +5472,7 @@ async function _initSentimentTabImpl(){
       whaleActivity:volFlag.highVol?(window.__lastWhaleSignal||null):null
     };
     const result=await fetchTraderAnalysis(payload);
-    traderAnalysisLastPrice=payload.price;
+    traderAnalysisLastPayload=payload;
     renderTraderAnalysis(result);
   }catch(err){
     console.error('Error fetching trader analysis:',err);
