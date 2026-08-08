@@ -7071,6 +7071,11 @@ function renderWhaleTile(){
       transfers:[...classified].sort((a,b)=>b.usd-a.usd).slice(0,8).map(t=>({symbol:t.symbol,usd:t.usd,direction:t.direction,from:t.from,to:t.to})),
       concentration
     };
+    // Persists exactly what was just computed above (classification,
+    // concentration flags) — no new computation, just a write. Fire-and-
+    // forget: a logging failure must never affect the tile's own render,
+    // matching how whale-analysis's own narration call below is handled.
+    fetch(`${PULSE_WORKER_URL}/whale-log`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transfers:classified,concentration})}).catch(()=>{});
     const badge=concentration.elevated
       ?'<div class="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg" style="background:rgba(245,184,67,0.12);border:1px solid rgba(245,184,67,0.3)"><span style="color:#F5B843">⚠</span><span class="text-xs font-semibold" style="color:#F5B843">Elevated exchange activity in this snapshot — often coincides with more volatile price action, though this is a pattern flag, not a validated prediction</span></div>'
       :'';
