@@ -1965,6 +1965,23 @@ function computePortfolioValueUsdNow(){
   v+=interestEUR()*(state.fx||FX0);
   return v;
 }
+// FIX: real bug, confirmed via D1 — the app renders multiple times during
+// page load (state.txs loads synchronously, but getPrices() is async), so
+// early renders compute totals using pxUsd's fallback path (histPx, a
+// cached/stale price) for every held asset, before live CoinGecko prices
+// arrive. The header display always self-corrected on the next render with
+// no visible trace — but logging captured BOTH the transient undervalued
+// render and the correct one, indiscriminately, permanently persisting a
+// ~$238 phantom dip that repeated every time render() fired before prices
+// were live (multiple times per minute during active use). Two guards, not
+// one: completeness (don't log while any held asset is still on fallback
+// pricing) catches the actual root cause; plausibility (don't log an
+// implausible swing from the last logged value) is a backstop against any
+// OTHER future source of transient bad reads this doesn't anticipate.
+function allHeldPricesLive(){
+  return syms().every(a=>qtyOf(a)<=1e-12||!!(state.prices[a]?.usd));
+}
+let lastLoggedPortfolioUsd=null,lastLoggedPortfolioTs=0;
 function renderHeader(){const t=totals();const up=t.pnl>=0;
   $('#totalMain').textContent=money(t.val);
   $('#totalAlt').textContent=state.ccy==='USD'?moneyIn(t.val/(state.fx||FX0),'EUR'):moneyIn(t.val*(state.fx||FX0),'USD');
@@ -1972,9 +1989,17 @@ function renderHeader(){const t=totals();const up=t.pnl>=0;
   pill.textContent=`${up?'▲':'▼'} ${money(Math.abs(t.pnl))} (${pctS(t.pp)})`;
   // Fire-and-forget intraday snapshot, enabling the 24H chart — fully
   // separate from and cannot affect anything the daily views compute.
-  const valueUsd=computePortfolioValueUsdNow();
-  const fx=state.fx||FX0;
-  fetch(`${PULSE_WORKER_URL}/portfolio-log`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value_usd:valueUsd,value_eur:valueUsd/fx,fx})}).catch(()=>{});
+  if(allHeldPricesLive()){
+    const valueUsd=computePortfolioValueUsdNow();
+    const now=Date.now();
+    const impliedPct=lastLoggedPortfolioUsd?Math.abs(valueUsd-lastLoggedPortfolioUsd)/lastLoggedPortfolioUsd*100:0;
+    const tooFastAndBig=lastLoggedPortfolioUsd&&(now-lastLoggedPortfolioTs)<600000&&impliedPct>15;
+    if(!tooFastAndBig){
+      const fx=state.fx||FX0;
+      fetch(`${PULSE_WORKER_URL}/portfolio-log`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value_usd:valueUsd,value_eur:valueUsd/fx,fx})}).catch(()=>{});
+      lastLoggedPortfolioUsd=valueUsd;lastLoggedPortfolioTs=now;
+    }
+  }
 }
 
 // Both accept an optional 2nd host ID (defaults to the main card's own
