@@ -581,7 +581,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <p id="scenSigmaNote" class="text-[10px] text-mutet mb-1"></p>
           <p class="text-[10px] text-mutet">🤏 pinch / scroll / drag to zoom · compare vs break-even</p>
         </div>
-        <div class="h-[440px] sm:h-[560px]"><canvas id="scenChart"></canvas></div>
+        <div class="h-[560px] sm:h-[680px]"><canvas id="scenChart"></canvas></div>
       </div>
 
       <!-- Fullscreen scenario fan chart overlay: own Chart.js instance, same
@@ -8514,28 +8514,6 @@ function buildFanChartConfig(state,opts){
   if(opts.historySeries)opts.historySeries.forEach(p=>allY.push(p.y));
   const yDataMin=Math.min(...allY),yDataMax=Math.max(...allY);
   const yPad=(yDataMax-yDataMin)*0.15||yDataMax*0.1||100;
-  // FIX: real legibility issue, confirmed from a screenshot — near "Now",
-  // +1σ/Base/-1σ/Bear/Bull/Actual were all crammed into a thin sliver at
-  // the bottom of the chart, because the Y-axis auto-scales to fit
-  // EVERYTHING (including Break-even at $3,860, far above the near-term
-  // ~$2,000-2,700 cluster this exact chart shows). One flat reference line
-  // was forcing the whole vertical space to stretch, compressing the part
-  // the user actually looks at by default. Separate, TIGHTER range for the
-  // default view specifically: computed only from the fan band + Actual
-  // history WITHIN [xMin, viewMax], deliberately excluding the flat
-  // reference lines (Break-even/Baseline/Bear/Bull) from this calculation
-  // — they're still fully reachable by pinching/scrolling out (the pan/
-  // zoom limits above still use the FULL range), just no longer forced
-  // into the default view at the cost of near-term detail.
-  const viewYVals=[];
-  Ts.forEach((T,i)=>{if(T>=xMin&&T<=viewMax)viewYVals.push(upper[i],lower[i],base[i]);});
-  if(opts.historySeries)opts.historySeries.forEach(p=>{if(p.x>=xMin&&p.x<=viewMax)viewYVals.push(p.y);});
-  let defaultYMin,defaultYMax;
-  if(viewYVals.length){
-    const vMin=Math.min(...viewYVals),vMax=Math.max(...viewYVals);
-    const vPad=(vMax-vMin)*0.15||vMax*0.1||50;
-    defaultYMin=vMin-vPad;defaultYMax=vMax+vPad;
-  }
   return{type:'line',data:{datasets},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:16,right:12}},
     animation:{duration:400,easing:'easeOutQuart'},
     // Explicit interaction mode — same as lineChart()'s already-proven
@@ -8587,7 +8565,7 @@ function buildFanChartConfig(state,opts){
           axis.ticks=ticks;
         },
         ticks:{color:'#7A8499',font:{size:fs.tick},callback:v=>TICK_LABELS[v]??(v===xMin&&opts.historyStartLabel?opts.historyStartLabel:'')}},
-      y:{min:defaultYMin,max:defaultYMax,grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#7A8499',font:{size:fs.tick-1},callback:v=>fmtShort(v)}}}
+      y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#7A8499',font:{size:fs.tick-1},callback:v=>fmtShort(v)}}}
   }};
 }
 // ---- Assumptions disclosure: the band's actual math, not left implicit ----
