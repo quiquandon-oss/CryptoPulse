@@ -1554,6 +1554,25 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <div id="foufiDigestBody" class="grid grid-cols-2 gap-2"><p class="text-xs text-mutet">Loading…</p></div>
       </div>
 
+      <!-- ═══ Catalyst Watch — tracks a still-pending structural catalyst
+           (currently the CLARITY Act) across two already-fetched sources:
+           Foufi's own extraction (new major_catalyst field, only extracted
+           when he specifically names a still-pending bill/decision, kept
+           generalized so it isn't hardcoded to just this one bill forever)
+           and the 5 news feeds' already-fetched headline pool (filtered
+           client-side for a keyword match — no new API call). Built after
+           confirming via D1 that Foufi has genuinely covered this before
+           (a real video title: "Loi CLARITY repoussée") but the old
+           extraction had nowhere to put it — it was falling into generic
+           macro text and getting lost. ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold flex items-center gap-2">Catalyst Watch<span id="dotClarityWatch" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:2px;vertical-align:middle;"></span> <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'clarityWatchNote')">ⓘ Info</button></h2>
+        </div>
+        <p class="hidden text-[10px] text-mutet mt-1 mb-2" id="clarityWatchNote">Tracks a specific still-pending catalyst (currently the CLARITY Act — a crypto regulatory bill multiple analysts have called the market's "ultimate catalyst") across two sources already being fetched elsewhere: Foufi's own digest (a new major_catalyst field, extracted only when he specifically names a still-pending bill/decision) and the combined headline pool from all 5 news feeds (crypto/macro/geopolitics/regulatory/SoSoValue), filtered client-side for a keyword match — no new API cost either way. The keyword is currently hardcoded to this specific bill; whenever it resolves or a new catalyst becomes the one to watch, this needs updating, not something that tracks itself automatically.</p>
+        <div id="clarityWatchBody"><p class="text-xs text-mutet">Loading…</p></div>
+      </div>
+
       <div class="rounded-2xl border border-line bg-panel p-5">
         <h2 class="font-semibold mb-2">History &amp; analysis browser</h2>
         <div id="foufiTypeSelector" class="flex flex-wrap gap-1 mb-2"><p class="text-xs text-mutet">Loading…</p></div>
@@ -4515,10 +4534,12 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
     const autoSorted=allHeadlines.sort((a,b)=>Math.abs(b.score)-Math.abs(a.score));
     const remainingSlots=Math.max(0,5-manualFormatted.length);
     window.__lastTopHeadlines=[...manualFormatted,...autoSorted.slice(0,remainingSlots)];
+    renderClarityWatch();
   }catch(e){
     console.warn('Failed to aggregate top headlines:',e.message);
     window.__lastTopHeadlines=[];
     window.__lastAllHeadlinePool=[];
+    renderClarityWatch();
   }
   // Gold runs AFTER the above resolve — its regime classification (competing-
   // haven vs shared-narrative) needs nasdaq/sp500's scores from this SAME
@@ -4987,6 +5008,41 @@ function foufiScoreChip(sym,score){
   const bg=score>0?'rgba(59,243,139,0.14)':score<0?'rgba(245,96,108,0.14)':'rgba(148,163,184,0.14)';
   const sign=score>0?'+':'';
   return`<span style="color:${c};background:${bg};padding:2px 7px;border-radius:6px;font-size:10px;font-weight:600;white-space:nowrap;">${sym} ${sign}${score}</span>`;
+}
+// Catalyst Watch — reads from two pools already populated elsewhere this
+// cycle (window.__lastFoufiLatest from srcFoufi, window.__lastAllHeadlinePool
+// from the news-source aggregation above) rather than fetching anything new.
+// Safe to call before either is ready — renders a "not available yet"
+// state rather than throwing, since this can run before either pool exists
+// depending on load order.
+const CLARITY_WATCH_KEYWORD=/clarity/i; // hardcoded to the current specific catalyst — see clarityWatchNote for why this isn't self-updating
+function renderClarityWatch(){
+  const host=$('#clarityWatchBody');if(!host)return;
+  const foufiList=window.__lastFoufiLatest||[];
+  const foufiHit=foufiList
+    .filter(d=>d.status==='ok'&&d.summary?.major_catalyst?.name&&CLARITY_WATCH_KEYWORD.test(d.summary.major_catalyst.name))
+    .sort((a,b)=>(b.publishedTs||0)-(a.publishedTs||0))[0];
+  const newsHits=(window.__lastAllHeadlinePool||[]).filter(t=>CLARITY_WATCH_KEYWORD.test(t)).slice(0,5);
+
+  if(!foufiHit&&!newsHits.length){
+    host.innerHTML='<p class="text-xs text-mutet">No mentions found in the latest Foufi digest or this cycle\'s news headlines.</p>';
+    setHealthDot('dotClarityWatch','live','Checked OK — no current mentions');
+    return;
+  }
+  let html='';
+  if(foufiHit){
+    const dateStr=foufiHit.publishedTs?new Date(foufiHit.publishedTs).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'}):'';
+    html+=`<div class="mb-2 pb-2 border-b border-line/50">
+      <p class="text-[10px] uppercase tracking-wide text-mutet mb-1">Foufi (${dateStr})</p>
+      <p class="text-xs"><span class="font-semibold">${foufiHit.summary.major_catalyst.name}</span> — ${foufiHit.summary.major_catalyst.status||'status not given'}</p>
+    </div>`;
+  }
+  if(newsHits.length){
+    html+=`<p class="text-[10px] uppercase tracking-wide text-mutet mb-1">News headlines this cycle</p>
+      <div class="text-xs space-y-1">${newsHits.map(t=>`<p>• ${t}</p>`).join('')}</div>`;
+  }
+  host.innerHTML=html;
+  setHealthDot('dotClarityWatch','live',`Checked OK — ${(foufiHit?1:0)+newsHits.length} mention(s) found`);
 }
 function foufiVideoTypeLabel(digest){
   if(digest.specialEdition==='weekly_close')return'Weekly close';
