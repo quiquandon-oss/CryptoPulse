@@ -1882,7 +1882,9 @@ function sparkSeries(a){const h=PRICE_HISTORY[a];if(!h)return {labels:[],data:[]
 
 /* ---- charts ---- */
 let perfC,allocC;const sparks={};
-function lineChart(cv,old,series,color,axes){const ctx=cv.getContext('2d');const g=ctx.createLinearGradient(0,0,0,300);
+function lineChart(cv,old,series,color,axes,fmtFull,fmtShort){
+  fmtFull=fmtFull||fmtDate;fmtShort=fmtShort||fmtDateShort;
+  const ctx=cv.getContext('2d');const g=ctx.createLinearGradient(0,0,0,300);
   g.addColorStop(0,color+'55');g.addColorStop(1,color+'00');
   const cfg={type:'line',data:{labels:series.map(p=>p.x),datasets:[{data:series.map(p=>p.y),borderColor:color,backgroundColor:g,
     borderWidth:2,fill:true,tension:.32,pointRadius:0,pointHoverRadius:4,pointHoverBackgroundColor:color}]},
@@ -1897,7 +1899,7 @@ function lineChart(cv,old,series,color,axes){const ctx=cv.getContext('2d');const
           const chgAbs=rangeStart!=null?val-rangeStart:0;
           const chgPct=rangeStart?(chgAbs/rangeStart*100):0;
           $('#totalMain').textContent=money(val);
-          $('#totalAlt').textContent=fmtDate(series[idx].x);
+          $('#totalAlt').textContent=fmtFull(series[idx].x);
           const pill=$('#totalPill');
           pill.className=`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold tnum ${chgAbs>=0?'bg-up/15 text-up':'bg-down/15 text-down'}`;
           pill.textContent=`${chgAbs>=0?'▲':'▼'} ${money(Math.abs(chgAbs))} (${pctS(Math.abs(chgPct))}) vs start`;
@@ -1906,8 +1908,8 @@ function lineChart(cv,old,series,color,axes){const ctx=cv.getContext('2d');const
         }
       },
       plugins:{legend:{display:false},crosshair:{enabled:true},tooltip:{displayColors:false,backgroundColor:'#151A23',borderColor:'#1F2632',borderWidth:1,padding:9,
-        callbacks:{title:i=>fmtDate(i[0].label),label:c=>' '+money(c.raw)}}},
-      scales:{x:{display:axes,grid:{display:false},ticks:{color:'#7A8499',maxTicksLimit:13,maxRotation:45,minRotation:0,font:{size:9},callback:function(v){return fmtDateShort(this.getLabelForValue(v));}}},
+        callbacks:{title:i=>fmtFull(i[0].label),label:c=>' '+money(c.raw)}}},
+      scales:{x:{display:axes,grid:{display:false},ticks:{color:'#7A8499',maxTicksLimit:13,maxRotation:45,minRotation:0,font:{size:9},callback:function(v){return fmtShort(this.getLabelForValue(v));}}},
         y:{display:axes,grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#7A8499',font:{size:10},callback:v=>symC()+Math.round(v).toLocaleString()}}}}};
   if(old){old.data=cfg.data;old.options=cfg.options;old.update();return old;}return new Chart(cv,cfg);}
 
@@ -1930,23 +1932,62 @@ function miniSpark(cv,a){const sd=sparkSeries(a);const data=sd.data;if(!data.len
 function render(){renderHeader();renderChips();renderRange();renderPerf();renderAlloc();renderCards();renderTxDbCount();renderBottomSignal();renderDashboardSummary();populateDryAssetSelect();wireDryPowder();renderDryPowder();if(state.view==='dca')renderDcaDonuts();if(state.view==='dca')renderDcaAvgTable();if(state.view==='scenario')renderScenario();if(state.view==='capital')renderCapital();
   $('#fxVal').textContent=(state.fx||FX0).toFixed(4);$('#interestVal').textContent=moneyIn(interestEUR(),'EUR');}
 
+function computePortfolioValueUsdNow(){
+  // Exact same formula seriesUSD('ALL') already uses for its own "today"
+  // point (qtyOf × pxUsd summed, plus interestEUR converted via fx) — kept
+  // identical on purpose so the 24H chart's numbers are consistent with
+  // where the daily/weekly/monthly views' own live point sits, not a
+  // second, subtly-different calculation of "current portfolio value".
+  let v=0;
+  syms().forEach(a=>{v+=qtyOf(a)*pxUsd(a);});
+  v+=interestEUR()*(state.fx||FX0);
+  return v;
+}
 function renderHeader(){const t=totals();const up=t.pnl>=0;
   $('#totalMain').textContent=money(t.val);
   $('#totalAlt').textContent=state.ccy==='USD'?moneyIn(t.val/(state.fx||FX0),'EUR'):moneyIn(t.val*(state.fx||FX0),'USD');
   const pill=$('#totalPill');pill.className=`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold tnum ${up?'bg-up/15 text-up':'bg-down/15 text-down'}`;
-  pill.textContent=`${up?'▲':'▼'} ${money(Math.abs(t.pnl))} (${pctS(t.pp)})`;}
+  pill.textContent=`${up?'▲':'▼'} ${money(Math.abs(t.pnl))} (${pctS(t.pp)})`;
+  // Fire-and-forget intraday snapshot, enabling the 24H chart — fully
+  // separate from and cannot affect anything the daily views compute.
+  const valueUsd=computePortfolioValueUsdNow();
+  const fx=state.fx||FX0;
+  fetch(`${PULSE_WORKER_URL}/portfolio-log`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value_usd:valueUsd,value_eur:valueUsd/fx,fx})}).catch(()=>{});
+}
 
 function renderChips(){const list=['ALL',...syms().filter(a=>qtyOf(a)>1e-12)];const host=$('#coinChips');host.innerHTML='';
   list.forEach(o=>{const on=state.coin===o;const b=document.createElement('button');
     b.className=`text-xs font-semibold px-2.5 py-1 rounded-lg border transition ${on?'bg-neon text-ink border-neon':'bg-panel2 text-mutet border-line hover:text-white'}`;
     b.textContent=o==='ALL'?'All':o;b.onclick=()=>{state.coin=o;renderChips();renderPerf();};host.appendChild(b);});}
 
-function renderRange(){const host=$('#rangeTabs');host.innerHTML='';[['ALL','All'],['1W','1W'],['1M','1M'],['3M','3M'],['YTD','YTD']].forEach(([k,l])=>{
+function renderRange(){const host=$('#rangeTabs');host.innerHTML='';[['24H','24H'],['ALL','All'],['1W','1W'],['1M','1M'],['3M','3M'],['YTD','YTD']].forEach(([k,l])=>{
   const on=state.range===k;const b=document.createElement('button');
   b.className=`px-2.5 py-1 rounded-md ${on?'bg-panel2 text-white border border-line':'text-mutet hover:text-white'}`;
   b.textContent=l;b.onclick=()=>{state.range=k;renderRange();renderPerf();};host.appendChild(b);});}
 
-function renderPerf(){const coin=state.coin,color=coin==='ALL'?'#3BF38B':(META[coin]?.c||'#3BF38B');
+const fmtTime=iso=>new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+async function renderPerf(){const coin=state.coin,color=coin==='ALL'?'#3BF38B':(META[coin]?.c||'#3BF38B');
+  if(state.range==='24H'){
+    // Genuinely separate data path from every other range — reads the new
+    // portfolio_snapshots table (via /portfolio-history), not seriesCcy's
+    // daily client-side computation. If this coin filter isn't 'ALL', we
+    // don't have a per-coin intraday breakdown (the new table only tracks
+    // total portfolio value) — fall back to ALL rather than show something
+    // misleading, and say so in the subtitle.
+    $('#perfSub').textContent=coin==='ALL'?'· Last 24 hours':'· Last 24 hours (total portfolio — per-coin 24H not tracked yet)';
+    try{
+      const res=await fetch(`${PULSE_WORKER_URL}/portfolio-history?hours=24`,{cache:'no-store'});
+      const json=await res.json();
+      const points=(json.points||[]).map(p=>({x:new Date(p.ts).toISOString(),y:state.ccy==='USD'?p.value_usd:(p.value_eur??(p.value_usd/(state.fx||FX0)))}));
+      if(points.length<2){
+        $('#perfSub').textContent='· Not enough intraday history yet — check back after using the app a bit more today';
+      }
+      perfC=lineChart($('#perfChart'),perfC,points,color,true,fmtTime,fmtTime);
+    }catch(err){
+      $('#perfSub').textContent='· Could not load 24H history — '+(err&&err.message?err.message:String(err));
+    }
+    return;
+  }
   const clipped=clipRange(seriesCcy(coin));
   // FIX: this used to be a hardcoded literal '11/04/2026' regardless of which
   // range was selected — 1W/1M/3M/YTD all incorrectly showed the same date as
