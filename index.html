@@ -1204,6 +1204,48 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <div class="grid grid-cols-3 gap-2 mt-3" id="nineMagGrid"></div>
       </div>
 
+      <!-- ═══ STRC (Strategy's "Stretch" perpetual preferred) — a par-
+           anchored ($100) health/stress proxy for whether Strategy's
+           BTC-buying capital machine is intact, NOT a simple price signal.
+           See strcHealthScore's own comment for the researched reasoning
+           behind the asymmetric scoring. Data via PulseWorker's
+           /strc-proxy (Yahoo Finance v8/chart, same unofficial-API
+           caveats as 9 Magnificent). ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h3 class="text-sm font-semibold flex items-center gap-2">STRC (Strategy Preferred)<span id="dotStrc" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:2px;vertical-align:middle;"></span> <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1 font-normal" onclick="toggleNote(this,'strcNote')">ⓘ Info</button></h3>
+            <p class="text-xs text-mutet mt-0.5">Par-anchored ($100) health proxy for Strategy's BTC capital-raising machine</p>
+            <p class="hidden text-xs text-mutet max-w-md mt-1" id="strcNote">STRC is Strategy's (MSTR) perpetual preferred stock, designed to trade in a $99-$100 range. Real deviations below that have historically correlated with thin dividend-reserve coverage and, in the worst case (June 2026), forced Strategy to sell real BTC (~5,226 BTC, ~$321M) specifically to fund dividends — so this is read as a capital-machine health/stress proxy, not a simple "higher=bullish" signal. Trading AT par (50 on the score below) is treated as neutral, not bullish — only deviation from it votes either way. Feeds the Sentiment composite (weight 5, confidence 0.35 — deliberately low, brand new with zero backtested correlation yet) and a Regime Scorecard short-term factor.</p>
+          </div>
+          <span class="text-xs text-mutet" id="strcMeta">—</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2 mb-3">
+          <div class="bg-panel2 rounded-xl p-3 text-center">
+            <p class="text-[10px] text-mutet mb-1">Price</p>
+            <p id="strcPrice" class="grot font-bold tnum text-lg">—</p>
+            <p id="strcChg" class="text-xs tnum mt-0.5">—</p>
+          </div>
+          <div class="bg-panel2 rounded-xl p-3 text-center">
+            <p class="text-[10px] text-mutet mb-1">vs. $100 par</p>
+            <p id="strcParDist" class="grot font-bold tnum text-lg">—</p>
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <p class="text-xs text-mutet">Health score (feeds Sentiment composite &amp; Regime Scorecard, short-term)</p>
+            <span id="strcScoreVal" class="tnum font-bold text-sm">—</span>
+          </div>
+          <svg viewBox="0 0 200 20" width="100%" height="20" style="width:100%;height:20px">
+            <defs><linearGradient id="strcGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#F5606C"/><stop offset="50%" stop-color="#94A3B8"/><stop offset="100%" stop-color="#3BF38B"/>
+            </linearGradient></defs>
+            <rect x="4" y="6" width="192" height="8" rx="4" fill="url(#strcGrad)"/>
+            <polygon id="strcScoreMarker" points="-5,0 5,0 0,8" fill="#E5E7EB" transform="translate(100,0)" style="transition:transform .5s ease"/>
+          </svg>
+        </div>
+      </div>
+
       <!-- Fullscreen modal for the 9 Magnificent chart — separate from the
            shared Market Cap Composition modal since this is a differently-
            shaped comparison chart (2-line rebased %, not stacked mcap
@@ -4167,6 +4209,69 @@ async function srcNineMagnificent(){
   if(!result)throw new Error('No usable 9 Magnificent data this cycle');
   return{score:to0_100(satur(result.avgPct,2.5))};
 }
+// ---- STRC (Strategy's "Stretch" perpetual preferred) — a par-anchored
+// ($100) health/stress proxy for whether Strategy's BTC-buying capital
+// machine is intact, NOT a simple "higher=bullish" price signal. Built
+// after actually researching the mechanics (Strategy's own June 29 2026
+// Digital Credit Capital Framework announcement, SEC 8-Ks, CoinDesk
+// coverage) rather than assuming: STRC's stated target range is $99-$100;
+// real deviations below that have historically correlated with thin
+// dividend-reserve coverage and, in the worst case (June 2026), forced
+// real BTC sales (~5,226 BTC, ~$321M) specifically to fund dividends. par
+// itself is treated as NEUTRAL (50, matching this app's convention for
+// every other 0-100 source) rather than as a bullish extreme — "the
+// machine is running as designed" isn't itself a directional signal, only
+// deviation from it is. ----
+let strcLastQuote=null;
+async function fetchStrc(){
+  const res=await fetch(`${PULSE_WORKER_URL}/strc-proxy`,{cache:'no-store'});
+  if(!res.ok)throw new Error('STRC proxy '+res.status);
+  const json=await res.json();
+  if(json.error)throw new Error(json.error);
+  return json;
+}
+// Asymmetric around par by design, not an oversight: the below-par slope
+// is calibrated so the worst real-world level actually seen (~$71, June
+// 2026 crisis low) lands near 0 — real, evidenced stress maps to the
+// bottom of the scale. The above-par slope is deliberately gentler and
+// caps at 100 around a ~10% premium: there's no real precedent for STRC
+// sustaining a large premium (Strategy actively manages the dividend rate
+// to prevent it), so this doesn't pretend confidence about behavior in an
+// unprecedented regime.
+function strcHealthScore(price){
+  if(price==null)return null;
+  const distPct=(price-100)/100*100; // % distance from $100 par, negative = below
+  const score=distPct>=0?(50+distPct*5):(50+distPct*1.7);
+  return Math.max(0,Math.min(100,Math.round(score)));
+}
+async function srcStrc(){
+  if(!strcLastQuote)throw new Error('STRC data not populated yet this session');
+  const score=strcHealthScore(strcLastQuote.price);
+  if(score==null)throw new Error('No usable STRC price this cycle');
+  return{score};
+}
+function renderStrc(data){
+  const price=data.price;
+  const priceEl=$('#strcPrice');if(priceEl)priceEl.textContent=price!=null?'$'+price.toFixed(2):'—';
+  const pctChg=data.pct;
+  const chgEl=$('#strcChg');
+  if(chgEl){
+    chgEl.textContent=pctChg!=null?(pctChg>=0?'+':'')+pctChg.toFixed(2)+'% today':'—';
+    chgEl.className='text-xs tnum mt-0.5 '+(pctChg>0?'text-up':pctChg<0?'text-down':'text-mutet');
+  }
+  const distDollar=price!=null?(price-100):null;
+  const distEl=$('#strcParDist');
+  if(distEl){
+    distEl.textContent=distDollar!=null?(distDollar>=0?'+$':'-$')+Math.abs(distDollar).toFixed(2):'—';
+    distEl.className='grot font-bold tnum text-lg '+(distDollar>0?'text-up':distDollar<0?'text-down':'');
+  }
+  const score=strcHealthScore(price);
+  const scoreEl=$('#strcScoreVal');if(scoreEl)scoreEl.textContent=score!=null?score:'—';
+  const marker=$('#strcScoreMarker');
+  if(marker&&score!=null)marker.setAttribute('transform',`translate(${(4+score/100*192).toFixed(1)},0)`);
+  const metaEl=$('#strcMeta');if(metaEl)metaEl.textContent='Live';
+  setHealthDot('dotStrc','live','Fetched OK this visit');
+}
 async function srcNewsRss(source){
   const res=await fetch(`${PULSE_WORKER_URL}/news-proxy?source=${source}`);
   if(!res.ok)throw new Error('Worker news-proxy '+res.status);
@@ -4266,6 +4371,13 @@ const COMPOSITE_SOURCES_DEFAULTS=[
   {id:'etfflows',label:'BTC ETF Flows (SoSoValue)',weight:10,confidence:0.8},
   {id:'hypefunding',label:'HYPE Perp Funding (Hyperliquid)',weight:4,confidence:0.4},
   {id:'gold',label:'Gold (Hyperliquid xyz:GOLD)',weight:5,confidence:0.5},
+  // Brand new, zero backtested correlation evidence yet — even more
+  // uncertain than 9Mag/Foufi were at introduction (no established
+  // precedent as a market-sentiment proxy the way basket equity moves
+  // have). Low weight/confidence deliberately, same discipline as every
+  // other new source here — revisit via the Correlation Explorer once
+  // real history accumulates.
+  {id:'strc',label:'STRC (Strategy preferred, par-health proxy)',weight:5,confidence:0.35},
 ];
 // Feeds the Sentiment composite with Foufi's BTC score only (not
 // ETH/SOL/LINK/HYPE - those stay tile/recap-table-only). BTC is the one
@@ -4358,6 +4470,7 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
     ['nasdaq',()=>srcFredSeries('nasdaq')],
     ['sp500',()=>srcFredSeries('sp500')],
     ['ninemag',srcNineMagnificent],
+    ['strc',srcStrc],
     ['foufi',srcFoufi],
     ['etfflows',()=>srcEtfFlowsFromExisting(etfResultsFromPanel)],
     ['cryptonews',()=>srcNewsRss('crypto')],
@@ -5205,6 +5318,17 @@ async function _initSentimentTabImpl(){
     console.error('Error fetching 9 Magnificent data:',err);
     $('#nineMagGrid').innerHTML='<p class="text-xs text-mutet" style="grid-column:span 3">Error: '+(err && err.message ? err.message : String(err))+'</p>';
     setHealthDot('dotNineMag','error',err&&err.message?err.message:String(err));
+  }
+  // ---- STRC — must populate strcLastQuote BEFORE the composite score
+  // computation runs later in this sequence, same ordering requirement
+  // 9 Magnificent already follows just above. ----
+  try{
+    strcLastQuote=await fetchStrc();
+    renderStrc(strcLastQuote);
+  }catch(err){
+    console.error('Error fetching STRC data:',err);
+    const priceEl=$('#strcPrice');if(priceEl)priceEl.textContent='Error';
+    setHealthDot('dotStrc','error',err&&err.message?err.message:String(err));
   }
   // ---- Technical Analysis (BTC): live levels + Technical score. Moved ahead of
   // the composite score computation below so technicalScore can be saved into
@@ -7647,6 +7771,14 @@ function renderCyclesTab(){
       latestSources.ninemag!=null
         ?{label:'9 Magnificent (tech/AI basket)',display:latestSources.ninemag,tag:tagOf(latestSources.ninemag,55,45),mag:magOf01(latestSources.ninemag),available:true}
         :{label:'9 Magnificent (tech/AI basket)',display:'—',tag:'neutral',mag:0,available:false,reason:'Not included in the latest Sentiment reading (source likely failed that cycle)'},
+      // STRC: same rationale as the other standalone factors above — a
+      // capital-raising-machine stress signal (thin dividend coverage,
+      // historically preceding forced BTC sales) shouldn't be invisible
+      // inside a blended Combined score. par (50) is neutral by design,
+      // not a bullish extreme — only deviation from it votes either way.
+      latestSources.strc!=null
+        ?{label:'STRC (Strategy preferred, par-health)',display:latestSources.strc,tag:tagOf(latestSources.strc,55,45),mag:magOf01(latestSources.strc),available:true}
+        :{label:'STRC (Strategy preferred, par-health)',display:'—',tag:'neutral',mag:0,available:false,reason:'Not included in the latest Sentiment reading (source likely failed that cycle)'},
       // Foufi: reuses the EXACT SAME number the Sentiment composite's
       // 'foufi' source computed (BTC score, -2..+2 mapped to 0-100) rather
       // than a second formula from window.__lastFoufiLatest directly - one
