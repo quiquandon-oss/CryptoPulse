@@ -391,9 +391,9 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <div class="mt-5 pt-4 border-t border-line">
             <div class="flex items-center gap-2 mb-3 overflow-x-auto">
               <div id="rangeTabs" class="flex gap-1 text-xs shrink-0"></div>
+              <button class="shrink-0 text-xs text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="openPerfFullscreen()" title="Fullscreen">⛶</button>
               <div class="w-px h-4 bg-line shrink-0"></div>
               <div id="coinChips" class="flex gap-1.5 shrink-0"></div>
-              <button class="ml-auto shrink-0 text-xs text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="openPerfFullscreen()" title="Fullscreen">⛶</button>
             </div>
             <div class="h-[240px] sm:h-[300px]"><canvas id="perfChart"></canvas></div>
           </div>
@@ -412,10 +412,10 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             <button class="px-2.5 py-1.5 rounded-md text-xs bg-panel2 hover:text-white border border-line" onclick="closePerfFullscreen()">✕ Close</button>
           </div>
           <p class="text-xs text-mutet mb-2" id="perfFullscreenSub">—</p>
-          <div class="flex items-center gap-2 mb-3 overflow-x-auto">
-            <div id="rangeTabsFull" class="flex gap-1 text-xs shrink-0"></div>
+          <div class="flex items-center gap-2 mb-3 flex-wrap">
+            <div id="rangeTabsFull" class="flex gap-1 text-xs flex-wrap"></div>
             <div class="w-px h-4 bg-line shrink-0"></div>
-            <div id="coinChipsFull" class="flex gap-1.5 shrink-0"></div>
+            <div id="coinChipsFull" class="flex gap-1.5 flex-wrap"></div>
           </div>
           <div class="flex-1"><canvas id="perfFullscreenChart"></canvas></div>
         </div>
@@ -1960,10 +1960,14 @@ function computePortfolioValueUsdNow(){
   // identical on purpose so the 24H chart's numbers are consistent with
   // where the daily/weekly/monthly views' own live point sits, not a
   // second, subtly-different calculation of "current portfolio value".
-  let v=0;
-  syms().forEach(a=>{v+=qtyOf(a)*pxUsd(a);});
+  // Also collects each held asset's own live USD price alongside the
+  // total — needed so a specific coin chip can show ITS 24H price
+  // trajectory, not just the portfolio total (matching how every other
+  // range already behaves for a single-coin selection).
+  let v=0;const prices={};
+  syms().forEach(a=>{const p=pxUsd(a);prices[a]=p;v+=qtyOf(a)*p;});
   v+=interestEUR()*(state.fx||FX0);
-  return v;
+  return{value:v,prices};
 }
 // FIX: real bug, confirmed via D1 — the app renders multiple times during
 // page load (state.txs loads synchronously, but getPrices() is async), so
@@ -1990,13 +1994,13 @@ function renderHeader(){const t=totals();const up=t.pnl>=0;
   // Fire-and-forget intraday snapshot, enabling the 24H chart — fully
   // separate from and cannot affect anything the daily views compute.
   if(allHeldPricesLive()){
-    const valueUsd=computePortfolioValueUsdNow();
+    const{value:valueUsd,prices}=computePortfolioValueUsdNow();
     const now=Date.now();
     const impliedPct=lastLoggedPortfolioUsd?Math.abs(valueUsd-lastLoggedPortfolioUsd)/lastLoggedPortfolioUsd*100:0;
     const tooFastAndBig=lastLoggedPortfolioUsd&&(now-lastLoggedPortfolioTs)<600000&&impliedPct>15;
     if(!tooFastAndBig){
       const fx=state.fx||FX0;
-      fetch(`${PULSE_WORKER_URL}/portfolio-log`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value_usd:valueUsd,value_eur:valueUsd/fx,fx})}).catch(()=>{});
+      fetch(`${PULSE_WORKER_URL}/portfolio-log`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value_usd:valueUsd,value_eur:valueUsd/fx,fx,prices})}).catch(()=>{});
       lastLoggedPortfolioUsd=valueUsd;lastLoggedPortfolioTs=now;
     }
   }
@@ -2024,16 +2028,33 @@ async function getPerfSeries(coin){
   if(state.range==='24H'){
     // Genuinely separate data path from every other range — reads the new
     // portfolio_snapshots table (via /portfolio-history), not seriesCcy's
-    // daily client-side computation. If this coin filter isn't 'ALL', we
-    // don't have a per-coin intraday breakdown (the new table only tracks
-    // total portfolio value) — fall back to ALL rather than show something
-    // misleading, and say so in the subtitle.
+    // daily client-side computation.
     const res=await fetch(`${PULSE_WORKER_URL}/portfolio-history?hours=24`,{cache:'no-store'});
     const json=await res.json();
-    const points=(json.points||[]).map(p=>({x:new Date(p.ts).toISOString(),y:state.ccy==='USD'?p.value_usd:(p.value_eur??(p.value_usd/(state.fx||FX0)))}));
+    const rawPoints=json.points||[];
+    let points;
+    if(coin==='ALL'){
+      points=rawPoints.map(p=>({x:new Date(p.ts).toISOString(),y:state.ccy==='USD'?p.value_usd:(p.value_eur??(p.value_usd/(state.fx||FX0)))}));
+    }else{
+      // FIX: this used to always show total portfolio value regardless of
+      // which coin chip was selected (prices_json didn't exist yet) — now
+      // extracts THIS coin's own price from each snapshot, matching the
+      // same "single coin shows price, not value" convention seriesUSD
+      // already uses for every other range. Uses the CURRENT fx rate for
+      // EUR conversion (not each snapshot's own logged fx), same as
+      // seriesCcy does for every other range — not a new methodology.
+      // Snapshots logged before prices_json existed are skipped rather
+      // than shown as a misleading zero/gap.
+      points=rawPoints.map(p=>{
+        let priceUsd=null;
+        if(p.prices_json){try{priceUsd=JSON.parse(p.prices_json)[coin]??null;}catch(e){}}
+        if(priceUsd==null)return null;
+        return{x:new Date(p.ts).toISOString(),y:state.ccy==='USD'?priceUsd:priceUsd/(state.fx||FX0)};
+      }).filter(Boolean);
+    }
     const sub=points.length<2
       ?'· Not enough intraday history yet — check back after using the app a bit more today'
-      :(coin==='ALL'?'· Last 24 hours':'· Last 24 hours (total portfolio — per-coin 24H not tracked yet)');
+      :(coin==='ALL'?'· Last 24 hours':`· ${coin} · Last 24 hours`);
     return{points,isTime:true,sub};
   }
   const clipped=clipRange(seriesCcy(coin));
