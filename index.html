@@ -566,11 +566,14 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             </button>
           </div>
         </div>
-        <p id="scenMacroContext" class="text-[10px] text-mutet mb-2"></p>
-        <p id="scenSigmaNote" class="text-[10px] text-mutet mb-2"></p>
         <div class="flex items-center justify-between mb-1.5">
-          <p class="text-[10px] text-mutet">🤏 pinch / scroll / drag to zoom · compare vs break-even</p>
+          <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'scenTextNotes')">ⓘ Details</button>
           <button id="scenZoomReset" class="hidden text-[10px] font-semibold text-mutet bg-panel2 hover:bg-line border border-line rounded-lg px-2 py-1 transition">↺ Reset zoom</button>
+        </div>
+        <div id="scenTextNotes" class="hidden mb-1.5">
+          <p id="scenMacroContext" class="text-[10px] text-mutet mb-1"></p>
+          <p id="scenSigmaNote" class="text-[10px] text-mutet mb-1"></p>
+          <p class="text-[10px] text-mutet">🤏 pinch / scroll / drag to zoom · compare vs break-even</p>
         </div>
         <div class="h-[260px] sm:h-[300px]"><canvas id="scenChart"></canvas></div>
       </div>
