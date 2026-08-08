@@ -393,9 +393,31 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
               <div id="rangeTabs" class="flex gap-1 text-xs shrink-0"></div>
               <div class="w-px h-4 bg-line shrink-0"></div>
               <div id="coinChips" class="flex gap-1.5 shrink-0"></div>
+              <button class="ml-auto shrink-0 text-xs text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="openPerfFullscreen()" title="Fullscreen">⛶</button>
             </div>
             <div class="h-[240px] sm:h-[300px]"><canvas id="perfChart"></canvas></div>
           </div>
+        </div>
+        <!-- Fullscreen modal for the Total Portfolio Value chart — same
+             controls (range tabs, coin chips) as the main card, wired to
+             the SAME state via renderRange()/renderChips()'s optional host
+             param, so both copies always agree and either one can drive
+             the other. Same lineChart() function, same crosshair/touchline,
+             same zoom-capable tooltip/hover behavior as the inline chart —
+             feature parity by construction, not by separately maintaining
+             two chart configs. -->
+        <div id="perfFullscreen" class="hidden fixed inset-0 z-50 bg-panel p-4 flex flex-col">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-semibold">Total Portfolio Value</h3>
+            <button class="px-2.5 py-1.5 rounded-md text-xs bg-panel2 hover:text-white border border-line" onclick="closePerfFullscreen()">✕ Close</button>
+          </div>
+          <p class="text-xs text-mutet mb-2" id="perfFullscreenSub">—</p>
+          <div class="flex items-center gap-2 mb-3 overflow-x-auto">
+            <div id="rangeTabsFull" class="flex gap-1 text-xs shrink-0"></div>
+            <div class="w-px h-4 bg-line shrink-0"></div>
+            <div id="coinChipsFull" class="flex gap-1.5 shrink-0"></div>
+          </div>
+          <div class="flex-1"><canvas id="perfFullscreenChart"></canvas></div>
         </div>
         <!-- allocation -->
         <div class="rounded-2xl border border-line bg-panel p-5">
@@ -1881,7 +1903,7 @@ function sparkSeries(a){const h=PRICE_HISTORY[a];if(!h)return {labels:[],data:[]
   return {labels:ks,data:ks.map(k=>h[k]/(state.ccy==='USD'?1:(state.fx||FX0)))};}
 
 /* ---- charts ---- */
-let perfC,allocC;const sparks={};
+let perfC,perfFullscreenC,allocC;const sparks={};
 function lineChart(cv,old,series,color,axes,fmtFull,fmtShort){
   fmtFull=fmtFull||fmtDate;fmtShort=fmtShort||fmtDateShort;
   const ctx=cv.getContext('2d');const g=ctx.createLinearGradient(0,0,0,300);
@@ -1929,7 +1951,7 @@ function miniSpark(cv,a){const sd=sparkSeries(a);const data=sd.data;if(!data.len
           callback:v=>symC()+Number(v).toLocaleString('en-US',{maximumFractionDigits:pdc(v)})}}}}});}
 
 /* ---- renders ---- */
-function render(){renderHeader();renderChips();renderRange();renderPerf();renderAlloc();renderCards();renderTxDbCount();renderBottomSignal();renderDashboardSummary();populateDryAssetSelect();wireDryPowder();renderDryPowder();if(state.view==='dca')renderDcaDonuts();if(state.view==='dca')renderDcaAvgTable();if(state.view==='scenario')renderScenario();if(state.view==='capital')renderCapital();
+function render(){renderHeader();renderChips();renderRange();renderPerf();renderPerfFullscreen();renderAlloc();renderCards();renderTxDbCount();renderBottomSignal();renderDashboardSummary();populateDryAssetSelect();wireDryPowder();renderDryPowder();if(state.view==='dca')renderDcaDonuts();if(state.view==='dca')renderDcaAvgTable();if(state.view==='scenario')renderScenario();if(state.view==='capital')renderCapital();
   $('#fxVal').textContent=(state.fx||FX0).toFixed(4);$('#interestVal').textContent=moneyIn(interestEUR(),'EUR');}
 
 function computePortfolioValueUsdNow(){
@@ -1955,18 +1977,25 @@ function renderHeader(){const t=totals();const up=t.pnl>=0;
   fetch(`${PULSE_WORKER_URL}/portfolio-log`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value_usd:valueUsd,value_eur:valueUsd/fx,fx})}).catch(()=>{});
 }
 
-function renderChips(){const list=['ALL',...syms().filter(a=>qtyOf(a)>1e-12)];const host=$('#coinChips');host.innerHTML='';
+// Both accept an optional 2nd host ID (defaults to the main card's own
+// element) so the SAME state-driven controls can also render into the
+// fullscreen modal — one tap, from either copy, updates state and
+// re-renders both charts, so they can never drift out of sync.
+function renderChips(hostId){const list=['ALL',...syms().filter(a=>qtyOf(a)>1e-12)];const host=$('#'+(hostId||'coinChips'));if(!host)return;host.innerHTML='';
   list.forEach(o=>{const on=state.coin===o;const b=document.createElement('button');
     b.className=`text-xs font-semibold px-2.5 py-1 rounded-lg border transition ${on?'bg-neon text-ink border-neon':'bg-panel2 text-mutet border-line hover:text-white'}`;
-    b.textContent=o==='ALL'?'All':o;b.onclick=()=>{state.coin=o;renderChips();renderPerf();};host.appendChild(b);});}
+    b.textContent=o==='ALL'?'All':o;b.onclick=()=>{state.coin=o;renderChips();renderChips('coinChipsFull');renderPerf();renderPerfFullscreen();};host.appendChild(b);});}
 
-function renderRange(){const host=$('#rangeTabs');host.innerHTML='';[['24H','24H'],['ALL','All'],['1W','1W'],['1M','1M'],['3M','3M'],['YTD','YTD']].forEach(([k,l])=>{
+function renderRange(hostId){const host=$('#'+(hostId||'rangeTabs'));if(!host)return;host.innerHTML='';[['24H','24H'],['ALL','All'],['1W','1W'],['1M','1M'],['3M','3M'],['YTD','YTD']].forEach(([k,l])=>{
   const on=state.range===k;const b=document.createElement('button');
   b.className=`px-2.5 py-1 rounded-md ${on?'bg-panel2 text-white border border-line':'text-mutet hover:text-white'}`;
-  b.textContent=l;b.onclick=()=>{state.range=k;renderRange();renderPerf();};host.appendChild(b);});}
+  b.textContent=l;b.onclick=()=>{state.range=k;renderRange();renderRange('rangeTabsFull');renderPerf();renderPerfFullscreen();};host.appendChild(b);});}
 
 const fmtTime=iso=>new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
-async function renderPerf(){const coin=state.coin,color=coin==='ALL'?'#3BF38B':(META[coin]?.c||'#3BF38B');
+// Shared by renderPerf and renderPerfFullscreen so the 24H-vs-daily branch
+// and the intraday fetch only exist in ONE place — both charts read from
+// this, so they can never show different data for the same state.
+async function getPerfSeries(coin){
   if(state.range==='24H'){
     // Genuinely separate data path from every other range — reads the new
     // portfolio_snapshots table (via /portfolio-history), not seriesCcy's
@@ -1974,27 +2003,55 @@ async function renderPerf(){const coin=state.coin,color=coin==='ALL'?'#3BF38B':(
     // don't have a per-coin intraday breakdown (the new table only tracks
     // total portfolio value) — fall back to ALL rather than show something
     // misleading, and say so in the subtitle.
-    $('#perfSub').textContent=coin==='ALL'?'· Last 24 hours':'· Last 24 hours (total portfolio — per-coin 24H not tracked yet)';
-    try{
-      const res=await fetch(`${PULSE_WORKER_URL}/portfolio-history?hours=24`,{cache:'no-store'});
-      const json=await res.json();
-      const points=(json.points||[]).map(p=>({x:new Date(p.ts).toISOString(),y:state.ccy==='USD'?p.value_usd:(p.value_eur??(p.value_usd/(state.fx||FX0)))}));
-      if(points.length<2){
-        $('#perfSub').textContent='· Not enough intraday history yet — check back after using the app a bit more today';
-      }
-      perfC=lineChart($('#perfChart'),perfC,points,color,true,fmtTime,fmtTime);
-    }catch(err){
-      $('#perfSub').textContent='· Could not load 24H history — '+(err&&err.message?err.message:String(err));
-    }
-    return;
+    const res=await fetch(`${PULSE_WORKER_URL}/portfolio-history?hours=24`,{cache:'no-store'});
+    const json=await res.json();
+    const points=(json.points||[]).map(p=>({x:new Date(p.ts).toISOString(),y:state.ccy==='USD'?p.value_usd:(p.value_eur??(p.value_usd/(state.fx||FX0)))}));
+    const sub=points.length<2
+      ?'· Not enough intraday history yet — check back after using the app a bit more today'
+      :(coin==='ALL'?'· Last 24 hours':'· Last 24 hours (total portfolio — per-coin 24H not tracked yet)');
+    return{points,isTime:true,sub};
   }
   const clipped=clipRange(seriesCcy(coin));
   // FIX: this used to be a hardcoded literal '11/04/2026' regardless of which
   // range was selected — 1W/1M/3M/YTD all incorrectly showed the same date as
   // All. Now derived from the actual first point of the clipped series.
   const startDate=clipped[0]?fmtDate(clipped[0].x):'—';
-  $('#perfSub').textContent=`· ${coin==='ALL'?'All':coin} · since ${startDate}`;
-  perfC=lineChart($('#perfChart'),perfC,clipped,color,true);}
+  return{points:clipped,isTime:false,sub:`· ${coin==='ALL'?'All':coin} · since ${startDate}`};
+}
+async function renderPerf(){const coin=state.coin,color=coin==='ALL'?'#3BF38B':(META[coin]?.c||'#3BF38B');
+  try{
+    const{points,isTime,sub}=await getPerfSeries(coin);
+    $('#perfSub').textContent=sub;
+    perfC=lineChart($('#perfChart'),perfC,points,color,true,isTime?fmtTime:undefined,isTime?fmtTime:undefined);
+  }catch(err){
+    $('#perfSub').textContent='· Could not load — '+(err&&err.message?err.message:String(err));
+  }
+}
+// Only fetches/renders when the modal is actually open — no wasted work
+// (or a second /portfolio-history call every time state changes) while
+// fullscreen isn't in use.
+async function renderPerfFullscreen(){
+  const modal=$('#perfFullscreen');if(!modal||modal.classList.contains('hidden'))return;
+  const coin=state.coin,color=coin==='ALL'?'#3BF38B':(META[coin]?.c||'#3BF38B');
+  const subEl=$('#perfFullscreenSub');
+  try{
+    const{points,isTime,sub}=await getPerfSeries(coin);
+    if(subEl)subEl.textContent=sub;
+    perfFullscreenC=lineChart($('#perfFullscreenChart'),perfFullscreenC,points,color,true,isTime?fmtTime:undefined,isTime?fmtTime:undefined);
+  }catch(err){
+    if(subEl)subEl.textContent='· Could not load — '+(err&&err.message?err.message:String(err));
+  }
+}
+function openPerfFullscreen(){
+  const modal=$('#perfFullscreen');if(!modal)return;
+  modal.classList.remove('hidden');
+  renderRange('rangeTabsFull');renderChips('coinChipsFull');
+  renderPerfFullscreen();
+}
+function closePerfFullscreen(){
+  const modal=$('#perfFullscreen');if(modal)modal.classList.add('hidden');
+  if(perfFullscreenC){perfFullscreenC.destroy();perfFullscreenC=null;}
+}
 
 function renderAlloc(){const data=syms().filter(a=>qtyOf(a)>1e-12).map(a=>({a,v:statOf(a).val,c:META[a]?.c||'#888'})).sort((x,y)=>y.v-x.v);
   const total=data.reduce((s,d)=>s+d.v,0)||1;$('#allocCount').textContent=data.length;
