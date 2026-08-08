@@ -575,7 +575,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <p id="scenSigmaNote" class="text-[10px] text-mutet mb-1"></p>
           <p class="text-[10px] text-mutet">🤏 pinch / scroll / drag to zoom · compare vs break-even</p>
         </div>
-        <div class="h-[260px] sm:h-[300px]"><canvas id="scenChart"></canvas></div>
+        <div class="h-[340px] sm:h-[420px]"><canvas id="scenChart"></canvas></div>
       </div>
 
       <!-- Fullscreen scenario fan chart overlay: own Chart.js instance, same
@@ -6701,6 +6701,30 @@ function interpScenarioExtended(arr,Ts,T){
   }
   return interpScenario(arr,Ts,T);
 }
+// Scans forward from today (T=0) along a given scenario curve, anchored at
+// today's real portfolio value, for the first point where it crosses cost
+// basis. Weekly-resolution steps (fine enough for a UI date, cheap to
+// compute) with linear interpolation between the two bracketing samples for
+// a precise date rather than just "which week". Scans chronologically
+// rather than solving algebraically on purpose: Bear's own shape isn't
+// monotonic (1 -> 0.70 -> 0.40 -> 0.80 — declines then partially recovers),
+// so a naive root-find could return the wrong one of several crossings; a
+// forward scan always finds the FIRST one, which is the one that matters.
+function findBreakEvenCrossingDate(scenarioArr,curVal,costVal,tsFwd){
+  if(curVal>=costVal)return null; // already above — "when do I reach it" doesn't apply
+  const stepYears=7/365.25,maxT=10;
+  let prevT=0,prevVal=curVal;
+  for(let T=stepYears;T<=maxT;T+=stepYears){
+    const val=curVal*interpScenarioExtended(scenarioArr,tsFwd,T);
+    if((val-costVal)*(prevVal-costVal)<=0){
+      const frac=(costVal-prevVal)/((val-prevVal)||1e-9);
+      const Tcross=prevT+frac*(T-prevT);
+      return new Date(Date.now()+Tcross*365.25*86400000);
+    }
+    prevT=T;prevVal=val;
+  }
+  return null; // doesn't cross within a 10-year horizon under this scenario
+}
 // ---- Scenario tracking vs. reality: scores Bear/Base/Bull against what
 // actually happened, using the app's OWN first recorded transaction date as
 // the baseline. Real backfill, not a wait-for-a-future-date placeholder —
@@ -6887,13 +6911,6 @@ function renderScenario(){
   const cur=histRaw.length?histRaw[histRaw.length-1].y:t.val;
   const need=(cost/cur-1)*100;
   $('#scBeqVal').textContent=money(cost);
-  if(need>0){
-    $('#scBeqNeed').textContent='+'+need.toFixed(0)+'% needed to break even';
-    $('#scBeqNeed').className='text-[10px] mt-0.5 text-down';
-  }else{
-    $('#scBeqNeed').textContent='✓ Above break-even';
-    $('#scBeqNeed').className='text-[10px] mt-0.5 text-up';
-  }
   // ---- Fan chart (Base ±1σ), same builder/methodology as the Cycles tab,
   // plus a break-even reference line — replaces the old discrete 3-line
   // Bear/Base/Bull chart with a probabilistic band around your own Base case.
@@ -6955,6 +6972,23 @@ function renderScenario(){
   const Tsince=Math.max(0,(new Date()-new Date(APP_TRACKING_START+'T00:00:00'))/(365.25*86400000));
   const bearLevel=baselineVal!=null?baselineVal*interpScenario(SCEN.bear,TsFwd,Tsince):null;
   const bullLevel=baselineVal!=null?baselineVal*interpScenario(SCEN.bull,TsFwd,Tsince):null;
+  const baseLevel=baselineVal!=null?baselineVal*interpScenario(SCEN.base,TsFwd,Tsince):null;
+  // Which scenario is "today's better scenario" — same comparison
+  // renderScenarioTracking() already does (nearest of Bear/Base/Bull's own
+  // baseline-anchored prediction to what actually happened), reused here
+  // rather than a second, differently-defined notion of "closest".
+  let closestScenArr=SCEN.base,closestDist=baseLevel!=null?Math.abs(cur-baseLevel):Infinity;
+  if(bearLevel!=null&&Math.abs(cur-bearLevel)<closestDist){closestScenArr=SCEN.bear;closestDist=Math.abs(cur-bearLevel);}
+  if(bullLevel!=null&&Math.abs(cur-bullLevel)<closestDist){closestScenArr=SCEN.bull;closestDist=Math.abs(cur-bullLevel);}
+  const beDate=need>0?findBreakEvenCrossingDate(closestScenArr,cur,cost,TsFwd):null;
+  const beDateStr=beDate?` — around ${fmtDate(beDate.toISOString().slice(0,10))}`:'';
+  if(need>0){
+    $('#scBeqNeed').textContent='+'+need.toFixed(0)+'% needed to break even'+beDateStr;
+    $('#scBeqNeed').className='text-[10px] mt-0.5 text-down';
+  }else{
+    $('#scBeqNeed').textContent='✓ Above break-even';
+    $('#scBeqNeed').className='text-[10px] mt-0.5 text-up';
+  }
   const cv=$('#scenChart');
   scenFanLastBearLevel=bearLevel;scenFanLastBullLevel=bullLevel;
   const cfg=buildFanChartConfig(scenFanState,{breakEven:cost,baseline:baselineVal,bearLevel,bullLevel,zoomEnabled:true,zoomMode:'xy',onPanComplete:scenZoomStateChanged,onZoomComplete:scenZoomStateChanged,historySeries,historyStartLabel,viewMax:1});
@@ -8436,6 +8470,18 @@ function buildFanChartConfig(state,opts){
   const zoomOn=opts.zoomEnabled||opts.isFullscreen;
   return{type:'line',data:{datasets},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:16,right:12}},
     animation:{duration:400,easing:'easeOutQuart'},
+    // Explicit interaction mode — same as lineChart()'s already-proven
+    // config elsewhere in this app. Without this, Chart.js's own default
+    // (mode:'nearest', intersect:true) requires touching very close to one
+    // of the handful of actual data points (Ts has only 4-5 entries; most
+    // of the visible line is an interpolated tension curve between them),
+    // which explains two things at once: touch not reliably showing a
+    // value anywhere along the line, and the crosshair appearing to jump/
+    // displace during zoom as active-element detection flickered in and
+    // out under the stricter default. index+intersect:false always
+    // resolves to the nearest x-position regardless of exact vertical
+    // distance, matching how touch already works on every other chart here.
+    interaction:{mode:'index',intersect:false},
     plugins:{
       legend:{display:true,position:'bottom',labels:{color:'#7A8499',boxWidth:10,boxHeight:10,font:{size:fs.legend},padding:12}},
       crosshair:{enabled:true,datasetIndex:1},
