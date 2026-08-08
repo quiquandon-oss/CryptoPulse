@@ -8531,7 +8531,20 @@ function buildFanChartConfig(state,opts){
     plugins:{
       legend:{display:true,position:'bottom',labels:{color:'#7A8499',boxWidth:10,boxHeight:10,font:{size:fs.legend},padding:12}},
       crosshair:{enabled:true,datasetIndex:1},
-      tooltip:{filter:item=>!['Break-even','Baseline (start value)','Bear','Bull'].includes(item.dataset.label),callbacks:{label:c=>c.dataset.label+': '+money(c.raw.y)}},
+      // FIX: real bug, confirmed via a repeating wrong number across
+      // multiple sessions (not caching, not a live-computation error — a
+      // genuinely computation-independent value kept recurring). The
+      // Actual dataset has ~119 daily points against 5 for every other
+      // line here (Base/+-1sigma/Bear/Bull) — Chart.js's mode:'index'
+      // tooltip resolution appears to mismatch across datasets with that
+      // large a point-count gap, consistently surfacing an early
+      // historical point instead of the one actually under the touch.
+      // The "Now: $X" datalabel on the Actual line's own last point reads
+      // the data directly (not through Chart.js's per-dataset index
+      // matching) and is confirmed correct — Actual excluded from the
+      // tooltip here rather than keep showing a number that's
+      // demonstrably not reliable.
+      tooltip:{filter:item=>!['Break-even','Baseline (start value)','Bear','Bull','Actual'].includes(item.dataset.label),callbacks:{label:c=>c.dataset.label+': '+money(c.raw.y)}},
       zoom:zoomOn?{
         pan:{enabled:true,mode:opts.zoomMode||'x',onPanComplete:opts.onPanComplete},
         zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:opts.zoomMode||'x',onZoomComplete:opts.onZoomComplete},
