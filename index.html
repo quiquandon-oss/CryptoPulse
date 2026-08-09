@@ -1941,7 +1941,7 @@ function lineChart(cv,old,series,color,axes,fmtFull,fmtShort){
       plugins:{legend:{display:false},crosshair:{enabled:true},tooltip:{displayColors:false,backgroundColor:'#151A23',borderColor:'#1F2632',borderWidth:1,padding:9,
         callbacks:{title:i=>fmtFull(i[0].label),label:c=>' '+money(c.raw)}}},
       scales:{x:{display:axes,grid:{display:false},ticks:{color:'#7A8499',maxTicksLimit:13,maxRotation:45,minRotation:0,font:{size:9},callback:function(v){return fmtShort(this.getLabelForValue(v));}}},
-        y:{display:axes,grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#7A8499',font:{size:10},callback:v=>symC()+Math.round(v).toLocaleString()}}}}};
+        y:{display:axes,grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#7A8499',font:{size:10},callback:v=>state.coin==='LINK'?symC()+v.toFixed(2):symC()+Math.round(v).toLocaleString()}}}}};
   if(old){old.data=cfg.data;old.options=cfg.options;old.update();return old;}return new Chart(cv,cfg);}
 
 function miniSpark(cv,a){const sd=sparkSeries(a);const data=sd.data;if(!data.length)return;
