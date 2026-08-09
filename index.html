@@ -494,6 +494,40 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <div id="dcaDonuts" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3"></div>
       </div>
 
+      <!-- Average cost EVOLUTION per coin — one small chart per crypto,
+           since that coin's own first purchase. Genuinely different data
+           than the donuts above (a trajectory over time, not a single
+           snapshot split by account) — same lineChart()/range-tab/
+           fullscreen conventions as the Total Portfolio Value chart, but
+           deliberately its own independent range state per coin (see
+           dcaEvoRange below), not the global state.range the main chart
+           uses — a click here must never silently also change what the
+           Dashboard's Total Portfolio Value chart is showing, or vice
+           versa. -->
+      <div class="mt-4 rounded-2xl border border-line bg-panel p-5">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+          <p class="text-sm font-semibold">DCA · Average Cost Evolution <span class="text-mutet font-normal">· per coin, since first purchase</span>
+            <span id="dotDcaEvo" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span>
+          </p>
+          <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-1.5 py-0.5 shrink-0" onclick="toggleNote(this,'dcaEvoNote')">ⓘ Info</button>
+        </div>
+        <p class="hidden text-xs text-mutet mb-3 leading-relaxed" id="dcaEvoNote">Average cost is a running weighted-average of what you actually paid — it only moves on a day you buy or sell that coin, it is NOT a price chart and won't move with the market. Flat stretches between transactions are correct, not missing data. Each coin starts from ITS OWN first purchase date, not the portfolio's overall start. "24H" will often be close to flat unless you traded that coin very recently — that's expected given transactions are logged per-day, not per-minute.</p>
+        <div id="dcaEvoGrid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3"></div>
+      </div>
+
+      <!-- Shared fullscreen modal — one at a time, scoped to whichever
+           coin's ⛶ button was pressed (dcaEvoFullscreenCoin), same pattern
+           as the Total Portfolio Value / Market Cap fullscreen modals. -->
+      <div id="dcaEvoFullscreen" class="hidden fixed inset-0 z-50 bg-panel p-4 flex flex-col">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-semibold" id="dcaEvoFullscreenTitle">Average Cost Evolution</h3>
+          <button class="px-2.5 py-1.5 rounded-md text-xs bg-panel2 hover:text-white border border-line" onclick="closeDcaEvoFullscreen()">✕ Close</button>
+        </div>
+        <p class="text-xs text-mutet mb-2" id="dcaEvoFullscreenSub">—</p>
+        <div id="dcaEvoRangeTabsFull" class="flex gap-1 text-xs mb-3"></div>
+        <div class="flex-1"><canvas id="dcaEvoFullscreenChart"></canvas></div>
+      </div>
+
       <!-- Dollar-Cost Average entry form — moved to bottom of DCA tab, per user request -->
       <div class="mt-4 rounded-2xl border border-line bg-panel p-5 sm:p-6">
         <h2 class="font-semibold mb-1">Dollar-Cost Average</h2>
@@ -1866,8 +1900,8 @@ function chg24(a){if(state.prices[a]?.chg!=null)return state.prices[a].chg;
 
 const syms=()=>[...new Set(state.txs.map(t=>t.asset))];
 function qtyOf(a,d){return state.txs.filter(t=>t.asset===a&&(!d||t.date<=d)).reduce((q,t)=>q+(t.type==='buy'?t.qty:-t.qty),0);}
-function avg(a,ccy){ccy=ccy||state.ccy;let q=0,c=0;
-  state.txs.filter(t=>t.asset===a).sort((x,y)=>x.date.localeCompare(y.date)).forEach(t=>{const p=ccy==='USD'?t.usd:t.eur;
+function avg(a,ccy,d){ccy=ccy||state.ccy;let q=0,c=0;
+  state.txs.filter(t=>t.asset===a&&(!d||t.date<=d)).sort((x,y)=>x.date.localeCompare(y.date)).forEach(t=>{const p=ccy==='USD'?t.usd:t.eur;
     if(t.type==='buy'){c+=t.qty*p;q+=t.qty;}else{const a0=q>0?c/q:0;c-=t.qty*a0;q-=t.qty;if(q<1e-12){q=0;c=0;}}});return q>0?c/q:0;}
 
 function interestEUR(d){d=d||NOW();const ks=Object.keys(INTEREST_EUR).sort();let v=0;
@@ -1905,15 +1939,29 @@ function seriesUSD(coin){
   return days().map(d=>{const last=NOW()>TODAY?NOW():TODAY;let v=0;ss.forEach(a=>{let p=histPx(a,d);if(d===last)p=pxUsd(a);v+=qtyOf(a,d)*p;});
     v+=interestEUR(d)*(state.fx||FX0);return {x:d,y:v};});}
 function seriesCcy(coin){const u=seriesUSD(coin);if(state.ccy==='USD')return u;const f=state.fx||FX0;return u.map(p=>({x:p.x,y:p.y/f}));}
-function clipRange(s){if(state.range==='ALL')return s;const now=new Date(NOW()>TODAY?NOW():TODAY);let from=new Date(START);
-  if(state.range==='1W')from=new Date(now-7*864e5);if(state.range==='1M')from=new Date(now-30*864e5);if(state.range==='3M')from=new Date(now-90*864e5);
-  if(state.range==='YTD')from=new Date(2026,0,1);const f=from.toISOString().slice(0,10);return s.filter(p=>p.x>=f);}
+// Average-cost evolution — a genuinely different kind of series from the
+// price/value ones above: it's a step function that only moves on days
+// with an actual buy/sell for that coin, not a continuously-moving market
+// price. Same days()-iteration + avg() reuse as seriesUSD, so it can never
+// diverge from what the DCA table/donuts already show for "today". Trims
+// leading zero-days before the coin's first purchase rather than showing
+// a misleading flat $0 prefix — "since the beginning" means since THIS
+// coin entered the portfolio, not the portfolio's overall start date.
+function dcaAvgSeriesUSD(a){
+  const series=days().map(d=>({x:d,y:avg(a,'USD',d)}));
+  const firstIdx=series.findIndex(p=>p.y>0);
+  return firstIdx>=0?series.slice(firstIdx):[];
+}
+function dcaAvgSeriesCcy(a){const u=dcaAvgSeriesUSD(a);if(state.ccy==='USD')return u;const f=state.fx||FX0;return u.map(p=>({x:p.x,y:p.y/f}));}
+function clipRange(s,range){range=range||state.range;if(range==='ALL')return s;const now=new Date(NOW()>TODAY?NOW():TODAY);let from=new Date(START);
+  if(range==='24H')from=new Date(now-1*864e5);if(range==='1W')from=new Date(now-7*864e5);if(range==='1M')from=new Date(now-30*864e5);if(range==='3M')from=new Date(now-90*864e5);
+  if(range==='YTD')from=new Date(2026,0,1);const f=from.toISOString().slice(0,10);return s.filter(p=>p.x>=f);}
 function sparkSeries(a){const h=PRICE_HISTORY[a];if(!h)return {labels:[],data:[]};const ks=Object.keys(h).sort().slice(-30);
   return {labels:ks,data:ks.map(k=>h[k]/(state.ccy==='USD'?1:(state.fx||FX0)))};}
 
 /* ---- charts ---- */
 let perfC,perfFullscreenC,allocC;const sparks={};
-function lineChart(cv,old,series,color,axes,fmtFull,fmtShort){
+function lineChart(cv,old,series,color,axes,fmtFull,fmtShort,onHoverOverride,yDecimalsOverride){
   fmtFull=fmtFull||fmtDate;fmtShort=fmtShort||fmtDateShort;
   const ctx=cv.getContext('2d');const g=ctx.createLinearGradient(0,0,0,300);
   g.addColorStop(0,color+'55');g.addColorStop(1,color+'00');
@@ -1922,6 +1970,7 @@ function lineChart(cv,old,series,color,axes,fmtFull,fmtShort){
     options:{responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},
       animation:{duration:400,easing:'easeOutQuart'},
       onHover:(evt,elements)=>{
+        if(onHoverOverride){onHoverOverride(elements.find(e=>e.datasetIndex===0),series);return;}
         const priceEl=elements.find(e=>e.datasetIndex===0);
         if(priceEl){
           const idx=priceEl.index,val=series[idx]?.y;
@@ -1941,7 +1990,10 @@ function lineChart(cv,old,series,color,axes,fmtFull,fmtShort){
       plugins:{legend:{display:false},crosshair:{enabled:true},tooltip:{displayColors:false,backgroundColor:'#151A23',borderColor:'#1F2632',borderWidth:1,padding:9,
         callbacks:{title:i=>fmtFull(i[0].label),label:c=>' '+money(c.raw)}}},
       scales:{x:{display:axes,grid:{display:false},ticks:{color:'#7A8499',maxTicksLimit:13,maxRotation:45,minRotation:0,font:{size:9},callback:function(v){return fmtShort(this.getLabelForValue(v));}}},
-        y:{display:axes,grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#7A8499',font:{size:10},callback:v=>state.coin==='LINK'?symC()+v.toFixed(2):symC()+Math.round(v).toLocaleString()}}}}};
+        y:{display:axes,grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#7A8499',font:{size:10},callback:v=>{
+          const useDecimals=yDecimalsOverride!=null?yDecimalsOverride:(state.coin==='LINK');
+          return useDecimals?symC()+v.toFixed(2):symC()+Math.round(v).toLocaleString();
+        }}}}}};
   if(old){old.data=cfg.data;old.options=cfg.options;old.update();return old;}return new Chart(cv,cfg);}
 
 function miniSpark(cv,a){const sd=sparkSeries(a);const data=sd.data;if(!data.length)return;
@@ -1960,7 +2012,7 @@ function miniSpark(cv,a){const sd=sparkSeries(a);const data=sd.data;if(!data.len
           callback:v=>symC()+Number(v).toLocaleString('en-US',{maximumFractionDigits:pdc(v)})}}}}});}
 
 /* ---- renders ---- */
-function render(){renderHeader();renderChips();renderRange();renderPerf();renderPerfFullscreen();renderAlloc();renderCards();renderTxDbCount();renderBottomSignal();renderDashboardSummary();populateDryAssetSelect();wireDryPowder();renderDryPowder();if(state.view==='dca')renderDcaDonuts();if(state.view==='dca')renderDcaAvgTable();if(state.view==='scenario')renderScenario();if(state.view==='capital')renderCapital();
+function render(){renderHeader();renderChips();renderRange();renderPerf();renderPerfFullscreen();renderAlloc();renderCards();renderTxDbCount();renderBottomSignal();renderDashboardSummary();populateDryAssetSelect();wireDryPowder();renderDryPowder();if(state.view==='dca')renderDcaDonuts();if(state.view==='dca')renderDcaAvgTable();if(state.view==='dca')renderDcaEvoGrid();renderDcaEvoFullscreen();if(state.view==='scenario')renderScenario();if(state.view==='capital')renderCapital();
   $('#fxVal').textContent=(state.fx||FX0).toFixed(4);$('#interestVal').textContent=moneyIn(interestEUR(),'EUR');}
 
 function computePortfolioValueUsdNow(){
@@ -2412,7 +2464,7 @@ function goToGauge(view,scrollTargetId){
 function setView(v){state.view=v;['dashboard','mycrypto','dca','scenario','cycles','capital','radar','markets','sentiment','outlook','traderanalysis','foufi','settings'].forEach(x=>$('#v-'+x).classList.toggle('hidden',x!==v));
   $$('#nav .navitem,#navMobile .navitem').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
   $('#viewTitle').textContent={dashboard:'Dashboard',mycrypto:'My Crypto',dca:'Average Cost',scenario:'Scenarios',cycles:'Cycles',capital:'Capital',radar:'Radar',markets:'Markets',sentiment:'Sentiment',outlook:'Narrative',traderanalysis:'Trader Analysis',foufi:'Foufi',settings:'Settings'}[v];
-  if(v==='dca'){fillAssets();$('#d_date').value=NOW();renderDcaAvgTable();renderDcaDonuts();}
+  if(v==='dca'){fillAssets();$('#d_date').value=NOW();renderDcaAvgTable();renderDcaDonuts();renderDcaEvoGrid();}
   if(v==='dashboard'){renderPerf();renderAlloc();}
   if(v==='mycrypto'){renderCards();}
   if(v==='scenario'){renderScenario();}
@@ -6375,6 +6427,111 @@ function renderDcaAvgTable(){
         <td class="py-2 px-2 text-right tnum">${cell(avgAcct(a,'Neverless'))}</td>
         <td class="py-2 pl-2 text-right tnum font-semibold">${cell(avgAcct(a,'ALL'))}</td></tr>`;}).join('')}
     </tbody></table>`;
+}
+
+/* ---- DCA average-cost EVOLUTION per coin — small chart per coin + shared
+   fullscreen modal. Deliberately independent range state per coin
+   (dcaEvoRange), NOT the global state.range the Total Portfolio Value
+   chart uses — a click here must never silently change what that chart
+   shows, or vice versa. ---- */
+const DCA_EVO_RANGES=[['24H','24H'],['1W','1W'],['1M','1M'],['ALL','All']];
+let dcaEvoRange={},dcaEvoCharts={},dcaEvoFullscreenCoin=null,dcaEvoFullscreenChart=null;
+
+function renderDcaEvoRangeTabs(a,hostId){
+  const host=$('#'+hostId);if(!host)return;host.innerHTML='';
+  DCA_EVO_RANGES.forEach(([k,l])=>{
+    const on=(dcaEvoRange[a]||'ALL')===k;
+    const b=document.createElement('button');
+    b.className=`px-1.5 py-0.5 rounded ${on?'bg-panel text-white border border-line':'text-mutet hover:text-white'}`;
+    b.textContent=l;
+    b.onclick=()=>{
+      dcaEvoRange[a]=k;
+      renderDcaEvoRangeTabs(a,'dcaEvoRangeTabs_'+a);renderDcaEvoTile(a);
+      if(dcaEvoFullscreenCoin===a){renderDcaEvoRangeTabs(a,'dcaEvoRangeTabsFull');renderDcaEvoFullscreen();}
+    };
+    host.appendChild(b);
+  });
+}
+// Shared by the inline tile and the fullscreen modal so they can never
+// show different data for the same coin/range — same principle as
+// getPerfSeries for the Total Portfolio Value chart.
+function getDcaEvoSeries(a){
+  const range=dcaEvoRange[a]||'ALL';
+  const full=dcaAvgSeriesCcy(a);
+  const clipped=clipRange(full,range);
+  const startDate=full[0]?fmtDate(full[0].x):'—';
+  const sub=clipped.length<2
+    ?`· Not enough change in this window yet — try All (first purchase: ${startDate})`
+    :`· since ${range==='ALL'?startDate:fmtDate(clipped[0].x)}`;
+  return{points:clipped,sub,lastVal:full.length?full[full.length-1].y:0};
+}
+function renderDcaEvoTile(a){
+  const{points,sub,lastVal}=getDcaEvoSeries(a);
+  const subEl=$('#dcaEvoSub_'+a);if(subEl)subEl.textContent=sub;
+  const cv=$('#dcaEvoChart_'+a);if(!cv)return;
+  const color=META[a]?.c||'#3BF38B';
+  const yDecimals=lastVal>0&&lastVal<100; // same intent as the LINK special-case elsewhere, generalized: cheap coins need cents, not rounded dollars
+  dcaEvoCharts[a]=lineChart(cv,dcaEvoCharts[a],points,color,false,undefined,undefined,()=>{},yDecimals);
+}
+function renderDcaEvoGrid(){
+  const host=$('#dcaEvoGrid');if(!host)return;
+  const coins=syms().filter(a=>qtyOf(a)>1e-12).sort((x,y)=>statOf(y).val-statOf(x).val);
+  if(!coins.length){
+    host.innerHTML='<p class="text-xs text-mutet">No holdings yet.</p>';
+    setHealthDot('dotDcaEvo','static','No holdings yet');
+    return;
+  }
+  // Only rebuild tile markup (and Chart.js instances) when the held-coin
+  // list actually changed — render() fires often, and destroying/
+  // recreating every canvas on each call would be wasteful and would
+  // reset any in-progress hover/tooltip state for no reason.
+  const key=coins.join(',');
+  if(host.dataset.coinsKey!==key){
+    Object.values(dcaEvoCharts).forEach(c=>c&&c.destroy());dcaEvoCharts={};
+    host.innerHTML=coins.map(a=>{const m=META[a]||{c:'#888'};
+      return `<div class="bg-panel2 rounded-xl p-3">
+        <div class="flex items-center justify-between mb-2 gap-1">
+          <span class="inline-flex items-center gap-1.5 text-xs font-semibold shrink-0">
+            <span class="h-4 w-4 rounded-full text-[8px] font-bold flex items-center justify-center" style="background:${m.c}22;color:${m.c}">${a.slice(0,1)}</span>${a}
+          </span>
+          <div class="flex items-center gap-1 shrink-0">
+            <div class="flex gap-0.5 text-[9px]" id="dcaEvoRangeTabs_${a}"></div>
+            <button class="text-[10px] text-mutet hover:text-white border border-line rounded px-1 py-0.5" onclick="openDcaEvoFullscreen('${a}')" title="Fullscreen">⛶</button>
+          </div>
+        </div>
+        <p class="text-[10px] text-mutet mb-1 truncate" id="dcaEvoSub_${a}">—</p>
+        <div class="h-[120px]"><canvas id="dcaEvoChart_${a}"></canvas></div>
+      </div>`;
+    }).join('');
+    host.dataset.coinsKey=key;
+  }
+  coins.forEach(a=>{renderDcaEvoRangeTabs(a,'dcaEvoRangeTabs_'+a);renderDcaEvoTile(a);});
+  setHealthDot('dotDcaEvo','static','Computed live from your transaction history — no external data dependency, cannot go stale or error');
+}
+function openDcaEvoFullscreen(a){
+  dcaEvoFullscreenCoin=a;
+  const modal=$('#dcaEvoFullscreen');if(!modal)return;
+  modal.classList.remove('hidden');
+  $('#dcaEvoFullscreenTitle').textContent=`${a} · Average Cost Evolution`;
+  renderDcaEvoRangeTabs(a,'dcaEvoRangeTabsFull');
+  renderDcaEvoFullscreen();
+}
+// Only fetches/renders when the modal is actually open, same convention
+// as renderPerfFullscreen — no wasted Chart.js work while it's hidden.
+function renderDcaEvoFullscreen(){
+  const modal=$('#dcaEvoFullscreen');if(!modal||modal.classList.contains('hidden')||!dcaEvoFullscreenCoin)return;
+  const a=dcaEvoFullscreenCoin;
+  const{points,sub,lastVal}=getDcaEvoSeries(a);
+  const subEl=$('#dcaEvoFullscreenSub');if(subEl)subEl.textContent=sub;
+  const cv=$('#dcaEvoFullscreenChart');if(!cv)return;
+  const color=META[a]?.c||'#3BF38B';
+  const yDecimals=lastVal>0&&lastVal<100;
+  dcaEvoFullscreenChart=lineChart(cv,dcaEvoFullscreenChart,points,color,true,undefined,undefined,()=>{},yDecimals);
+}
+function closeDcaEvoFullscreen(){
+  const modal=$('#dcaEvoFullscreen');if(modal)modal.classList.add('hidden');
+  if(dcaEvoFullscreenChart){dcaEvoFullscreenChart.destroy();dcaEvoFullscreenChart=null;}
+  dcaEvoFullscreenCoin=null;
 }
 
 /* ════════════════════════════════════════════════════════════════
