@@ -2006,7 +2006,7 @@ function renderHeader(){const t=totals();const up=t.pnl>=0;
     const{value:valueUsd,prices}=computePortfolioValueUsdNow();
     const now=Date.now();
     const impliedPct=lastLoggedPortfolioUsd?Math.abs(valueUsd-lastLoggedPortfolioUsd)/lastLoggedPortfolioUsd*100:0;
-    const tooFastAndBig=lastLoggedPortfolioUsd&&(now-lastLoggedPortfolioTs)<600000&&impliedPct>15;
+    const tooFastAndBig=lastLoggedPortfolioUsd&&(now-lastLoggedPortfolioTs)<600000&&impliedPct>10; // was 15 — a confirmed-bad 12.66% swing slipped under it
     if(!tooFastAndBig){
       const fx=state.fx||FX0;
       fetch(`${PULSE_WORKER_URL}/portfolio-log`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value_usd:valueUsd,value_eur:valueUsd/fx,fx,prices})}).catch(()=>{});
@@ -2857,6 +2857,25 @@ function sentLabelFor(score){
 
 // ---- Pulse (Cloudflare Worker) integration ----
 const PULSE_WORKER_URL='https://sentiment-ff75.quiquandon.workers.dev';
+
+// FIX: lastLoggedPortfolioUsd used to start at null every page load, so a
+// fresh tab/device/session's FIRST portfolio snapshot was completely
+// unguarded by the plausibility check below (see the /portfolio-history
+// filterSnapshotSpikes comment on the Worker for the full root-cause —
+// confirmed via D1: a pair of snapshots 46s apart with byte-for-byte
+// identical prices_json but a $312.88 different value_usd, meaning it was
+// this session's own out-of-sync localStorage holdings, not a price race).
+// Best-effort, not a guarantee — if this fetch hasn't resolved by the time
+// the very first render() fires, the guard still starts blind for that one
+// call, same as before. The Worker-side filter is the layer that can't miss.
+(async()=>{
+  try{
+    const r=await fetch(`${PULSE_WORKER_URL}/portfolio-history?hours=2`);
+    const d=await r.json();
+    const last=d.points&&d.points.length?d.points[d.points.length-1]:null;
+    if(last&&last.value_usd){lastLoggedPortfolioUsd=last.value_usd;lastLoggedPortfolioTs=last.ts;}
+  }catch(e){/* leave null, same fallback behavior as before this fix */}
+})();
 
 async function fetchPulseHistory(){
   const res=await fetch(`${PULSE_WORKER_URL}/history`);
