@@ -6711,28 +6711,44 @@ function mapRevolut(rows){
   const out=[];
   rows.forEach(r=>{
     const rawType=(r.Type||'').trim().toLowerCase();
-    const type=rawType.startsWith('buy')?'buy':rawType.startsWith('sell')?'sell':null;
-    if(!type)return;                                       // ignore rewards/transfers/fiat ops…
+    const isStakingReward=rawType==='staking reward';
+    const type=rawType.startsWith('buy')?'buy':rawType.startsWith('sell')?'sell':isStakingReward?'buy':null;
+    if(!type)return;                                       // ignore other rewards/transfers/fiat ops…
     const sym=(r.Symbol||'').trim().toUpperCase();
     if(!CRYPTO.includes(sym))return;                       // unknown asset (or fiat row) -> skipped
-    const qty=csvNum(r.Quantity),px=csvNum(r.Price);       // '€1,908.30' / '$7.75' / '138,920.02 IDR' handled
+    const qty=csvNum(r.Quantity);
     const date=csvDate(r.Date);                            // 'Apr 10, 2026, 3:41:03 PM' handled
-    if(!(qty>0)||!(px>0)||!date)return;                    // unparsable row -> skipped
-    const isUsd=String(r.Price).includes('$');             // 'Buy - Revolut X' rows are priced in USD
-    // Some rows (seen when the account region is Indonesia) have NO $/€ symbol
-    // at all — just a raw number with an "IDR" suffix, e.g. "138,920.02 IDR".
-    // Previously this silently fell through to the EUR branch below, treating
-    // e.g. 138,920.02 IDR as if it were €138,920.02 per token — wrong by a
-    // factor of ~17,800x, which was badly skewing the average price for any
-    // account that had even one IDR-denominated row mixed into the CSV.
-    const isIdr=/IDR/i.test(String(r.Price));
-    const fx=fxOnDate(date)||state.fx||FX0;
-    let usd,eur;
-    if(isIdr){eur=px/IDR_PER_EUR;usd=eur*fx;}
-    else if(isUsd){usd=px;eur=px/fx;}
-    else{eur=px;usd=px*fx;}
+    if(!qty||!date)return;                                 // unparsable row -> skipped
+    let px,usd,eur,ccy;
+    if(isStakingReward){
+      // Revolut's export gives NO Price/Value/Fees at all for these rows —
+      // just a qty. Treated as a $0-cost acquisition (increases holdings,
+      // adds nothing to invested capital), not an attempt at fair-market-
+      // value cost basis: every reward seen here is sub-cent (largest so
+      // far: 0.00000343 ETH, ~$0.0065), so fetching a historical per-day
+      // price for tax-grade precision on amounts this small would be
+      // effort spent on a rounding error. Revisit if daily staking volume
+      // ever becomes large enough to matter.
+      px=0;usd=0;eur=0;ccy='EUR';
+    }else{
+      px=csvNum(r.Price);
+      if(!(px>0))return;                                   // unparsable price on a real buy/sell -> skipped
+      const isUsd=String(r.Price).includes('$');           // 'Buy - Revolut X' rows are priced in USD
+      // Some rows (seen when the account region is Indonesia) have NO $/€ symbol
+      // at all — just a raw number with an "IDR" suffix, e.g. "138,920.02 IDR".
+      // Previously this silently fell through to the EUR branch below, treating
+      // e.g. 138,920.02 IDR as if it were €138,920.02 per token — wrong by a
+      // factor of ~17,800x, which was badly skewing the average price for any
+      // account that had even one IDR-denominated row mixed into the CSV.
+      const isIdr=/IDR/i.test(String(r.Price));
+      const fx=fxOnDate(date)||state.fx||FX0;
+      if(isIdr){eur=px/IDR_PER_EUR;usd=eur*fx;}
+      else if(isUsd){usd=px;eur=px/fx;}
+      else{eur=px;usd=px*fx;}
+      ccy=isUsd?'USD':'EUR';
+    }
     const srcId='rev:'+sym+':'+String(r.Date).trim()+':'+qty.toFixed(8);
-    out.push({id:uid(),date,asset:sym,acct:'Revolut',type,qty,price:px,ccy:isUsd?'USD':'EUR',eur,usd,srcId});
+    out.push({id:uid(),date,asset:sym,acct:'Revolut',type,qty,price:px,ccy,eur,usd,srcId,isReward:isStakingReward||undefined});
   });
   return out;
 }
@@ -6759,7 +6775,7 @@ function renderTxDbCount(){const el=$('#txDbCount');if(el)el.textContent=state.t
 // genuine volatility.
 function detectPriceOutliers(txs){
   const byAsset={};
-  txs.forEach(t=>{(byAsset[t.asset]=byAsset[t.asset]||[]).push(t);});
+  txs.forEach(t=>{if(t.isReward)return;(byAsset[t.asset]=byAsset[t.asset]||[]).push(t);}); // reward rows are legitimately $0, not a currency mistake to flag
   const flagged=[];
   Object.values(byAsset).forEach(list=>{
     if(list.length<2)return; // nothing to compare against within this batch
@@ -6804,6 +6820,8 @@ async function handleCsvFile(file){
     return true;});
   const skipped=parsed.length-newTxs.length;
   const label=fmt==='revolut'?'Revolut':'Neverless';
+  const rewardCount=newTxs.filter(t=>t.isReward).length;
+  const rewardHtml=rewardCount?`<p class="text-mutet text-[10px] mt-1">Includes ${rewardCount} staking reward${rewardCount>1?'s':''} (treated as $0-cost — added to holdings, not to invested capital)</p>`:'';
   const outliers=detectPriceOutliers(newTxs);
   const outlierHtml=outliers.length?`<div class="mt-2 pt-2 border-t border-down/30">
       <p class="text-down text-xs font-semibold">⚠ ${outliers.length} row(s) look like a currency/unit mistake, not real price moves:</p>
@@ -6814,7 +6832,7 @@ async function handleCsvFile(file){
     state.txs.push(...newTxs);
     _lastImportIds=newTxs.map(t=>t.id);
     LS.save();render();renderTxDbCount();
-    $('#csvPreviewText').innerHTML=`<strong>${label}</strong> · ✓ <span class="text-up font-bold">${newTxs.length} new transactions imported</span>${skipped?` · <span class="text-mutet">${skipped} already had them</span>`:''}${outlierHtml}`;
+    $('#csvPreviewText').innerHTML=`<strong>${label}</strong> · ✓ <span class="text-up font-bold">${newTxs.length} new transactions imported</span>${skipped?` · <span class="text-mutet">${skipped} already had them</span>`:''}${rewardHtml}${outlierHtml}`;
     $('#csvPreview').classList.remove('hidden');
     toast(outliers.length?'✓ imported, but '+outliers.length+' row(s) look suspicious — check the preview':'✓ '+newTxs.length+' transactions imported');
     setView('capital'); // show the result immediately, no extra tap required
