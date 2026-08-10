@@ -394,11 +394,12 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <!-- value + performance -->
         <div class="xl:col-span-2 glow rounded-2xl border border-line bg-panel p-5 sm:p-6">
           <p class="text-sm text-mutet">Total Portfolio Value</p>
-          <!-- min-h reserves space for the 2-line case (number + pill
-               wrapped) so scrubbing the chart — which swaps the pill's text
-               between the short default and the longer "vs start" variant —
-               never visibly shifts the card's height, whether or not it
-               actually wraps at a given moment. -->
+          <!-- min-h reserves space for the 2-line wrapped case (long
+               numbers on narrow screens) so nothing shifts the card's
+               height. The pill itself (cost-basis P&L vs total capital
+               invested) stays fixed regardless of chart scrubbing — only
+               the big number and date below it change while hovering, to
+               show what the portfolio was worth on that specific day. -->
           <div class="flex flex-wrap items-baseline gap-2 mt-1 min-h-[52px] sm:min-h-[64px]">
             <div class="grot text-4xl sm:text-5xl font-bold tracking-tight tnum" id="totalMain">$0.00</div>
             <span id="totalPill" class="inline-flex items-center gap-1 rounded-lg bg-up/15 text-up px-2.5 py-1 text-xs font-bold tnum">+$0.00 (0.00%)</span>
@@ -2003,6 +2004,20 @@ function lineChart(cv,old,series,color,axes,fmtFull,fmtShort,onHoverOverride,yDe
       // directly from the chart's own live data (Chart.js's documented
       // third onHover parameter) every time it fires, so it can never
       // reference anything other than exactly what's currently drawn.
+      //
+      // SECOND FIX, same investigation: even with the closure bug fixed,
+      // this badge was computing the WRONG THING on hover — "value here vs
+      // the chart's leftmost visible point" (which changes depending on
+      // which range is selected, and isn't capital invested at all) — while
+      // the badge's whole job, per explicit clarification, is "virtual
+      // loss/gain vs total capital engaged," i.e. cost-basis P&L. That's
+      // exactly what totals().pnl/.pp already computes correctly and shows
+      // by default (see renderHeader()) — the bug was that scrubbing the
+      // chart silently swapped it for a different, range-dependent number
+      // wearing the same badge. Now hovering only updates the headline
+      // value + date (useful, informational: "what was it worth on this
+      // day") and leaves the pill exactly as renderHeader() set it — one
+      // consistent meaning for that number, always.
       onHover:(evt,elements,chartInstance)=>{
         const liveData=chartInstance.data.datasets[0].data;
         const liveLabels=chartInstance.data.labels;
@@ -2015,14 +2030,8 @@ function lineChart(cv,old,series,color,axes,fmtFull,fmtShort,onHoverOverride,yDe
         if(priceEl){
           const idx=priceEl.index,val=liveData[idx];
           if(val==null)return;
-          const rangeStart=liveData[0];
-          const chgAbs=rangeStart!=null?val-rangeStart:0;
-          const chgPct=rangeStart?(chgAbs/rangeStart*100):0;
           $('#totalMain').textContent=money(val);
           $('#totalAlt').textContent=fmtFull(liveLabels[idx]);
-          const pill=$('#totalPill');
-          pill.className=`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold tnum ${chgAbs>=0?'bg-up/15 text-up':'bg-down/15 text-down'}`;
-          pill.textContent=`${chgAbs>=0?'▲':'▼'} ${money(Math.abs(chgAbs))} (${pctS(Math.abs(chgPct))}) vs start`;
         }else{
           renderHeader(); // revert to live total/24h-pnl the moment the touch/hover leaves
         }
