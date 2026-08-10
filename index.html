@@ -9852,25 +9852,44 @@ async function backfillPriceHistoryGaps(){
   const statusEl=$('#backfillStatus');
   const today=NOW();
   const results=[];
-  // Build the list of calendar days to check — last 30 days is enough to catch
-  // any realistic gap without re-scanning the entire history back to April.
+  // FIX: real bug, confirmed by tracing the reported "flat plateau on the
+  // Total Portfolio Value chart" symptom back to its source. This window
+  // used to be a fixed last-30-days constant. The embedded PRICE_HISTORY
+  // seed data has a fixed cutoff baked in at build time and never grows on
+  // its own — every real day that passes without a rebuild widens the true
+  // gap. A fixed 30-day window silently stopped covering that gap the
+  // moment more than 30 days had passed since the seed cutoff, and would
+  // keep silently under-covering it forever (confirmed: seed cutoff
+  // 2026-06-26, a 30-day window only reached back to ~2026-07-11 by
+  // 2026-08-10 — a 14-day dead zone with literally no fix path, growing by
+  // one more day every single day).
+  // Widened to 90 days — comfortably covers today's actual 45-day gap plus
+  // months of headroom. NOT changed to "start from each coin's latest known
+  // date" (tried that first, caught it in testing): a single later
+  // scattered entry — e.g. from one stray daily visit weeks after the
+  // cutoff — would make the window skip straight past genuine gaps before
+  // it, the exact "misses internal gaps" failure this function's own
+  // comment already exists to prevent. Full fixed-window scan, every day
+  // checked individually, same shape as before — just sized to actually
+  // reach the real gap this time.
   const windowDays=[];
   {
-    const d=new Date(today+'T00:00:00Z');d.setUTCDate(d.getUTCDate()-30);
+    const d=new Date(today+'T00:00:00Z');d.setUTCDate(d.getUTCDate()-90);
     const end=new Date(today+'T00:00:00Z');
     while(d<end){windowDays.push(d.toISOString().slice(0,10));d.setUTCDate(d.getUTCDate()+1);} // up to (not including) today — today's own slot is handled by getPrices()
   }
   for(const s of syms()){
     const h=PRICE_HISTORY[s];if(!h)continue;
     const id=META[s]?.id;if(!id)continue;
-    // Real fix: scan every day in the window for a missing entry, not just check
-    // whether the LAST known date is stale — that check alone misses internal
-    // gaps once today's own slot happens to already be filled.
     const missing=windowDays.filter(d=>h[d]==null);
     if(!missing.length){results.push(`${s}: no gaps`);continue;}
     await new Promise(r=>setTimeout(r,400)); // small stagger — reduces risk of hitting CoinGecko right after getPrices()
     try{
-      const res=await cgFetch(`${CG}/coins/${id}/market_chart?vs_currency=usd&days=32`);
+      // days=90 (not the old 32) — proven safe against CoinGecko's free
+      // tier elsewhere in this exact codebase (fetchCoinGecko7dAvgAndWindow
+      // on the Worker uses the same value successfully) and matches the
+      // scan window above.
+      const res=await cgFetch(`${CG}/coins/${id}/market_chart?vs_currency=usd&days=90`);
       if(!res.ok){results.push(`${s}: HTTP ${res.status}`);continue;}
       const json=await res.json();
       const prices=json.prices||[];
