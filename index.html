@@ -262,6 +262,25 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
       </div>
     </div>
 
+    <!-- FIX: real data-loss incident, confirmed via a user screenshot — a
+         browser storage clear (common on mobile: sites not added to the
+         home screen get storage evicted after a period of inactivity)
+         silently reset state.txs, and the app fell back to the embedded
+         SEED_TXS snapshot with zero indication anything had happened. Six
+         weeks of real transactions "disappeared" with no visible cause
+         until traced back here. This banner is the fix for the SILENCE,
+         not the storage clearing itself (nothing client-side can prevent
+         a browser from clearing its own storage) — so this can never
+         happen again without the user immediately knowing why their
+         numbers look wrong. -->
+    <div id="fallbackSeedWarning" class="hidden mb-5 rounded-2xl border border-down/40 bg-down/10 p-4 flex items-start gap-3">
+      <span class="text-down text-lg leading-none mt-0.5">⚠</span>
+      <div class="text-sm">
+        <p class="font-bold text-down">Your saved transactions could not be found</p>
+        <p class="text-mutet mt-1">This usually means your browser cleared its local storage (common if this app isn't added to your home screen). You're currently looking at an old built-in snapshot from <strong>2026-06-26</strong> — anything after that date is missing. Go to DCA → CSV Import and re-upload your Revolut/Neverless statements to restore it.</p>
+      </div>
+    </div>
+
     <!-- mobile nav -->
     <div class="md:hidden flex gap-1.5 mb-4 overflow-x-auto" id="navMobile"></div>
 
@@ -6853,6 +6872,7 @@ async function handleCsvFile(file){
     state.txs.push(...newTxs);
     _lastImportIds=newTxs.map(t=>t.id);
     LS.save();render();renderTxDbCount();
+    if(state.usedFallbackSeed){state.usedFallbackSeed=false;const w=$('#fallbackSeedWarning');if(w)w.classList.add('hidden');}
     $('#csvPreviewText').innerHTML=`<strong>${label}</strong> · ✓ <span class="text-up font-bold">${newTxs.length} new transactions imported</span>${skipped?` · <span class="text-mutet">${skipped} already had them</span>`:''}${rewardHtml}${outlierHtml}`;
     $('#csvPreview').classList.remove('hidden');
     toast(outliers.length?'✓ imported, but '+outliers.length+' row(s) look suspicious — check the preview':'✓ '+newTxs.length+' transactions imported');
@@ -10291,7 +10311,8 @@ function wireSwipeNav(){
   },{passive:true});
 }
 async function init(){LS.load();buildMobileNav();wire();paintNav();wireSwipeNav();wireManualNewsPanel();
-  if(!state.txs)state.txs=hydrate(SEED_TXS);
+  if(!state.txs){state.txs=hydrate(SEED_TXS);state.usedFallbackSeed=true;}
+  if(state.usedFallbackSeed){const w=$('#fallbackSeedWarning');if(w)w.classList.remove('hidden');}
   setCcy(state.ccy);setView('dashboard');setStatus(false);
   render();                    // instant: real embedded history (chart already moves)
   await getFx();render();
