@@ -1969,17 +1969,38 @@ function lineChart(cv,old,series,color,axes,fmtFull,fmtShort,onHoverOverride,yDe
     borderWidth:2,fill:true,tension:.32,pointRadius:0,pointHoverRadius:4,pointHoverBackgroundColor:color}]},
     options:{responsive:true,maintainAspectRatio:false,interaction:{intersect:false,mode:'index'},
       animation:{duration:400,easing:'easeOutQuart'},
-      onHover:(evt,elements)=>{
-        if(onHoverOverride){onHoverOverride(elements.find(e=>e.datasetIndex===0),series);return;}
+      // FIX: real bug, confirmed from a user screenshot — the badge showed
+      // "-40.27% vs start" against a value that matched nothing visible on
+      // the chart itself. Root cause: this callback used to close over the
+      // `series` parameter from whichever renderPerf() call originally
+      // created it. render() calls renderPerf() up to 4 times during boot
+      // (cached embedded data -> after fx loads -> after live prices ->
+      // after backfillPriceHistoryGaps() corrects historical gaps) — each
+      // call replaces the Chart.js instance's .data/.options in place, but
+      // reassigning .options doesn't reliably rebind every nested callback
+      // in Chart.js, so onHover could still be running the FIRST pass's
+      // closure — using pre-backfill, pre-live-price data — even though
+      // the chart visually shows the fully corrected line. Now reads
+      // directly from the chart's own live data (Chart.js's documented
+      // third onHover parameter) every time it fires, so it can never
+      // reference anything other than exactly what's currently drawn.
+      onHover:(evt,elements,chartInstance)=>{
+        const liveData=chartInstance.data.datasets[0].data;
+        const liveLabels=chartInstance.data.labels;
+        if(onHoverOverride){
+          const liveSeries=liveLabels.map((x,i)=>({x,y:liveData[i]}));
+          onHoverOverride(elements.find(e=>e.datasetIndex===0),liveSeries);
+          return;
+        }
         const priceEl=elements.find(e=>e.datasetIndex===0);
         if(priceEl){
-          const idx=priceEl.index,val=series[idx]?.y;
+          const idx=priceEl.index,val=liveData[idx];
           if(val==null)return;
-          const rangeStart=series[0]?.y;
+          const rangeStart=liveData[0];
           const chgAbs=rangeStart!=null?val-rangeStart:0;
           const chgPct=rangeStart?(chgAbs/rangeStart*100):0;
           $('#totalMain').textContent=money(val);
-          $('#totalAlt').textContent=fmtFull(series[idx].x);
+          $('#totalAlt').textContent=fmtFull(liveLabels[idx]);
           const pill=$('#totalPill');
           pill.className=`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold tnum ${chgAbs>=0?'bg-up/15 text-up':'bg-down/15 text-down'}`;
           pill.textContent=`${chgAbs>=0?'▲':'▼'} ${money(Math.abs(chgAbs))} (${pctS(Math.abs(chgPct))}) vs start`;
