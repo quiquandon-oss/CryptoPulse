@@ -1857,7 +1857,7 @@ const LS={load(){try{const t=localStorage.getItem('cp2_txs');state.txs=t?JSON.pa
     // every real change. Never blocks, never surfaces an error to the
     // user (localStorage already succeeded, that's the primary store —
     // this is a safety net, its own failure shouldn't interrupt anything).
-    fetch(`${PULSE_WORKER_URL}/txs-backup`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({txs:state.txs})}).catch(()=>{});
+    fetch(`${PULSE_WORKER_URL}/txs-backup`,{method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify({txs:state.txs})}).catch(()=>{});
   },
   meta(){localStorage.setItem('cp2_meta',JSON.stringify(META));},
   ccy(){localStorage.setItem('cp2_ccy',state.ccy);},
@@ -2118,7 +2118,7 @@ function renderHeader(){const t=totals();const up=t.pnl>=0;
     const tooFastAndBig=lastLoggedPortfolioUsd&&(now-lastLoggedPortfolioTs)<600000&&impliedPct>10; // was 15 — a confirmed-bad 12.66% swing slipped under it
     if(!tooFastAndBig){
       const fx=state.fx||FX0;
-      fetch(`${PULSE_WORKER_URL}/portfolio-log`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value_usd:valueUsd,value_eur:valueUsd/fx,fx,prices})}).catch(()=>{});
+      fetch(`${PULSE_WORKER_URL}/portfolio-log`,{method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify({value_usd:valueUsd,value_eur:valueUsd/fx,fx,prices})}).catch(()=>{});
       lastLoggedPortfolioUsd=valueUsd;lastLoggedPortfolioTs=now;
     }
   }
@@ -2966,6 +2966,13 @@ function sentLabelFor(score){
 
 // ---- Pulse (Cloudflare Worker) integration ----
 const PULSE_WORKER_URL='https://sentiment-ff75.quiquandon.workers.dev';
+// Sent as X-App-Secret on the write/AI-cost/sensitive-read routes the
+// Worker protects (see PROTECTED_ROUTES in worker.js). Honest limit: this
+// is a public static site with no login system, so this value is visible
+// to anyone who opens dev tools — it stops automated scanners and casual
+// poking, not a determined attacker who actually looks. Real protection
+// against worst-case cost/abuse is the rate limiter, not this.
+const APP_SECRET='rgeSyrqpcX9B-nJsOHK2avffyXVwpZmo_7ZMLCucC-I';
 
 // FIX: lastLoggedPortfolioUsd used to start at null every page load, so a
 // fresh tab/device/session's FIRST portfolio snapshot was completely
@@ -3898,7 +3905,7 @@ async function fetchPulseTechnicalEval(t){
       const extended={macd:t.macd,bollinger:t.bollinger,obv:t.obv,kumoTwist:t.kumoTwist,
         probSwing:t.probSwing,probSqueeze:t.probSqueeze,probVolBreakout:t.probVolBreakout,probRsiExtreme:t.probRsiExtreme};
       const res=await fetch(`${PULSE_WORKER_URL}/run-technical-eval`,{
-        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({closes,extended})
+        method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify({closes,extended})
       });
       if(res.ok){
         try{localStorage.setItem(throttleKey,String(Date.now()));}catch(e){}
@@ -5079,7 +5086,7 @@ async function fetchTraderAnalysis(payload){
     return{analysis:cached.analysis,fromCache:true,cacheAgeMin:Math.round((Date.now()-cached.fetchedAt)/60000)};
   }
   const res=await fetch(`${PULSE_WORKER_URL}/trader-analysis`,{
-    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
+    method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify(payload)
   });
   if(!res.ok){
     // Read the Worker's actual error body instead of just showing the status code —
@@ -5262,7 +5269,7 @@ async function runTraderAnalysisGemini(){
   resultEl.textContent='Asking Gemini for its own independent read…';
   try{
     const res=await fetch(`${PULSE_WORKER_URL}/trader-analysis-gemini`,{
-      method:'POST',headers:{'Content-Type':'application/json'},
+      method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},
       body:JSON.stringify(traderAnalysisLastPayload)
     });
     if(!res.ok){
@@ -5894,7 +5901,7 @@ function saveOutlookCache(result){
   try{if(result&&result.ts)localStorage.setItem(OUTLOOK_CACHE_KEY,JSON.stringify(result));}catch(e){console.error('Failed to cache Gemini outlook:',e);}
 }
 async function fetchGeminiOutlook(payload){
-  const res=await fetch(`${PULSE_WORKER_URL}/gemini-outlook`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const res=await fetch(`${PULSE_WORKER_URL}/gemini-outlook`,{method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify(payload)});
   if(!res.ok){
     let msg='Worker gemini-outlook '+res.status;
     try{const j=await res.json();if(j.error)msg=j.error;}catch(e){}
@@ -6176,7 +6183,7 @@ async function createAlertConfig(type,params,cooldownMinutes){
   const statusEl=$('#alertCreateStatus');
   if(statusEl)statusEl.textContent='Saving…';
   try{
-    const res=await fetch(`${PULSE_WORKER_URL}/alert-configs`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,params,cooldownMinutes})});
+    const res=await fetch(`${PULSE_WORKER_URL}/alert-configs`,{method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify({type,params,cooldownMinutes})});
     const json=await res.json();
     if(!res.ok||json.error)throw new Error(json.error||('HTTP '+res.status));
     if(statusEl)statusEl.textContent='✓ Alert created.';
@@ -6207,11 +6214,11 @@ async function loadAlertConfigs(){
   }catch(err){host.innerHTML='<p class="text-down">Error loading alerts: '+(err&&err.message?err.message:String(err))+'</p>';}
 }
 async function toggleAlertConfig(id,enabled){
-  try{await fetch(`${PULSE_WORKER_URL}/alert-configs/toggle`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,enabled})});loadAlertConfigs();}catch(e){}
+  try{await fetch(`${PULSE_WORKER_URL}/alert-configs/toggle`,{method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify({id,enabled})});loadAlertConfigs();}catch(e){}
 }
 async function deleteAlertConfig(id){
   if(!confirm('Delete this alert?'))return;
-  try{await fetch(`${PULSE_WORKER_URL}/alert-configs/delete`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});loadAlertConfigs();}catch(e){}
+  try{await fetch(`${PULSE_WORKER_URL}/alert-configs/delete`,{method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify({id})});loadAlertConfigs();}catch(e){}
 }
 async function loadAlertLog(){
   const host=$('#alertLogList');if(!host)return;
@@ -6226,7 +6233,7 @@ async function sendTestTelegram(){
   const statusEl=$('#testTelegramStatus');
   if(statusEl)statusEl.textContent='Sending…';
   try{
-    const res=await fetch(`${PULSE_WORKER_URL}/test-telegram`,{method:'POST'});
+    const res=await fetch(`${PULSE_WORKER_URL}/test-telegram`,{method:'POST',headers:{'X-App-Secret':APP_SECRET}});
     const json=await res.json();
     if(statusEl)statusEl.textContent=json.ok?'✓ Sent — check Telegram.':'Failed: '+(json.detail||'unknown reason');
   }catch(err){if(statusEl)statusEl.textContent='Error: '+(err&&err.message?err.message:String(err));}
@@ -7559,7 +7566,7 @@ function renderWhaleTile(){
     // someone unfamiliar with exchange-flow reading, it never computes or
     // invents which transfers were outflow/inflow or which patterns qualify
     // as elevated. ----
-    fetch(`${PULSE_WORKER_URL}/whale-analysis`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transfers:classified,concentration})})
+    fetch(`${PULSE_WORKER_URL}/whale-analysis`,{method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify({transfers:classified,concentration})})
       .then(r=>r.json())
       .then(res=>{
         const analysisEl=$('#whaleAnalysisBody');if(!analysisEl)return;
@@ -7985,7 +7992,7 @@ async function renderLiquidationTile(){
         };
       }
     }
-    fetch(`${PULSE_WORKER_URL}/liquidation-analysis`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({assets:perAsset,focus:liqState.asset,chartContext})})
+    fetch(`${PULSE_WORKER_URL}/liquidation-analysis`,{method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify({assets:perAsset,focus:liqState.asset,chartContext})})
       .then(r=>r.json())
       .then(res=>{
         if(res.error){analysisEl.textContent='Could not load summary: '+res.error;return;}
@@ -10135,7 +10142,7 @@ async function backfillGoldUsdHistory(){
     if(!updates.length){setStatus('Nothing to backfill — every row already has gold/usd, or no matching historical dates were found.');return;}
     setStatus(`Patching ${updates.length} row(s)…`);
     const res=await fetch(`${PULSE_WORKER_URL}/backfill-sources`,{
-      method:'POST',headers:{'Content-Type':'application/json'},
+      method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},
       body:JSON.stringify({updates})
     });
     const json=await res.json();
@@ -10337,7 +10344,7 @@ async function init(){LS.load();buildMobileNav();wire();paintNav();wireSwipeNav(
     // back to SEED_TXS if the server backup is also unreachable or empty.
     let recovered=null;
     try{
-      const r=await fetch(`${PULSE_WORKER_URL}/txs-backup`);
+      const r=await fetch(`${PULSE_WORKER_URL}/txs-backup`,{headers:{'X-App-Secret':APP_SECRET}});
       const d=await r.json();
       if(d.ok&&d.found&&Array.isArray(d.txs)&&d.txs.length)recovered=d.txs;
     }catch(e){/* server backup unreachable — fall through to SEED_TXS below, same as before this fix existed */}
