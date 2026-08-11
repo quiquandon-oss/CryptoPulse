@@ -1,0 +1,29 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Deliberately a SEPARATE workflow from deploy.yml, not a step inside it —
+# this runs independently and does not currently block deployment on
+# success. Gating deploy on tests passing is a real, worthwhile next step,
+# but it changes existing behavior (a failing test would then block a fix
+# from shipping) — that's a decision worth making explicitly, not wiring up
+# silently as a side effect of adding the test suite itself.
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run tests
+        run: npm test
