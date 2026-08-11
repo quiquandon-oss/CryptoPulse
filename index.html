@@ -10353,6 +10353,26 @@ async function init(){LS.load();buildMobileNav();wire();paintNav();wireSwipeNav(
   }
   if(state.usedFallbackSeed){const w=$('#fallbackSeedWarning');if(w)w.classList.remove('hidden');}
   if(state.recoveredFromBackup)toast(`✓ Restored ${state.txs.length} transactions from server backup — local storage was empty`);
+  // FIX: real gap found while verifying this backup actually works, not just
+  // deploys cleanly — the D1 backup table was still completely empty despite
+  // this feature having shipped a while ago. Root cause: the only backup
+  // trigger was LS.save(), which fires on EDITS (import/delete/add), not on
+  // regular use. Weeks of purely passive usage (opening the app, checking
+  // charts) never wrote a single backup — exactly the scenario this exists
+  // to protect against. Now also backs up once per session on boot,
+  // throttled to at most once per 12h so it doesn't spam the endpoint on
+  // every visit. Deliberately skipped when state.usedFallbackSeed is true —
+  // backing up the stale embedded snapshot would overwrite a real backup
+  // with worse data, the opposite of the point.
+  if(!state.usedFallbackSeed){
+    try{
+      const lastBackup=parseInt(localStorage.getItem('cp2_last_backup')||'0',10);
+      if(Date.now()-lastBackup>=12*3600000){
+        fetch(`${PULSE_WORKER_URL}/txs-backup`,{method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify({txs:state.txs})})
+          .then(r=>r.json()).then(d=>{if(d&&d.ok)localStorage.setItem('cp2_last_backup',String(Date.now()));}).catch(()=>{});
+      }
+    }catch(e){}
+  }
   setCcy(state.ccy);setView('dashboard');setStatus(false);
   render();                    // instant: real embedded history (chart already moves)
   await getFx();render();
