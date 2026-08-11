@@ -1850,7 +1850,15 @@ const LS={load(){try{const t=localStorage.getItem('cp2_txs');state.txs=t?JSON.pa
   try{const px=localStorage.getItem('cp2_px');if(px){const saved=JSON.parse(px);
     Object.entries(saved).forEach(([coin,dates])=>{if(PRICE_HISTORY[coin])Object.assign(PRICE_HISTORY[coin],dates);});}}catch(e){}
   }catch(e){state.txs=null;}},
-  save(){localStorage.setItem('cp2_txs',JSON.stringify(state.txs));},
+  save(){
+    localStorage.setItem('cp2_txs',JSON.stringify(state.txs));
+    // Fire-and-forget server backup, piggybacked on the same trigger that
+    // already persists to localStorage — no new user action, automatic on
+    // every real change. Never blocks, never surfaces an error to the
+    // user (localStorage already succeeded, that's the primary store —
+    // this is a safety net, its own failure shouldn't interrupt anything).
+    fetch(`${PULSE_WORKER_URL}/txs-backup`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({txs:state.txs})}).catch(()=>{});
+  },
   meta(){localStorage.setItem('cp2_meta',JSON.stringify(META));},
   ccy(){localStorage.setItem('cp2_ccy',state.ccy);},
   radar(){localStorage.setItem('cp2_radar',JSON.stringify({coin:state.radar.coin}));},
@@ -10320,8 +10328,24 @@ function wireSwipeNav(){
   },{passive:true});
 }
 async function init(){LS.load();buildMobileNav();wire();paintNav();wireSwipeNav();wireManualNewsPanel();
-  if(!state.txs){state.txs=hydrate(SEED_TXS);state.usedFallbackSeed=true;}
+  if(!state.txs){
+    // Try the real server backup before falling back to the stale embedded
+    // snapshot — this is the actual fix for the incident earlier this
+    // session (localStorage got evicted mid-session, the app silently
+    // reverted to a June 26 build-time snapshot, six weeks of real
+    // transactions vanished with zero warning). Only fall all the way
+    // back to SEED_TXS if the server backup is also unreachable or empty.
+    let recovered=null;
+    try{
+      const r=await fetch(`${PULSE_WORKER_URL}/txs-backup`);
+      const d=await r.json();
+      if(d.ok&&d.found&&Array.isArray(d.txs)&&d.txs.length)recovered=d.txs;
+    }catch(e){/* server backup unreachable — fall through to SEED_TXS below, same as before this fix existed */}
+    if(recovered){state.txs=recovered;state.recoveredFromBackup=true;LS.save();}
+    else{state.txs=hydrate(SEED_TXS);state.usedFallbackSeed=true;}
+  }
   if(state.usedFallbackSeed){const w=$('#fallbackSeedWarning');if(w)w.classList.remove('hidden');}
+  if(state.recoveredFromBackup)toast(`✓ Restored ${state.txs.length} transactions from server backup — local storage was empty`);
   setCcy(state.ccy);setView('dashboard');setStatus(false);
   render();                    // instant: real embedded history (chart already moves)
   await getFx();render();
