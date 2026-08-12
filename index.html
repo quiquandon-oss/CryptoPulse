@@ -941,6 +941,27 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
            liquidation heatmap (CoinGlass included, by their own admission),
            not measured real positions. Deliberately NOT wired into
            Sentiment, the Regime Scorecard, or Trader Analysis yet. ═══ -->
+      <!-- ═══ Coin Catalyst Watch — direct build from a real review: V2's
+           own regime-anomaly detector already catches WHEN BTC or LINK
+           (the only two V2 models — ETH/SOL/HYPE have no equivalent signal)
+           starts behaving unusually vs its own history, confirmed working
+           in real time on a real event (LINK / Standard Chartered's
+           $200-by-2030 target, Aug 2026 — the flag fired within hours of
+           the price actually moving, no news awareness involved). This
+           tile is the WHY half: a targeted news search plus a small honest
+           LLM call, explicitly allowed to say "no clear cause found" rather
+           than invent one. Static/health-dot-always-green: this is a log
+           of past checks, no live external dependency of its own to go
+           stale mid-render. ═══ -->
+      <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold">Coin Catalyst Watch<span id="dotCatalystWatch" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h2>
+          <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-1.5 py-0.5" onclick="toggleNote(this,'catalystWatchNote')">ⓘ Info</button>
+        </div>
+        <p class="hidden text-xs text-mutet mb-3 leading-relaxed" id="catalystWatchNote">When CryptoPulseV2's own model flags BTC or LINK as behaving statistically unusually vs its recent history, this checks that day's crypto/regulatory news feeds for a matching headline and asks a small model whether it plausibly explains the move — honestly, including saying "no clear cause found" when nothing fits. Only covers BTC and LINK (the two coins V2 actually models). Entries only appear when a fresh anomaly flag fires, so an empty list here is normal, not broken.</p>
+        <div id="catalystWatchBody" class="text-sm text-mutet">Loading…</div>
+      </div>
+
       <div class="rounded-2xl border border-line bg-panel p-4 sm:p-5">
         <div class="flex items-center justify-between mb-1">
           <h2 class="font-semibold">Liquidation Levels (Modeled)<span id="dotLiquidation" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h2>
@@ -6537,6 +6558,51 @@ function renderDcaEvoTile(a){
   const yDecimals=lastVal>0&&lastVal<100; // same intent as the LINK special-case elsewhere, generalized: cheap coins need cents, not rounded dollars
   dcaEvoCharts[a]=lineChart(cv,dcaEvoCharts[a],points,color,false,undefined,undefined,()=>{},yDecimals);
 }
+// ---- Coin Catalyst Watch — fetches recent checks from PulseWorker's new
+// /coin-catalyst-log route (see checkCoinCatalysts on the backend for the
+// full design). Purely a display: computes nothing, just formats what the
+// backend already decided. ----
+async function renderCatalystWatch(){
+  const body=$('#catalystWatchBody');if(!body)return;
+  try{
+    const res=await fetch(`${PULSE_WORKER_URL}/coin-catalyst-log?limit=8`);
+    const json=await res.json();
+    if(!json.ok)throw new Error(json.error||'unknown error');
+    const entries=json.entries||[];
+    if(!entries.length){
+      body.innerHTML='<p class="text-mutet text-xs">No anomaly-flagged catalysts checked recently — this is the normal, expected state most of the time, not an error.</p>';
+      setHealthDot('dotCatalystWatch','static','No recent entries — normal, not an error');
+      return;
+    }
+    body.innerHTML=entries.map(e=>{
+      const d=new Date(e.ts);
+      const dateStr=`${String(d.getUTCDate()).padStart(2,'0')}/${String(d.getUTCMonth()+1).padStart(2,'0')} ${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')} UTC`;
+      const m=META[e.coin]||{c:'#888'};
+      const moveStr=e.price_move_pct!=null?`${e.price_move_pct>=0?'+':''}${e.price_move_pct.toFixed(1)}%`:'—';
+      const moveColor=e.price_move_pct>=0?'text-up':'text-down';
+      const reason=e.extracted_reason
+        ? `<p class="text-xs mt-1">${e.extracted_reason}</p>`
+        : e.headline_matched
+          ? `<p class="text-xs mt-1 text-mutet">Headline matched but explanation unavailable this cycle.</p>`
+          : `<p class="text-xs mt-1 text-mutet">No matching headline found in this cycle's feeds — flagged unusual, but no clear news-side cause identified.</p>`;
+      return `<div class="border-b border-line last:border-0 pb-2 mb-2 last:pb-0 last:mb-0">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold" style="color:${m.c}">${e.coin}</span>
+          <span class="text-[10px] text-mutet">${dateStr}</span>
+          <span class="text-xs font-bold tnum ${moveColor}">${moveStr}</span>
+        </div>
+        ${e.headline_matched?`<p class="text-[10px] text-mutet mt-1 italic">"${e.headline_matched}" — ${e.headline_source||''}</p>`:''}
+        ${reason}
+      </div>`;
+    }).join('');
+    setHealthDot('dotCatalystWatch','live','Loaded successfully');
+  }catch(e){
+    body.innerHTML='<p class="text-down text-xs">Could not load catalyst watch.</p>';
+    setHealthDot('dotCatalystWatch','error',e.message);
+  }
+}
+
+
 function renderDcaEvoGrid(){
   const host=$('#dcaEvoGrid');if(!host)return;
   const coins=syms().filter(a=>qtyOf(a)>1e-12).sort((x,y)=>statOf(y).val-statOf(x).val);
@@ -10378,6 +10444,7 @@ async function init(){LS.load();buildMobileNav();wire();paintNav();wireSwipeNav(
   await getFx();render();
   await getPrices();render();  // live prices on top
   await backfillPriceHistoryGaps();render(); // fill any missed days with real history, not flat-fill
+  renderCatalystWatch();
   getFG();
   // Warm both background pipelines on boot, regardless of starting tab:
   // - renderCyclesTab() computes the regime scorecard / on-chain divergence /
