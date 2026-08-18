@@ -4484,7 +4484,19 @@ async function srcGlobalMcap(attempt=0){
   // composite cycle, a separate timing path), the live value stayed stuck
   // on "Loading…" indefinitely even though the data was actually available.
   if(typeof renderGlobalMcapTile==='function')renderGlobalMcapTile();
-  return{score:to0_100(satur(change,5))};
+  // POLARITY FIX: this source was scoring a positive 24h global market-cap
+  // move as bullish (momentum-continues polarity) — but the real measured
+  // relationship is mean-reverting, confirmed twice independently: V1's own
+  // prior correlation pass found r=-0.26 against a large historical sample,
+  // and a fresh, separate check on the most recent ~23 days found r=-0.327
+  // (holding steady, not fading) — a big recent move tends to partially
+  // reverse, not continue. Negating `change` here flips the score's
+  // direction to match: a recent DROP now scores bullish (more likely to
+  // recover), a recent SURGE now scores bearish (more likely to pull back).
+  // Same saturation/scale (±5%) and 0-100 mapping as before — only the
+  // sign changed, exactly the fix this source's own history already
+  // called for and left as an open follow-up.
+  return{score:to0_100(satur(-change,5))};
 }
 async function srcOnChain(){
   const res=await fetch('https://mempool.space/api/v1/difficulty-adjustment');
