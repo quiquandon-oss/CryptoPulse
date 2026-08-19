@@ -1719,6 +1719,9 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
             <p id="csvPreviewText" class="text-white"></p>
             <button id="csvUndoBtn" class="w-full bg-panel text-mutet border border-line rounded-lg py-1.5 text-[11px]">Undo this import</button>
           </div>
+          <button id="idrRepairBtn" class="w-full text-sm font-medium bg-panel2 hover:bg-line border border-line rounded-lg px-3 py-2.5 transition mt-2">🔧 Check for IDR round-up quantity bug</button>
+          <p class="text-[10px] text-mutet mt-1">One-time repair for transactions imported before the IDR fix — see preview before anything changes.</p>
+          <div id="idrRepairPreview" class="hidden mt-3 p-3 bg-down/10 border border-down/30 rounded-xl text-xs space-y-2"></div>
         </div>
         <div class="flex flex-wrap gap-2 border-t border-line pt-4">
           <button id="sExport" class="text-sm font-medium bg-panel2 hover:bg-line border border-line rounded-lg px-3 py-2 transition">Export JSON</button>
@@ -6410,6 +6413,7 @@ function wire(){
   $('#csvImportBtn').onclick=()=>$('#csvImportFile').click();
   $('#csvImportFile').onchange=e=>{const f=e.target.files[0];if(f)handleCsvFile(f);e.target.value='';};
   $('#csvUndoBtn').onclick=undoLastImport;
+  $('#idrRepairBtn').onclick=previewIdrQtyRepair;
   $('#scenZoomReset').onclick=function(){if(scenChartInst){scenChartInst.resetZoom();$('#scenZoomReset').classList.add('hidden');}};
   wireRadar();
 }
@@ -6858,7 +6862,7 @@ function mapRevolut(rows){
     if(!type)return;                                       // ignore other rewards/transfers/fiat ops…
     const sym=(r.Symbol||'').trim().toUpperCase();
     if(!CRYPTO.includes(sym))return;                       // unknown asset (or fiat row) -> skipped
-    const qty=csvNum(r.Quantity);
+    let qty=csvNum(r.Quantity);
     const date=csvDate(r.Date);                            // 'Apr 10, 2026, 3:41:03 PM' handled
     if(!qty||!date)return;                                 // unparsable row -> skipped
     let px,usd,eur,ccy;
@@ -6884,7 +6888,23 @@ function mapRevolut(rows){
       // account that had even one IDR-denominated row mixed into the CSV.
       const isIdr=/IDR/i.test(String(r.Price));
       const fx=fxOnDate(date)||state.fx||FX0;
-      if(isIdr){eur=px/IDR_PER_EUR;usd=eur*fx;}
+      if(isIdr){
+        eur=px/IDR_PER_EUR;usd=eur*fx;
+        // Separate bug from the one above, same underlying cause (IDR
+        // handling): Revolut's IDR round-up micro-buys export Quantity AND
+        // Value both scaled down by exactly 1000x — e.g. qty "0.00005847" /
+        // Value "10.00 IDR" for what should be "0.05847" / "10,000.00 IDR".
+        // Confirmed self-consistent at BOTH scales (qty*price≈value either
+        // way), and Price itself is correctly scaled — so detectPriceOutliers
+        // below can't catch this (it only flags price-per-unit anomalies,
+        // and price-per-unit is fine here). The only real tell: Value this
+        // small is not a real transaction — Indonesia's smallest circulating
+        // denomination makes a genuine buy of single-digit rupiah
+        // impossible, so any parsed Value under 1,000 IDR on an IDR-priced
+        // row is the export bug, not an actual micro-transaction.
+        const rawValueIdr=csvNum(r.Value);
+        if(rawValueIdr>0&&rawValueIdr<1000)qty*=1000;
+      }
       else if(isUsd){usd=px;eur=px/fx;}
       else{eur=px;usd=px*fx;}
       ccy=isUsd?'USD':'EUR';
@@ -6993,6 +7013,54 @@ function undoLastImport(){
   $('#csvPreview').classList.add('hidden');
   toast('Import undone');
 }
+
+// ---- One-time repair: Revolut IDR round-up quantity bug ----
+// mapRevolut's isIdr branch now corrects this for every NEW import, but that
+// fix can't reach transactions already sitting in this browser's
+// localStorage from before it shipped — this repairs those in place.
+//
+// Detection is deliberately narrow and evidence-based, not a broad
+// heuristic: `price` on a stored tx is the RAW pre-conversion number from
+// the CSV (see mapRevolut's `price:px`), so for every asset in this
+// portfolio EXCEPT BTC, a genuine EUR-denominated per-unit price has never
+// been anywhere near IDR-scale (100,000+) — LINK/ETH/SOL/HYPE simply don't
+// trade at tens of thousands of euros each. BTC is excluded entirely from
+// this scope on purpose: BTC EUR prices legitimately can be five or six
+// figures, so the same threshold would risk flagging a real BTC purchase.
+// Combined with the implausibly tiny quantity (<0.001) that only exists
+// because of this exact bug, false positives on the remaining assets are
+// not realistically possible with real market data.
+function findIdrQtyBugCandidates(){
+  return state.txs.filter(t=>
+    t.acct==='Revolut' && t.asset!=='BTC' && t.ccy==='EUR' &&
+    t.price>50000 && t.qty>0 && t.qty<0.001
+  );
+}
+function previewIdrQtyRepair(){
+  const cands=findIdrQtyBugCandidates();
+  const el=$('#idrRepairPreview');
+  if(!cands.length){
+    el.innerHTML='<p class="text-mutet">No affected transactions found in this browser — nothing to fix.</p>';
+    el.classList.remove('hidden');
+    return;
+  }
+  const rows=cands.map(t=>{
+    const newQty=t.qty*1000;
+    return `<p class="text-[10px] text-mutet">${t.date} · ${t.asset} · qty ${t.qty.toFixed(8)} → <span class="text-up">${newQty.toFixed(8)}</span></p>`;
+  }).join('');
+  el.innerHTML=`<p class="text-down text-xs font-semibold mb-1">⚠ ${cands.length} transaction(s) look affected:</p>
+    <div class="max-h-40 overflow-y-auto space-y-0.5 border-y border-line/50 py-2 my-1">${rows}</div>
+    <p class="text-mutet text-[10px]">Quantity will be multiplied ×1000 for each row above — review it against your Revolut app before confirming. This cannot be auto-undone (export JSON first from Settings if you want a backup).</p>
+    <button id="idrRepairConfirm" class="w-full mt-2 bg-up/20 hover:bg-up/30 text-up border border-up/40 rounded-lg py-1.5 text-[11px] font-semibold">Apply correction to ${cands.length} transaction(s)</button>`;
+  el.classList.remove('hidden');
+  $('#idrRepairConfirm').onclick=()=>{
+    cands.forEach(t=>{t.qty*=1000;});
+    LS.save();render();renderTxDbCount();
+    el.innerHTML=`<p class="text-up text-xs">✓ Corrected ${cands.length} transaction(s).</p>`;
+    toast('✓ Corrected '+cands.length+' transaction(s)');
+  };
+}
+
 
 
 /* ════════════════════════════════════════════════════════════════
