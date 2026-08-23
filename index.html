@@ -6914,17 +6914,54 @@ function mapRevolut(rows){
   });
   return out;
 }
+// Anything dated on/before this was already reflected in the Neverless seed
+// entries in SEED_TXS (one lump balance-as-of-this-date per asset, e.g.
+// LINK 65.9314 dated 2026-04-11) -- re-importing the full lifetime
+// Neverless statement without this cutoff was the actual bug behind
+// "Neverless CSV import producing wrong results": every individual
+// historical trade got re-added ON TOP OF the seed's already-inclusive
+// lump sum. Confirmed against a real prior import attempt (server backup
+// id=28): LINK went from 65.93 to 693.31 (95 rows added, ~10.5x
+// overcount), BTC from 0.019379 to 0.1244 (43 rows), ETH from 0.00961 to
+// 0.1758 (6 rows) -- purely from re-processing 2025 history that predates
+// the seed.
+const NEVERLESS_SEED_CUTOFF='2026-04-11';
 function mapNeverless(rows){
   const CRYPTO=Object.keys(META);const STAB=['USDT','USDC','EURC','EUR','USD'];const fx=state.fx||FX0;
-  return rows.filter(r=>r.Type==='Trade'&&CRYPTO.includes(r['Asset received'])&&STAB.includes(r['Asset sent'])).map(r=>{
-    const qty=csvNum(r['Amount received']);
-    const usd=csvNum(r['USD price of asset received']);
-    const sent=r['Asset sent'];const amt=parseFloat(r['Amount sent']);
-    const eur=sent==='EURC'?amt/qty:usd/fx;
+  const out=[];
+  rows.forEach(r=>{
     const date=csvDate(r.Date)||String(r.Date).slice(0,10);
+    if(!date||date<=NEVERLESS_SEED_CUTOFF)return;              // already in the seed lump sum
+    const recv=r['Asset received'];
+    if(!CRYPTO.includes(recv))return;                          // not one of the 5 tracked assets
     const srcId='nlv:'+r['ID'];
-    return{id:uid(),date,asset:r['Asset received'],acct:'Neverless',type:'buy',qty,price:usd,ccy:'USD',usd,eur,srcId};
-  }).filter(t=>t.qty>0&&t.usd>0&&t.date);
+    if(r.Type==='Trade'&&STAB.includes(r['Asset sent'])){
+      // A real purchase: tracked crypto received, stablecoin/fiat sent.
+      const qty=csvNum(r['Amount received']);
+      const usd=csvNum(r['USD price of asset received']);
+      const sent=r['Asset sent'];const amt=parseFloat(r['Amount sent']);
+      const eur=sent==='EURC'?amt/qty:usd/fx;
+      if(!(qty>0)||!(usd>0))return;
+      out.push({id:uid(),date,asset:recv,acct:'Neverless',type:'buy',qty,price:usd,ccy:'USD',usd,eur,srcId});
+    }else if(r.Type==='Deposit'&&!r['Asset sent']){
+      // Previously silently dropped entirely (Type!=='Trade'). Covers both
+      // genuine external wallet transfers-in AND Neverless's own daily
+      // interest/rewards, paid in-kind (BTC/ETH/SOL dust, roughly one row
+      // per day) -- the export doesn't distinguish the two, and in
+      // practice almost every Deposit row seen here IS the daily dust
+      // pattern. 'USD price of asset received' is present in the export
+      // for these rows but deliberately not used as a cost basis --
+      // treated the same $0-cost way as Revolut's staking rewards (see
+      // mapRevolut/isStakingReward): every amount seen here is a few
+      // cents at most, so a precise historical cost basis is effort spent
+      // on a rounding error, and $0-cost keeps "invested capital"
+      // meaning money actually put in, not inflated by passive accrual.
+      const qty=csvNum(r['Amount received']);
+      if(!(qty>0))return;
+      out.push({id:uid(),date,asset:recv,acct:'Neverless',type:'buy',qty,price:0,ccy:'EUR',usd:0,eur:0,srcId,isReward:true});
+    }
+  });
+  return out;
 }
 let _lastImportIds=null; // batch just added, kept for one-tap Undo
 function renderTxDbCount(){const el=$('#txDbCount');if(el)el.textContent=state.txs.length+' txns';}

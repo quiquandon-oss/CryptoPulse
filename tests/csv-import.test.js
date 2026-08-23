@@ -97,6 +97,102 @@ describe('mapRevolut() — CSV import parsing', () => {
   });
 });
 
+describe('mapNeverless() — CSV import parsing', () => {
+  let scope;
+
+  beforeAll(() => {
+    const src = [
+      extractConst('NEVERLESS_SEED_CUTOFF'),
+      extractFunctions('csvNum', 'csvDate', 'mapNeverless'),
+    ].join('\n\n');
+    const META = { BTC: {}, ETH: {}, SOL: {}, LINK: {}, HYPE: {} };
+    const state = { fx: 1.155 };
+    let _uid = 0;
+    const uid = () => 'test' + (_uid++);
+    scope = evalInScope(src, { META, state, uid });
+  });
+
+  it('regression: a Trade row dated on the seed cutoff date is skipped (already in the seed lump sum)', () => {
+    const rows = [{ Type: 'Trade', Date: '2026-04-11T12:00:00Z', 'Amount received': '10', 'Asset received': 'LINK', 'Amount sent': '90', 'Asset sent': 'USDT', 'USD price of asset received': '9', ID: 'a' }];
+    expect(scope.mapNeverless(rows)).toHaveLength(0);
+  });
+
+  it('regression: a Trade row dated well before the seed cutoff is skipped (real bug, real fix)', () => {
+    // Actual shape of the bug: re-importing the full lifetime Neverless
+    // statement used to re-add every one of these on top of the seed's
+    // already-inclusive lump sum -- confirmed against a real prior import
+    // that took LINK from 65.93 to 693.31 this way.
+    const rows = [{ Type: 'Trade', Date: '2025-08-16T20:28:20Z', 'Amount received': '1.27434982151963284', 'Asset received': 'LINK', 'Amount sent': '24.99', 'Asset sent': 'EURC', 'USD price of asset received': '22.871121740514', ID: '283cf7e2-c0a4-47c5-9de5-43a8288e9860' }];
+    expect(scope.mapNeverless(rows)).toHaveLength(0);
+  });
+
+  it('a Trade row dated after the seed cutoff is imported as a real buy', () => {
+    const rows = [{ Type: 'Trade', Date: '2026-08-21T09:30:02Z', 'Amount received': '2', 'Asset received': 'LINK', 'Amount sent': '19.6', 'Asset sent': 'EURC', 'USD price of asset received': '11.429714057189', ID: 'eb0e434b-2525-41a2-891b-0dbcf8d9eb22' }];
+    const parsed = scope.mapNeverless(rows);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].asset).toBe('LINK');
+    expect(parsed[0].qty).toBeCloseTo(2, 8);
+    expect(parsed[0].isReward).toBeUndefined();
+  });
+
+  it('regression: a post-cutoff Deposit row (no counter-asset) is imported, not silently dropped', () => {
+    // Previously the Type==='Trade' filter dropped every Deposit row
+    // entirely -- including genuine external transfers-in like this one.
+    const rows = [{ Type: 'Deposit', Date: '2026-05-10T00:35:13Z', 'Amount received': '0.0014', 'Asset received': 'LINK', 'Amount sent': '', 'Asset sent': '', 'USD price of asset received': '10.389376654023', ID: '840fd809-7a5e-4dd5-9193-9174978a785a' }];
+    const parsed = scope.mapNeverless(rows);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].asset).toBe('LINK');
+    expect(parsed[0].qty).toBeCloseTo(0.0014, 8);
+    expect(parsed[0].isReward).toBe(true);
+    expect(parsed[0].eur).toBe(0); // $0-cost, same treatment as Revolut staking rewards
+  });
+
+  it('a post-cutoff Deposit row is treated as $0-cost even though a real USD price is present in the export', () => {
+    // Deliberate: same reasoning as Revolut's staking rewards -- these are
+    // consistently sub-$1 dust (daily interest paid in-kind), not a
+    // deliberate purchase decision worth tracking a precise cost basis for.
+    const rows = [{ Type: 'Deposit', Date: '2026-06-01T00:02:16Z', 'Amount received': '0.000001', 'Asset received': 'BTC', 'Amount sent': '', 'Asset sent': '', 'USD price of asset received': '95000', ID: 'x' }];
+    const parsed = scope.mapNeverless(rows);
+    expect(parsed[0].usd).toBe(0);
+    expect(parsed[0].price).toBe(0);
+  });
+
+  it('a Deposit row for an untracked asset is skipped', () => {
+    const rows = [{ Type: 'Deposit', Date: '2026-05-10T00:00:00Z', 'Amount received': '10', 'Asset received': 'DOGE', 'Amount sent': '', 'Asset sent': '', 'USD price of asset received': '0.1', ID: 'x' }];
+    expect(scope.mapNeverless(rows)).toHaveLength(0);
+  });
+
+  it('a Deposit row that DOES have a counter-asset (i.e. is actually a Trade misfiled, or malformed) is not treated as a reward deposit', () => {
+    const rows = [{ Type: 'Deposit', Date: '2026-05-10T00:00:00Z', 'Amount received': '10', 'Asset received': 'LINK', 'Amount sent': '5', 'Asset sent': 'USDT', 'USD price of asset received': '9', ID: 'x' }];
+    expect(scope.mapNeverless(rows)).toHaveLength(0);
+  });
+
+  it('a Trade row where the counter-asset is a crypto-to-crypto swap (not a stablecoin) is skipped, not mis-imported', () => {
+    // Known scope limitation, not fixed here: crypto-to-crypto trades
+    // (e.g. LINK swapped for XPL) aren't reflected as a LINK reduction.
+    // All real occurrences of this in the actual statement predate the
+    // seed cutoff anyway, so they're excluded by that filter regardless.
+    const rows = [{ Type: 'Trade', Date: '2026-08-21T09:30:02Z', 'Amount received': '100', 'Asset received': 'XPL', 'Amount sent': '5', 'Asset sent': 'LINK', 'USD price of asset received': '1.3', ID: 'x' }];
+    expect(scope.mapNeverless(rows)).toHaveLength(0);
+  });
+
+  it('end-to-end: the real post-cutoff LINK rows from the actual uploaded statement produce exactly 2 buys + 1 reward, not 95 double-counted historical rows', () => {
+    const rows = [
+      // pre-cutoff historical noise -- must be excluded
+      { Type: 'Trade', Date: '2025-08-16T20:28:20Z', 'Amount received': '1.27', 'Asset received': 'LINK', 'Amount sent': '24.99', 'Asset sent': 'EURC', 'USD price of asset received': '22.87', ID: 'old1' },
+      { Type: 'Deposit', Date: '2026-03-29T02:11:07Z', 'Amount received': '7.55722224', 'Asset received': 'LINK', 'Amount sent': '', 'Asset sent': '', 'USD price of asset received': '8.48', ID: 'old2' },
+      // real post-cutoff activity -- must be included
+      { Type: 'Deposit', Date: '2026-05-10T00:35:13Z', 'Amount received': '0.0014', 'Asset received': 'LINK', 'Amount sent': '', 'Asset sent': '', 'USD price of asset received': '10.39', ID: 'new1' },
+      { Type: 'Trade', Date: '2026-08-21T09:30:02Z', 'Amount received': '2', 'Asset received': 'LINK', 'Amount sent': '19.6', 'Asset sent': 'EURC', 'USD price of asset received': '11.43', ID: 'new2' },
+      { Type: 'Trade', Date: '2026-08-23T01:16:29Z', 'Amount received': '0.478', 'Asset received': 'LINK', 'Amount sent': '4.79', 'Asset sent': 'EURC', 'USD price of asset received': '11.68', ID: 'new3' },
+    ];
+    const parsed = scope.mapNeverless(rows);
+    expect(parsed).toHaveLength(3);
+    expect(parsed.filter(t => t.isReward).length).toBe(1);
+    expect(parsed.filter(t => !t.isReward).length).toBe(2); // the "2 LINK transactions" Olivier expected
+  });
+});
+
 describe('findIdrQtyBugCandidates() — one-time repair for already-imported bad rows', () => {
   function bindWithState(txs) {
     const src = extractFunctions('findIdrQtyBugCandidates');
