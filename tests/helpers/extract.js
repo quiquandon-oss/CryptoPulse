@@ -51,8 +51,11 @@ export function extractFunctions(...names) {
   for (const name of names) {
     const startMatch = src.match(new RegExp(`function\\s+${name}\\s*\\(`));
     if (!startMatch) throw new Error(`Could not find "function ${name}(" in index.html -- was it renamed or removed?`);
-    const startIdx = startMatch.index;
-    const braceStart = src.indexOf('{', startIdx);
+    // Keep a leading `async ` so async functions (await inside) stay valid.
+    const startIdx = src.slice(Math.max(0, startMatch.index - 6), startMatch.index) === 'async '
+      ? startMatch.index - 6
+      : startMatch.index;
+    const braceStart = src.indexOf('{', startMatch.index);
     if (braceStart === -1) throw new Error(`Could not find opening brace for ${name}`);
     let depth = 0, i = braceStart;
     for (; i < src.length; i++) {
@@ -101,7 +104,7 @@ export function evalInScope(source, extraGlobals = {}) {
 // the caller having to list every name twice.
 function extractTopLevelNames(source) {
   const names = new Set();
-  for (const m of source.matchAll(/^function\s+([A-Za-z_$][\w$]*)\s*\(/gm)) names.add(m[1]);
+  for (const m of source.matchAll(/^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/gm)) names.add(m[1]);
   for (const m of source.matchAll(/^(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=/gm)) names.add(m[1]);
   return [...names];
 }

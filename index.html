@@ -2614,15 +2614,49 @@ async function getFx(force){
     if(cachedRate)state.fx=cachedRate; // fall back to last known good rate rather than leaving it unset
   }
 }
+// FIX: real bug, confirmed in D1 — from 2026-09-29 10:15 UTC every /history log
+// carried btc_price=null (state.prices.BTC never populated), across several
+// separate app opens, after 2 weeks of zero nulls. getPrices() had three gaps:
+//  1. it never checked the HTTP status, so a CoinGecko 429/401 error body (which
+//     has no coin keys) silently populated nothing;
+//  2. no retry on 429, although the same shared demo key is already known to be
+//     rate-limited (srcGlobalMcap retries for exactly this reason);
+//  3. setStatus(true) ran regardless, so the dot said "live prices" while no
+//     price had loaded.
+// Now: retry 429 with backoff, fall back to Hyperliquid's keyless mid prices for
+// any held asset CoinGecko didn't deliver, and only report "live" when every held
+// asset really has a fresh price from this call.
+async function fetchCoinGeckoPrices(ids){
+  for(let attempt=0;;attempt++){
+    const r=await cgFetch(`${CG}/simple/price?ids=${ids.join(',')}&vs_currencies=usd,eur&include_24hr_change=true`);
+    if(r.status===429&&attempt<2){await new Promise(res=>setTimeout(res,2000*(attempt+1)));continue;}
+    if(!r.ok)throw new Error('CoinGecko simple/price '+r.status);
+    return r.json();
+  }
+}
+async function fetchHyperliquidMids(){
+  const r=await fetch('https://api.hyperliquid.xyz/info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'allMids'})});
+  if(!r.ok)throw new Error('Hyperliquid allMids '+r.status);
+  return r.json();
+}
 async function getPrices(){const ids=syms().map(s=>META[s]?.id).filter(Boolean);if(!ids.length)return;
-  try{const r=await cgFetch(`${CG}/simple/price?ids=${ids.join(',')}&vs_currencies=usd,eur&include_24hr_change=true`);const j=await r.json();
-    const fetchedAt=Date.now();
-    syms().forEach(s=>{const id=META[s]?.id;if(j[id])state.prices[s]={usd:j[id].usd,eur:j[id].eur,chg:j[id].usd_24h_change,fetchedAt};});
-    // push live price into today's slot of PRICE_HISTORY (in memory) → RSI / trend / sparklines are live
-    const _td=NOW();
-    syms().forEach(s=>{const pv=state.prices[s]?.usd;if(pv&&PRICE_HISTORY[s])PRICE_HISTORY[s][_td]=pv;});
-    LS.px(); // persist today's price into localStorage → extends PRICE_HISTORY forward
-    setStatus(true);}catch(e){setStatus(false);}}
+  const fetchedAt=Date.now();
+  const heldSyms=()=>syms().filter(s=>META[s]&&qtyOf(s)>1e-12);
+  const fresh=s=>state.prices[s]?.fetchedAt===fetchedAt;
+  try{const j=await fetchCoinGeckoPrices(ids);
+    syms().forEach(s=>{const q=j?.[META[s]?.id];if(q&&Number.isFinite(q.usd)&&q.usd>0)state.prices[s]={usd:q.usd,eur:q.eur,chg:q.usd_24h_change,fetchedAt};});
+  }catch(e){console.warn('getPrices: CoinGecko failed:',e.message);}
+  const missing=heldSyms().filter(s=>!fresh(s));
+  if(missing.length){
+    try{const mids=await fetchHyperliquidMids();
+      missing.forEach(s=>{const p=Number(mids?.[s]);if(Number.isFinite(p)&&p>0)state.prices[s]={usd:p,eur:p/(state.fx||FX0),chg:state.prices[s]?.chg,fetchedAt};});
+    }catch(e){console.warn('getPrices: Hyperliquid fallback failed:',e.message);}
+  }
+  // push live price into today's slot of PRICE_HISTORY (in memory) → RSI / trend / sparklines are live
+  const _td=NOW();
+  syms().forEach(s=>{const pv=state.prices[s]?.usd;if(fresh(s)&&pv&&PRICE_HISTORY[s])PRICE_HISTORY[s][_td]=pv;});
+  LS.px(); // persist today's price into localStorage → extends PRICE_HISTORY forward
+  setStatus(heldSyms().every(fresh));}
 function setStatus(ok){$('#statusLine').textContent=ok?'● live prices':'● embedded snapshot';$('#statusLine').style.color=ok?'#3BF38B':'#7A8499';}
 function spin(on){const ic=$('#refreshIcon');ic.style.transition='transform .8s';ic.style.transform=on?'rotate(360deg)':'';if(!on)setTimeout(()=>{ic.style.transition='none';ic.style.transform='';},800);}
 async function refresh(){spin(true);await Promise.all([getFx(true),getPrices()]);render();if(state.view==='markets')fetchTopMarkets();spin(false);}
