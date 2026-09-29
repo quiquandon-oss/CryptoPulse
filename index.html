@@ -1954,7 +1954,17 @@ function hydrate(txs){return txs.map(t=>{const fx=fxOnDate(t.date);
 function histPx(a,d){const h=PRICE_HISTORY[a];if(!h)return 0;if(h[d]!=null)return h[d];
   // nearest previous date
   const ks=Object.keys(h).sort();let last=h[ks[0]];for(const k of ks){if(k<=d)last=h[k];else break;}return last;}
-function pxUsd(a){if(a===undefined)return 0;if(state.prices[a]?.usd)return state.prices[a].usd;return histPx(a,TODAY);}
+// FIX: real bug, confirmed against the user's own chart — when a held asset had no
+// live price this cycle (CoinGecko slow/failed/rate-limited), this used to fall back
+// to histPx(a,TODAY), and TODAY is a frozen build-time constant (2026-06-26), NOT the
+// real current date. So the "today" point of the Total Portfolio Value chart (the
+// only point that reads live prices) silently repriced every affected asset at its
+// June-26 price while every earlier day used the real backfilled history: with the
+// current holdings that gives $2,437.81 instead of ~$4,204 — the exact cliff seen at
+// the right edge of the chart. Fall back to the most recent KNOWN price instead
+// (histPx already carries the latest earlier date forward), so a missing live quote
+// degrades to "yesterday's price", never to a months-old one.
+function pxUsd(a){if(a===undefined)return 0;if(state.prices[a]?.usd)return state.prices[a].usd;return histPx(a,NOW()>TODAY?NOW():TODAY);}
 function pxNow(a){const u=pxUsd(a);return state.ccy==='USD'?u:u/(state.fx||FX0);}
 function chg24(a){if(state.prices[a]?.chg!=null)return state.prices[a].chg;
   const h=PRICE_HISTORY[a];if(!h)return 0;const ks=Object.keys(h);const t=h[ks[ks.length-1]],y=h[ks[ks.length-2]];return y?(t-y)/y*100:0;}
