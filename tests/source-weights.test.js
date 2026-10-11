@@ -70,3 +70,18 @@ describe('hloi exclusion', () => {
     expect(b.completeness).toBeCloseTo((total - 4) / total, 9);
   });
 });
+
+describe('automatic weighting apply gate', () => {
+  const { weightAdaptationApplicable } = evalInScope(
+    [extractConst('COMPOSITE_WEIGHTS_VERSION'), extractFunctions('weightAdaptationApplicable')].join('\n\n'), {});
+  const base = { defaults_version: '2026-10-11-hloi', policy: { minFactor: 0.5, maxFactor: 1.5 }, defaults: { fng: [14, 1], usd: [8, 0.6] },
+    latest: { run_ts: 1, changed: ['fng'], weights: { fng: [15.4, 1], usd: [8, 0.6] } }, evaluation: { verdict: 'IMPROVED', samples_after: 40 } };
+  it('allows apply only for an out-of-sample IMPROVED proposal within bounds and matching defaults', () => {
+    expect(weightAdaptationApplicable(base).ok).toBe(true);
+    expect(weightAdaptationApplicable({ ...base, evaluation: { verdict: 'NO_DIFFERENCE', samples_after: 40 } }).ok).toBe(false);
+    expect(weightAdaptationApplicable({ ...base, evaluation: null }).ok).toBe(false);
+    expect(weightAdaptationApplicable({ ...base, defaults_version: 'old' }).why).toMatch(/differ/);
+    expect(weightAdaptationApplicable({ ...base, latest: { ...base.latest, weights: { fng: [30, 1], usd: [8, 0.6] } } }).why).toMatch(/outside policy/);
+    expect(weightAdaptationApplicable(null).ok).toBe(false);
+  });
+});

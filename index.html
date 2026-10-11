@@ -1772,6 +1772,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <p class="hidden text-xs text-mutet" id="weightsNote">Adjust each source's relative importance in the composite score. Auto-renormalized to 100% under the hood — these are relative weights, not literal percentages. Changes apply on the next Sentiment tab refresh.</p>
           <div class="hidden text-[10px] text-mutet mt-2" id="weightsDiagnostics" data-follows-note="weightsNote"></div>
         </div>
+        <div id="weightAdaptStatus" class="text-[11px] rounded-md px-2 py-1.5" data-section="sentWeights" style="background:rgba(0,0,0,.2)">Automatic weighting: loading…</div>
         <div id="sentWeightControls" class="space-y-3" data-section="sentWeights"></div>
         <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-line" data-section="sentWeights">
           <span class="text-[10px] text-mutet" id="weightsVersionLabel"></span>
@@ -5031,6 +5032,50 @@ function renderSentimentWeightControls(){
 // reading's actual share or exclusion reason, and how the numbers are made.
 // These are consistency checks of the arithmetic, not evidence that a weight
 // is predictive.
+// ---- Automatic weighting (shadow mode, proposed by the Pulse Worker) ----
+// Read-only status of /weight-adaptation. Proposals never change the live
+// composite by themselves: "Apply" is offered only when the latest proposal
+// was scored out of sample as IMPROVED and matches these default weights, and
+// it writes through the same per-browser overrides as the sliders. "Reset to
+// defaults" undoes it.
+let weightAdaptation=null;
+function weightAdaptationApplicable(a){
+  if(!a||!a.latest||!a.latest.changed||!a.evaluation)return{ok:false,why:'no proposal with changes yet'};
+  if(a.defaults_version!==COMPOSITE_WEIGHTS_VERSION)return{ok:false,why:`worker defaults ${a.defaults_version} differ from this page's ${COMPOSITE_WEIGHTS_VERSION}`};
+  if(a.evaluation.verdict!=='IMPROVED')return{ok:false,why:`out-of-sample verdict ${a.evaluation.verdict} (${a.evaluation.samples_after} sample(s))`};
+  const pol=a.policy||{};
+  for(const [id,[w]] of Object.entries(a.latest.weights)){
+    const d=(a.defaults||{})[id];if(!d)return{ok:false,why:`unknown source ${id}`};
+    if(w<d[0]*pol.minFactor-1e-9||w>d[0]*pol.maxFactor+1e-9)return{ok:false,why:`${id} outside policy bounds`};
+  }
+  return{ok:true,why:''};
+}
+function renderWeightAdaptation(){
+  const host=$('#weightAdaptStatus');if(!host)return;
+  const a=weightAdaptation;
+  if(!a){host.textContent='Automatic weighting: status unavailable (Pulse Worker /weight-adaptation did not answer).';return;}
+  const t=ts=>ts?new Date(ts).toLocaleString('en-GB',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'short'}):'—';
+  const run=a.latest||a.preview;
+  const runLine=a.latest?`Last run ${t(a.latest.run_ts)} · ${a.latest.n_samples} sample(s) · ${a.latest.reason}`:a.preview?`No scheduled run yet (daily 06:00 UTC). Preview now: ${a.preview.n_samples} sample(s) · ${a.preview.reason}`:'No run yet.';
+  const ev=a.evaluation?` Out-of-sample: ${a.evaluation.verdict} on ${a.evaluation.samples_after} later sample(s) → ${a.evaluation.next_action}.`:'';
+  const ap=weightAdaptationApplicable(a);
+  host.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:space-between">
+      <span><span class="font-semibold">Automatic weighting:</span> <span style="color:#F5B843">${a.mode==='shadow'?'Shadow mode':a.mode}</span> — proposals only, live weights unchanged</span>
+      <button class="text-[10px] border border-line rounded-md px-2 py-1" ${ap.ok?'':'disabled style="opacity:.45;cursor:not-allowed"'} onclick="applyWeightAdaptation()" title="${ap.ok?'Apply the proposed weights as your Settings overrides':'Not available: '+ap.why}">Apply proposed weights</button>
+    </div>
+    <div class="text-mutet mt-1">${runLine}.${ev}${run&&run.changed&&run.changed.length?` Changed: ${run.changed.join(', ')}.`:''}${ap.ok?'':` Apply unavailable: ${ap.why}.`}</div>`;
+}
+async function loadWeightAdaptation(){
+  try{weightAdaptation=await fetch(`${PULSE_WORKER_URL}/weight-adaptation`,{cache:'no-store'}).then(r=>r.ok?r.json():null);}catch(e){weightAdaptation=null;}
+  renderWeightAdaptation();
+}
+function applyWeightAdaptation(){
+  const a=weightAdaptation,ap=weightAdaptationApplicable(a);if(!ap.ok)return;
+  if(!confirm(`Apply the ${a.latest.changed.length} proposed weight change(s) (${a.latest.changed.join(', ')}) as your Settings overrides? "Reset to defaults" undoes this.`))return;
+  for(const id of a.latest.changed){const w=a.latest.weights[id][0];saveSentimentWeight(id,w);const s=COMPOSITE_SOURCES.find(x=>x.id===id);if(s)s.weight=w;}
+  try{localStorage.setItem('cp_weight_adaptation_applied',JSON.stringify({run_ts:a.latest.run_ts,applied_ts:Date.now(),changed:a.latest.changed}));}catch(e){}
+  renderSentimentWeightControls();
+}
 function renderWeightDiagnostics(){
   const status=$('#sentWeightsStatus'),host=$('#weightsDiagnostics');
   let overrides={};try{overrides=JSON.parse(localStorage.getItem('cp2_sentiment_weights')||'{}');}catch(e){}
@@ -6676,6 +6721,7 @@ function wire(){
   renderSentimentWeightControls();
   renderCompositeBreakdown();
   restoreCollapsedSections();
+  loadWeightAdaptation();
   {const l=$('#weightsVersionLabel');if(l){const last=COMPOSITE_WEIGHTS_CHANGELOG[COMPOSITE_WEIGHTS_CHANGELOG.length-1];l.textContent=`Default weights ${COMPOSITE_WEIGHTS_VERSION}: ${last.change}.`;}}
   {
     const slider=$('#combinedWeightSlider'),label=$('#combinedWeightLabel');
