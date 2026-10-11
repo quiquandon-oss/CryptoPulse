@@ -47,7 +47,7 @@ describe('Source / Now / Corr table', () => {
     const h = render(ANALYSIS, { onchain: 83, funding: 36 });
     expect(h).toContain('-0.02*');
     expect(h).toContain('12 point(s), 24h lag — too few to rely on');
-    expect(h).toContain('not predictive value');
+    expect(h).toContain('not proof of predictive value');
   });
   it('details show configured weight and the actual breakdown contribution', () => {
     const breakdown = { ts: Date.now(), rows: [{ id: 'onchain', contribution: 3.2, push: 1.4, effectiveWeightPct: 3.9 }], missing: [{ id: 'hloi' }] };
