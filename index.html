@@ -3336,6 +3336,46 @@ function togglePulseAnalysisExpand(bodyId){
 // one row per source (current score + correlation + mini bar), collapsed to
 // the top 6 strongest correlations by default since that's most of what
 // anyone actually needs from a list already sorted by strength.
+// ---- Source detail (row tap) for the Source / Now / Corr table ----
+// Only reads values that already exist: configured weights (COMPOSITE_SOURCES),
+// the latest composite breakdown (computeCompositeBreakdown), /analysis sample
+// counts and the latest /history row. Nothing here is recalculated.
+const CORR_MIN_RELIABLE_SAMPLES=30;
+const SOURCE_STALE_MS=2*3600000;
+function sourceRowState(name,latestSources,perSourceEntry){
+  const inLatest=latestSources&&latestSources[name]!=null;
+  const err=(window.__sourceErrors||{})[name];
+  const collecting=!inLatest&&err&&/INSUFFICIENT_HISTORY|NO_DATA/.test(err.message||'');
+  return{inLatest,collecting,unavailable:!inLatest&&!collecting,error:err?err.message:null,
+    samples:perSourceEntry?perSourceEntry.samples??null:0};
+}
+function sourceDetailHtml(name,d,st,lagHours){
+  let b=window.__lastCompositeBreakdown;
+  if(!b){try{b=JSON.parse(localStorage.getItem('cp_last_composite_breakdown')||'null');}catch(e){b=null;}}
+  const cfg=(typeof COMPOSITE_SOURCES!=='undefined'?COMPOSITE_SOURCES:[]).find(s=>s.id===name);
+  const row=b&&b.rows?b.rows.find(r=>r.id===name):null;
+  const miss=b&&b.missing?b.missing.find(m=>m.id===name):null;
+  const histTs=window.__lastPulseHistoryTs;
+  const stale=histTs&&Date.now()-histTs>SOURCE_STALE_MS;
+  const t=ts=>ts?new Date(ts).toLocaleString('en-GB',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'short'}):'—';
+  const line=(k,v)=>`<div class="flex justify-between gap-3"><span class="text-mutet">${k}</span><span class="tnum text-right">${v}</span></div>`;
+  let quality;
+  if(st.collecting)quality='<span style="color:#F5B843">Collecting — not enough history yet</span>';
+  else if(st.unavailable)quality=`<span style="color:#F5606C">Unavailable in the latest reading</span>`;
+  else if(stale)quality='<span style="color:#F5B843">Stale — latest reading over 2h old</span>';
+  else quality='<span style="color:#3BF38B">OK</span>';
+  const samples=st.samples;
+  return `<div class="text-[10px] px-2 mb-1 rounded-md" style="padding-top:6px;padding-bottom:6px;background:rgba(0,0,0,.2);line-height:1.6">
+    ${cfg?line('Configured weight',`${cfg.weight} × confidence ${cfg.confidence??1}`):line('Configured weight','not a composite source')}
+    ${line('Composite contribution',row?`${row.contribution.toFixed(1)} pts (${(row.push>=0?'+':'')+row.push.toFixed(1)} vs 50) · ${row.effectiveWeightPct.toFixed(1)}% weight`:miss?'excluded (weight redistributed, not counted as neutral)':'—')}
+    ${line('Last reading',t(histTs)+(b&&b.ts?` · breakdown ${t(b.ts)}`:''))}
+    ${line('Correlation sample',samples!=null?`${samples} point(s), ${lagHours}h lag${samples<CORR_MIN_RELIABLE_SAMPLES?' — too few to rely on':''}`:'—')}
+    ${line('Data quality',quality)}
+    ${st.error?`<div class="text-mutet" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${String(st.error).replace(/"/g,'&quot;')}">Last error: ${String(st.error).slice(0,90)}</div>`:''}
+    <div class="text-mutet">Correlation is a past association, not proof of predictive value.</div>
+  </div>`;
+}
+function toggleSourceDetail(id){const el=document.getElementById(id);if(el)el.classList.toggle('hidden');}
 function renderPulseAnalysis(a,statusId,bodyId,latestSourcesOverride){
   statusId=statusId||'pulseAnalysisStatus';bodyId=bodyId||'pulseCorrelationBody';
   const host=$('#'+bodyId);const status=$('#'+statusId);
@@ -3376,6 +3416,13 @@ function renderPulseAnalysis(a,statusId,bodyId,latestSourcesOverride){
   // it explicitly removes any ambiguity about scope or timing entirely.
   const latestSources=latestSourcesOverride||{};
   const perSrc=Object.entries(a.perSourceCorrelation||{}).sort((x,y)=>Math.abs(y[1].correlation||0)-Math.abs(x[1].correlation||0));
+  // Configured composite sources with no history yet (e.g. a newly added
+  // source) get a row too, shown as collecting/unavailable, always visible
+  // directly under the top correlations rather than hidden.
+  const noHistorySrc=[];
+  (typeof COMPOSITE_SOURCES!=='undefined'?COMPOSITE_SOURCES:[]).forEach(src=>{
+    if(!(a.perSourceCorrelation||{})[src.id])noHistorySrc.push([src.id,{correlation:null,samples:0,noHistory:true}]);
+  });
   const rowHtml=([name,d],idx)=>{
     const c=d.correlation==null?'#94A3B8':Math.abs(d.correlation)>=0.3?(d.correlation>0?'#3BF38B':'#F5606C'):'#94A3B8';
     const curScore=latestSources[name];
@@ -3386,7 +3433,18 @@ function renderPulseAnalysis(a,statusId,bodyId,latestSourcesOverride){
     // red/orange/yellow/green gradient (was a duller 3-stop red/gray/green),
     // same flex-1 sizing so it fills available row space like Hyperliquid's
     // does (was a cramped fixed 70px), same rect/viewBox proportions.
-    return `<div class="flex items-center gap-1.5 py-1.5 text-xs border-t border-line/30 first:border-t-0">
+    const st=sourceRowState(name,latestSources,d.noHistory?null:d);
+    const detailId='srcDetail_'+bodyId+'_'+idx;
+    const lowSample=d.correlation!=null&&d.samples!=null&&d.samples<CORR_MIN_RELIABLE_SAMPLES;
+    if(d.noHistory&&curScore==null){
+      return `<div class="border-t border-line/30 first:border-t-0"><div class="flex items-center gap-1.5 py-1.5 text-xs" style="cursor:pointer" onclick="toggleSourceDetail('${detailId}')">
+        <span class="text-mutet shrink-0 truncate" style="width:64px">${name}</span>
+        <span class="tnum font-semibold w-7 shrink-0 text-right" style="color:#94A3B8">—</span>
+        <span class="flex-1 mx-1 text-right"><span class="px-1.5 py-0.5 rounded-full" style="font-size:9px;${st.collecting?'background:rgba(245,184,67,.15);color:#F5B843':'background:rgba(245,96,108,.15);color:#F5606C'}">${st.collecting?'Collecting':'Unavailable'}</span></span>
+        <span class="tnum shrink-0 text-right text-mutet" style="width:44px">—</span>
+      </div><div id="${detailId}" class="hidden">${sourceDetailHtml(name,d,st,a.lagHours)}</div></div>`;
+    }
+    return `<div class="border-t border-line/30 first:border-t-0"><div class="flex items-center gap-1.5 py-1.5 text-xs" style="cursor:pointer" onclick="toggleSourceDetail('${detailId}')">
       <span class="text-mutet shrink-0 truncate" style="width:64px">${name}</span>
       <span class="tnum font-semibold w-7 shrink-0 text-right" style="color:${scoreColor}">${curScore!=null?curScore:'—'}</span>
       <svg viewBox="0 0 200 14" width="100%" height="14" class="flex-1 mx-1" style="min-width:60px;width:100%;height:14px">
@@ -3397,12 +3455,13 @@ function renderPulseAnalysis(a,statusId,bodyId,latestSourcesOverride){
         <rect x="4" y="4" width="192" height="6" rx="3" fill="url(#${gradId})"/>
         <polygon points="-4,0 4,0 0,6" fill="#E5E7EB" transform="translate(${markerX},1)"/>
       </svg>
-      <span class="tnum font-semibold shrink-0 text-right" style="width:44px;color:${c}">${fmt(d.correlation)}</span>
-    </div>`;
+      <span class="tnum font-semibold shrink-0 text-right" style="width:44px;color:${c};${lowSample?'opacity:.45':''}" title="${d.samples!=null?d.samples+' sample(s)':''}">${fmt(d.correlation)}${lowSample?'*':''}</span>
+    </div><div id="${detailId}" class="hidden">${sourceDetailHtml(name,d,st,a.lagHours)}</div></div>`;
   };
   const TOP_N=6;
   h+=`<div class="flex items-center gap-1.5 pb-1 text-[9px] text-mutet uppercase tracking-wide"><span class="shrink-0" style="width:64px">Source</span><span class="w-7 shrink-0 text-right">Now</span><span class="flex-1 mx-1"></span><span class="shrink-0 text-right" style="width:44px">Corr</span></div>`;
   h+=perSrc.slice(0,TOP_N).map((e,i)=>rowHtml(e,i)).join('');
+  h+=noHistorySrc.map((e,i)=>rowHtml(e,1000+i)).join('');
   const rest=perSrc.slice(TOP_N);
   if(rest.length){
     const isOpen=!!pulseAnalysisExpanded[bodyId];
@@ -3410,6 +3469,7 @@ function renderPulseAnalysis(a,statusId,bodyId,latestSourcesOverride){
     h+=`<button id="${bodyId}_toggleBtn" data-total="${perSrc.length}" class="w-full text-center text-[10px] text-neon hover:underline mt-2 pt-1" onclick="togglePulseAnalysisExpand('${bodyId}')">${isOpen?'Show top correlations only':'Show all '+perSrc.length+' sources'}</button>`;
   }
   h+=`<p class="text-[10px] text-mutet mt-3 pt-2 border-t border-line/50">${a.interpretation}</p>`;
+  h+=`<p class="text-[10px] text-mutet mt-1">Tap a source for weight, contribution and data quality. * fewer than ${CORR_MIN_RELIABLE_SAMPLES} samples — not reliable. Correlation shows past association, not predictive value.</p>`;
   host.innerHTML=h;
 }
 async function runCustomCorrelationAnalysis(){
@@ -4887,15 +4947,15 @@ function renderCompositeBreakdown(){
   if(!b){try{b=JSON.parse(localStorage.getItem('cp_last_composite_breakdown')||'null');}catch(e){b=null;}}
   if(!b){host.innerHTML='<p class="text-xs text-mutet">No composite computed yet this session.</p>';if(status)status.textContent='—';return;}
   if(status)status.textContent=`${b.composite} · ${new Date(b.ts).toLocaleString('en-GB',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'short'})}`;
-  const col=d=>d==='bullish'?'text-emerald-400':d==='bearish'?'text-rose-400':'text-mutet';
+  const col=d=>d==='bullish'?'#3BF38B':d==='bearish'?'#F5606C':'#94A3B8';
   const sgn=v=>(v>=0?'+':'')+v.toFixed(1);
-  const head=`<div class="grid grid-cols-12 gap-2 text-[10px] text-mutet border-b border-line pb-1"><span class="col-span-5">Source</span><span class="col-span-2 text-right">Value</span><span class="col-span-2 text-right">Weight</span><span class="col-span-3 text-right">Contribution</span></div>`;
-  const rows=b.rows.map(r=>`<div class="grid grid-cols-12 gap-2 text-xs py-1 border-b border-line/40" title="base weight ${r.baseWeight} × confidence ${r.confidence}${r.driverBoosted?' × 1.5 (Foufi driver boost)':''}">
-      <span class="col-span-5 truncate">${r.label}${r.driverBoosted?' <span class="text-[9px] text-amber-400">boost</span>':''}</span>
-      <span class="col-span-2 text-right tnum ${col(r.direction)}">${Math.round(r.score)}</span>
-      <span class="col-span-2 text-right tnum">${r.effectiveWeightPct.toFixed(1)}%</span>
-      <span class="col-span-3 text-right tnum ${col(r.direction)}">${r.contribution.toFixed(1)} <span class="text-[10px] text-mutet">(${sgn(r.push)})</span></span></div>`).join('');
-  const miss=b.missing.length?`<div class="mt-3 text-[11px] text-mutet"><div class="font-semibold mb-1">Excluded this cycle (${b.missing.length}) — weight redistributed, not counted as neutral</div>${b.missing.map(m=>`<div class="flex justify-between gap-2"><span>${m.label}</span><span class="truncate text-right" title="${String(m.reason).replace(/"/g,'&quot;')}">unavailable · ${String(m.reason).slice(0,60)}</span></div>`).join('')}</div>`:'';
+  const head=`<div class="grid gap-2 text-[10px] text-mutet border-b border-line pb-1" style="grid-template-columns:5fr 2fr 2fr 3fr"><span>Source</span><span class="text-right">Value</span><span class="text-right">Weight</span><span class="text-right">Contribution</span></div>`;
+  const rows=b.rows.map(r=>`<div class="grid gap-2 text-xs py-1 border-b border-line/50" style="grid-template-columns:5fr 2fr 2fr 3fr" title="base weight ${r.baseWeight} × confidence ${r.confidence}${r.driverBoosted?' × 1.5 (Foufi driver boost)':''}">
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.label}${r.driverBoosted?' <span style="font-size:9px;color:#F5B843">boost</span>':''}</span>
+      <span class="text-right tnum" style="color:${col(r.direction)}">${Math.round(r.score)}</span>
+      <span class="text-right tnum">${r.effectiveWeightPct.toFixed(1)}%</span>
+      <span class="text-right tnum" style="color:${col(r.direction)}">${r.contribution.toFixed(1)} <span class="text-[10px] text-mutet">(${sgn(r.push)})</span></span></div>`).join('');
+  const miss=b.missing.length?`<div class="mt-3 text-[11px] text-mutet"><div class="font-semibold mb-1">Excluded this cycle (${b.missing.length}) — weight redistributed, not counted as neutral</div>${b.missing.map(m=>`<div class="flex justify-between gap-2"><span>${m.label}</span><span class="text-right" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${String(m.reason).replace(/"/g,'&quot;')}">unavailable · ${String(m.reason).slice(0,60)}</span></div>`).join('')}</div>`:'';
   host.innerHTML=head+rows+miss+`<p class="text-[10px] text-mutet mt-2">Weights: ${b.weightsSource}. Source completeness ${Math.round(b.completeness*100)}%${b.completeness<0.5?' — below the 50% floor, this reading was not saved to history':''}.</p>`;
 }
 function renderSentimentWeightControls(){
@@ -5907,6 +5967,7 @@ async function _initSentimentTabImpl(){
       const latestPulseScore=history[history.length-1].score;
       lastSentimentIndex=(latestPulseScore-50)*2;
       try{latestSourcesForTrader=history[history.length-1].sources_json?JSON.parse(history[history.length-1].sources_json):{};}catch(e){}
+      window.__lastPulseHistoryTs=history[history.length-1].ts||null;
     }else{
       lastSentimentIndex=null;
     }
