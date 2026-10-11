@@ -1404,6 +1404,20 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <p class="text-[10px] text-mutet mt-2" id="hypeFundingStatus">Loading…</p>
       </div>
 
+      <!-- Sentiment composite breakdown: each source's value, effective weight and
+           contribution in the latest composite computed in this browser. -->
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-semibold">Sentiment Composite — Source Contributions</h3>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-mutet tnum" id="compositeBreakdownStatus">—</span>
+            <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'compositeBreakdownNote')">ⓘ Info</button>
+          </div>
+        </div>
+        <p class="hidden text-xs text-mutet mb-3" id="compositeBreakdownNote">The latest Sentiment composite, source by source. Weight = the source's share after weight × confidence is renormalised over the sources that answered this cycle (Settings → Source Weights changes the base weights). Contribution = points of the composite it supplied; in brackets, how far it pushed the composite above (+) or below (−) neutral 50. Sources that failed are excluded and listed below — their weight goes to the others, they are never counted as neutral.</p>
+        <div id="compositeBreakdownBody"></div>
+      </div>
+
       <!-- Self-validation: does past sentiment actually correlate with FUTURE BTC price
            movement? Real Pearson correlation from Pulse's /analysis endpoint, not a
            feature CryptoPulse had before. -->
@@ -4820,6 +4834,46 @@ function computeComposite(activeSources){
   const withEffective=weighted.map(s=>({...s,effectiveWeight:(s.confidenceWeight/total)*100}));
   return Math.round(withEffective.reduce((sum,s)=>sum+(s.value.score*s.effectiveWeight/100),0));
 }
+// Per-source breakdown of ONE composite computation, using exactly the
+// arithmetic computeComposite uses (weight x confidence, renormalised over the
+// sources that actually answered). contribution = points of the composite this
+// source supplied; push = how far it moved the composite away from neutral 50.
+// Sources that failed or were not fetched are listed separately as excluded:
+// their weight is redistributed to the others, they are never counted as 50.
+function computeCompositeBreakdown(active,allSources,errors){
+  const weighted=active.map(s=>({...s,confidenceWeight:s.weight*(s.confidence??1.0)}));
+  const total=weighted.reduce((a,s)=>a+s.confidenceWeight,0)||1;
+  const rows=weighted.map(s=>{
+    const eff=s.confidenceWeight/total*100;
+    const score=s.value.score;
+    return{id:s.id,label:s.label,score,direction:score>55?'bullish':score<45?'bearish':'neutral',
+      baseWeight:s.baseWeight??s.weight,confidence:s.confidence??1.0,driverBoosted:!!s.driverBoosted,
+      effectiveWeightPct:eff,contribution:score*eff/100,push:(score-50)*eff/100};
+  }).sort((a,b)=>Math.abs(b.push)-Math.abs(a.push));
+  const activeIds=new Set(active.map(s=>s.id));
+  const missing=allSources.filter(s=>!activeIds.has(s.id)).map(s=>({id:s.id,label:s.label,baseWeight:s.weight,
+    reason:(errors&&errors[s.id]&&errors[s.id].message)||'No value this cycle'}));
+  const totalPossible=allSources.reduce((a,s)=>a+s.weight,0)||1;
+  const activeBase=active.reduce((a,s)=>a+(s.baseWeight??s.weight),0);
+  return{composite:Math.round(rows.reduce((a,r)=>a+r.contribution,0)),rows,missing,completeness:activeBase/totalPossible};
+}
+function renderCompositeBreakdown(){
+  const host=$('#compositeBreakdownBody'),status=$('#compositeBreakdownStatus');if(!host)return;
+  let b=window.__lastCompositeBreakdown;
+  if(!b){try{b=JSON.parse(localStorage.getItem('cp_last_composite_breakdown')||'null');}catch(e){b=null;}}
+  if(!b){host.innerHTML='<p class="text-xs text-mutet">No composite computed yet this session.</p>';if(status)status.textContent='—';return;}
+  if(status)status.textContent=`${b.composite} · ${new Date(b.ts).toLocaleString('en-GB',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'short'})}`;
+  const col=d=>d==='bullish'?'text-emerald-400':d==='bearish'?'text-rose-400':'text-mutet';
+  const sgn=v=>(v>=0?'+':'')+v.toFixed(1);
+  const head=`<div class="grid grid-cols-12 gap-2 text-[10px] text-mutet border-b border-line pb-1"><span class="col-span-5">Source</span><span class="col-span-2 text-right">Value</span><span class="col-span-2 text-right">Weight</span><span class="col-span-3 text-right">Contribution</span></div>`;
+  const rows=b.rows.map(r=>`<div class="grid grid-cols-12 gap-2 text-xs py-1 border-b border-line/40" title="base weight ${r.baseWeight} × confidence ${r.confidence}${r.driverBoosted?' × 1.5 (Foufi driver boost)':''}">
+      <span class="col-span-5 truncate">${r.label}${r.driverBoosted?' <span class="text-[9px] text-amber-400">boost</span>':''}</span>
+      <span class="col-span-2 text-right tnum ${col(r.direction)}">${Math.round(r.score)}</span>
+      <span class="col-span-2 text-right tnum">${r.effectiveWeightPct.toFixed(1)}%</span>
+      <span class="col-span-3 text-right tnum ${col(r.direction)}">${r.contribution.toFixed(1)} <span class="text-[10px] text-mutet">(${sgn(r.push)})</span></span></div>`).join('');
+  const miss=b.missing.length?`<div class="mt-3 text-[11px] text-mutet"><div class="font-semibold mb-1">Excluded this cycle (${b.missing.length}) — weight redistributed, not counted as neutral</div>${b.missing.map(m=>`<div class="flex justify-between gap-2"><span>${m.label}</span><span class="truncate text-right" title="${String(m.reason).replace(/"/g,'&quot;')}">unavailable · ${String(m.reason).slice(0,60)}</span></div>`).join('')}</div>`:'';
+  host.innerHTML=head+rows+miss+`<p class="text-[10px] text-mutet mt-2">Weights: ${b.weightsSource}. Source completeness ${Math.round(b.completeness*100)}%${b.completeness<0.5?' — below the 50% floor, this reading was not saved to history':''}.</p>`;
+}
 function renderSentimentWeightControls(){
   const host=$('#sentWeightControls');if(!host)return;
   host.innerHTML=COMPOSITE_SOURCES.map(s=>`
@@ -4980,6 +5034,15 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
   });
   const composite=computeComposite(active);
   if(composite==null)return{ok:false,activeCount:0};
+  try{
+    let overrides={};try{overrides=JSON.parse(localStorage.getItem('cp2_sentiment_weights')||'{}');}catch(e){}
+    const breakdown=computeCompositeBreakdown(active,COMPOSITE_SOURCES,window.__sourceErrors||{});
+    breakdown.ts=Date.now();
+    breakdown.weightsSource=Object.keys(overrides).length?`defaults with your Settings overrides for ${Object.keys(overrides).join(', ')}`:'defaults (COMPOSITE_SOURCES_DEFAULTS)';
+    window.__lastCompositeBreakdown=breakdown;
+    try{localStorage.setItem('cp_last_composite_breakdown',JSON.stringify(breakdown));}catch(e){}
+    renderCompositeBreakdown();
+  }catch(e){console.warn('composite breakdown failed:',e.message);}
   // ---- FIX: completeness gate. A composite computed from just 1-2 of the
   // ~18 weighted sources (e.g. onchain+gold alone, ~7% of total possible
   // weight, after most sources failed that fetch cycle) used to get written
@@ -6451,6 +6514,7 @@ function wire(){
   };
   $('#settingsAnalysisBtn').onclick=runCustomCorrelationAnalysis;
   renderSentimentWeightControls();
+  renderCompositeBreakdown();
   {
     const slider=$('#combinedWeightSlider'),label=$('#combinedWeightLabel');
     if(slider){
