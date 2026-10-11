@@ -1764,6 +1764,10 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <p class="hidden text-xs text-mutet" id="weightsNote">Adjust each source's relative importance in the composite score. Auto-renormalized to 100% under the hood — these are relative weights, not literal percentages. Changes apply on the next Sentiment tab refresh.</p>
         </div>
         <div id="sentWeightControls" class="space-y-3"></div>
+        <div class="flex items-center justify-between gap-2 pt-2 border-t border-line">
+          <span class="text-[10px] text-mutet" id="weightsVersionLabel"></span>
+          <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="resetSentimentWeights()">Reset to defaults</button>
+        </div>
       </div>
 
       <!-- ═══ Alerts — full rebuild. Checked every 15 min by a Cloudflare Worker
@@ -4788,6 +4792,14 @@ const COMPOSITE_SOURCES_DEFAULTS=[
   // other new source here — revisit via the Correlation Explorer once
   // real history accumulates.
   {id:'strc',label:'STRC (Strategy preferred, par-health proxy)',weight:5,confidence:0.35},
+  // Added 2026-10-11 (owner decision: Hyperliquid OI first for production).
+  // 24h BTC OI change confirming the 24h price move, from hourly snapshots the
+  // Pulse Worker stores (GET /hl-oi, rule hloi-v1). No validated evidence yet:
+  // Track B research found exchange OI weakly negative (rho -0.17, CI includes
+  // 0), so it starts at the lowest existing tier (hypefunding 4/0.4, strc
+  // 5/0.35), about 1% of effective weight, and is reviewed via /analysis and
+  // EXP-005 once enough history exists.
+  {id:'hloi',label:'Hyperliquid BTC OI (24h, price-confirmed)',weight:4,confidence:0.3},
 ];
 // Feeds the Sentiment composite with Foufi's BTC score only (not
 // ETH/SOL/LINK/HYPE - those stay tile/recap-table-only). BTC is the one
@@ -4814,6 +4826,18 @@ async function srcFoufi(){
   if(ageHours>30)throw new Error(`latest usable Foufi digest is ${ageHours.toFixed(0)}h old (>30h cutoff)`);
   const score=usable.summary.coins.BTC.score;
   return{score:((score+2)/4)*100};
+}
+// Default-weight versions. Changing a default = new entry here + commit;
+// reverting = git revert of that commit. Settings overrides stay per browser
+// and can be cleared with "Reset to defaults".
+const COMPOSITE_WEIGHTS_VERSION='2026-10-11-hloi';
+const COMPOSITE_WEIGHTS_CHANGELOG=[
+  {version:'2026-10-11-hloi',change:'Added hloi (Hyperliquid BTC OI) at 4 / confidence 0.3; no other weight changed',reason:'Owner prioritised Hyperliquid OI for production; conservative lowest-tier start pending evidence'},
+];
+function resetSentimentWeights(){
+  try{localStorage.removeItem('cp2_sentiment_weights');}catch(e){}
+  COMPOSITE_SOURCES=loadSentimentWeights();
+  renderSentimentWeightControls();
 }
 function loadSentimentWeights(){
   let overrides={};
@@ -4929,6 +4953,7 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
     ['regulatory',()=>srcNewsRss('regulatory')],
     ['sosovalue',srcSosoValueNews],
     ['hypefunding',srcHypeFundingForComposite],
+    ['hloi',srcHyperliquidOi],
   ];
   await Promise.all(jobs.map(async([id,fn])=>{
     try{
@@ -5038,7 +5063,7 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
     let overrides={};try{overrides=JSON.parse(localStorage.getItem('cp2_sentiment_weights')||'{}');}catch(e){}
     const breakdown=computeCompositeBreakdown(active,COMPOSITE_SOURCES,window.__sourceErrors||{});
     breakdown.ts=Date.now();
-    breakdown.weightsSource=Object.keys(overrides).length?`defaults with your Settings overrides for ${Object.keys(overrides).join(', ')}`:'defaults (COMPOSITE_SOURCES_DEFAULTS)';
+    breakdown.weightsSource=(Object.keys(overrides).length?`defaults with your Settings overrides for ${Object.keys(overrides).join(', ')}`:'defaults')+` · version ${COMPOSITE_WEIGHTS_VERSION}`;
     window.__lastCompositeBreakdown=breakdown;
     try{localStorage.setItem('cp_last_composite_breakdown',JSON.stringify(breakdown));}catch(e){}
     renderCompositeBreakdown();
@@ -6515,6 +6540,7 @@ function wire(){
   $('#settingsAnalysisBtn').onclick=runCustomCorrelationAnalysis;
   renderSentimentWeightControls();
   renderCompositeBreakdown();
+  {const l=$('#weightsVersionLabel');if(l){const last=COMPOSITE_WEIGHTS_CHANGELOG[COMPOSITE_WEIGHTS_CHANGELOG.length-1];l.textContent=`Default weights ${COMPOSITE_WEIGHTS_VERSION}: ${last.change}.`;}}
   {
     const slider=$('#combinedWeightSlider'),label=$('#combinedWeightLabel');
     if(slider){
@@ -10510,6 +10536,18 @@ function fundingHistoryStats(sym,days){
 // scale=50 means a ±50% annualized funding rate approaches saturation, which
 // is a common range for an actively-traded alt perp (vs. ~0.05% per-8h for
 // BTC/ETH, hence their much tighter scale).
+// Composite source "hloi": scored server-side from stored hourly snapshots.
+// Anything but status OK (no data yet, stale, <24h history) throws, so the
+// source is excluded this cycle and listed as unavailable, never scored 50.
+async function srcHyperliquidOi(){
+  const res=await fetch(`${PULSE_WORKER_URL}/hl-oi`,{cache:'no-store'});
+  if(!res.ok)throw new Error('hl-oi HTTP '+res.status);
+  const j=await res.json();
+  if(j.status!=='OK')throw new Error(`hl-oi ${j.status||'error'}: ${j.reason||j.error||'no reason given'}`);
+  if(!Number.isFinite(j.score))throw new Error('hl-oi returned no numeric score');
+  window.__lastHlOi=j;
+  return{score:j.score};
+}
 async function srcHypeFundingForComposite(){
   const assets=await fetchHyperliquidAssets();
   const c=assets.HYPE;

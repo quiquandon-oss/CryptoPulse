@@ -54,3 +54,22 @@ describe('computeCompositeBreakdown', () => {
     expect(b.rows.map(r => r.id)).toEqual(['funding', 'longshort', 'fng']);
   });
 });
+
+describe('hloi source wiring', () => {
+  const { srcHyperliquidOi } = evalInScope(extractFunctions('srcHyperliquidOi'), {
+    PULSE_WORKER_URL: 'https://w', window: {},
+    fetch: async () => ({ ok: true, json: async () => globalThis.__hloiResponse }),
+  });
+  it('returns the server score only when status is OK', async () => {
+    globalThis.__hloiResponse = { status: 'OK', score: 61.5 };
+    expect(await srcHyperliquidOi()).toEqual({ score: 61.5 });
+  });
+  it('throws (=excluded, not neutral) for NO_DATA / STALE / INSUFFICIENT_HISTORY', async () => {
+    for (const status of ['NO_DATA', 'STALE', 'INSUFFICIENT_HISTORY']) {
+      globalThis.__hloiResponse = { status, reason: 'why' };
+      await expect(srcHyperliquidOi()).rejects.toThrow(new RegExp(`hl-oi ${status}: why`));
+    }
+    globalThis.__hloiResponse = { status: 'OK', score: null };
+    await expect(srcHyperliquidOi()).rejects.toThrow(/no numeric score/);
+  });
+});
