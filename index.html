@@ -3382,6 +3382,26 @@ function sourceRowState(name,latestSources,perSourceEntry){
   return{inLatest,collecting,unavailable:!inLatest&&!collecting,error:err?err.message:null,
     samples:perSourceEntry?perSourceEntry.samples??null:0};
 }
+// Optional per-source explanation for the detail view (same panel for every
+// source; a source without an entry shows only the common lines).
+const escHtml=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const SOURCE_DETAIL_EXTRA={
+  riskregime:()=>{
+    const j=window.__lastRiskRegime;
+    if(!j)return'';
+    const t=ts=>ts?new Date(ts).toLocaleString('en-GB',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'short'}):'—';
+    const regime=j.status==='OK'?`${String(j.regime||'').replace(/_/g,' ').toLowerCase()} · ${pulseLabelFor(j.score).text}`:`${j.status} — not used this cycle`;
+    const ind=(j.inputs||[]).filter(i=>i.vote||i.abnormal||i.status!=='OK');
+    const indHtml=ind.length?ind.map(i=>`<div class="flex justify-between gap-3"><span class="text-mutet">${escHtml(i.label)}</span><span class="tnum text-right">${i.status==='OK'?`${i.ret_6h>=0?'+':''}${i.ret_6h}% 6h · ${i.pct_6h}th pct${i.vote?` · ${i.vote.replace('_','-')}`:''}`:escHtml(i.status)} · ${t(i.last_close_ts)}</span></div>`).join(''):'<div class="text-mutet">No instrument outside its normal 6h range.</div>';
+    const hist=(j.history||[]).slice(-48);
+    const strip=hist.length?`<div class="flex gap-px mt-1" aria-label="Last ${hist.length} hourly readings">${hist.map(h=>`<span title="${t(h.ts)} ${escHtml(h.status)}${h.score!=null?' '+h.score:''}" style="flex:1;height:6px;border-radius:1px;background:${h.status!=='OK'?'#334155':h.score<45?'#F5606C':h.score>55?'#3BF38B':'#94A3B8'}"></span>`).join('')}</div><div class="text-mutet">Last ${hist.length}h: ${hist.filter(h=>h.status==='OK').length} scored, ${hist.filter(h=>h.status!=='OK').length} unavailable (grey).</div>`:'';
+    return `<div class="flex justify-between gap-3"><span class="text-mutet">Regime</span><span class="text-right">${escHtml(regime)}</span></div>
+      <div class="text-mutet" style="overflow-wrap:anywhere">${escHtml(j.explanation||j.reason||'')}</div>
+      ${j.counts?`<div class="flex justify-between gap-3"><span class="text-mutet">Breadth</span><span class="tnum text-right">${j.counts.breadth_abnormal} of ${j.counts.breadth_measurable} abnormal · votes off ${j.counts.risk_off_votes} / on ${j.counts.risk_on_votes}</span></div>`:''}
+      ${indHtml}
+      <div class="flex justify-between gap-3"><span class="text-mutet">Method</span><span class="text-right">${escHtml(j.version||'—')} · scored ${t(j.scoring_ts)}</span></div>${strip}`;
+  },
+};
 function sourceDetailHtml(name,d,st,lagHours){
   let b=window.__lastCompositeBreakdown;
   if(!b){try{b=JSON.parse(localStorage.getItem('cp_last_composite_breakdown')||'null');}catch(e){b=null;}}
@@ -3405,6 +3425,7 @@ function sourceDetailHtml(name,d,st,lagHours){
     ${line('Correlation sample',samples!=null?`${samples} point(s), ${lagHours}h lag${samples<CORR_MIN_RELIABLE_SAMPLES?' — too few to rely on':''}`:'—')}
     ${line('Data quality',quality)}
     ${st.error?`<div class="text-mutet" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${String(st.error).replace(/"/g,'&quot;')}">Last error: ${String(st.error).slice(0,90)}</div>`:''}
+    ${typeof SOURCE_DETAIL_EXTRA!=='undefined'&&SOURCE_DETAIL_EXTRA[name]?SOURCE_DETAIL_EXTRA[name]():''}
     <div class="text-mutet">Correlation is a past association, not proof of predictive value.</div>
   </div>`;
 }
@@ -4898,6 +4919,15 @@ const COMPOSITE_SOURCES_DEFAULTS=[
   // 5/0.35), about 1% of effective weight, and is reviewed via /analysis and
   // EXP-005 once enough history exists.
   {id:'hloi',label:'Hyperliquid BTC OI (24h, price-confirmed)',weight:4,confidence:0.3},
+  // Added 2026-10-12 (owner decision: full V1 integration). Cross-asset
+  // regime shock from Hyperliquid hourly candles (GET /risk-regime, rule
+  // rrs-v1): >= 3 of 7 instruments outside their own 7-day 6h range, signed
+  // by the classic risk-off directions and confirmed by >= 2 asset groups;
+  // calm/isolated/mixed markets read a genuine 50. Its inputs overlap gold,
+  // oil, usd, sp500, nasdaq and yield10y (same markets, but a joint abnormal-
+  // move test rather than each level), and the research found no validated
+  // predictive value, so it starts at the lowest existing tier (= hloi).
+  {id:'riskregime',label:'Risk Regime Shock (cross-asset, Hyperliquid)',weight:4,confidence:0.3},
 ];
 // Feeds the Sentiment composite with Foufi's BTC score only (not
 // ETH/SOL/LINK/HYPE - those stay tile/recap-table-only). BTC is the one
@@ -4928,19 +4958,34 @@ async function srcFoufi(){
 // Default-weight versions. Changing a default = new entry here + commit;
 // reverting = git revert of that commit. Settings overrides stay per browser
 // and can be cleared with "Reset to defaults".
-const COMPOSITE_WEIGHTS_VERSION='2026-10-11-hloi';
+const COMPOSITE_WEIGHTS_VERSION='2026-10-12-riskregime';
 const COMPOSITE_WEIGHTS_CHANGELOG=[
   {version:'2026-10-11-hloi',change:'Added hloi (Hyperliquid BTC OI) at 4 / confidence 0.3; no other weight changed',reason:'Owner prioritised Hyperliquid OI for production; conservative lowest-tier start pending evidence'},
+  {version:'2026-10-12-riskregime',change:'Added riskregime (Risk Regime Shock) at 4 / confidence 0.3; no other weight changed',reason:'Owner decision to integrate Risk Regime Shock in V1; overlaps existing macro sources and has no validated evidence, so lowest tier'},
 ];
 function resetSentimentWeights(){
-  try{localStorage.removeItem('cp2_sentiment_weights');}catch(e){}
+  try{localStorage.removeItem('cp2_sentiment_weights');localStorage.removeItem('cp2_sentiment_confidence');}catch(e){}
   COMPOSITE_SOURCES=loadSentimentWeights();
   renderSentimentWeightControls();
 }
+// Confidence overrides live in their own key (cp2_sentiment_confidence), so a
+// confidence change never rewrites a weight override and vice versa. Only a
+// finite value in (0, 1] is accepted; anything else falls back to the default.
+function validConfidence(v){return typeof v==='number'&&Number.isFinite(v)&&v>0&&v<=1;}
 function loadSentimentWeights(){
-  let overrides={};
+  let overrides={},conf={};
   try{overrides=JSON.parse(localStorage.getItem('cp2_sentiment_weights')||'{}');}catch(e){}
-  return COMPOSITE_SOURCES_DEFAULTS.map(s=>({...s,weight:overrides[s.id]!=null?overrides[s.id]:s.weight}));
+  try{conf=JSON.parse(localStorage.getItem('cp2_sentiment_confidence')||'{}');}catch(e){}
+  return COMPOSITE_SOURCES_DEFAULTS.map(s=>({...s,weight:overrides[s.id]!=null?overrides[s.id]:s.weight,confidence:validConfidence(conf[s.id])?conf[s.id]:s.confidence}));
+}
+function saveSentimentConfidence(id,confidence){
+  let conf={};
+  try{conf=JSON.parse(localStorage.getItem('cp2_sentiment_confidence')||'{}');}catch(e){}
+  const def=COMPOSITE_SOURCES_DEFAULTS.find(s=>s.id===id);
+  if(!def||!validConfidence(confidence))return false;
+  if(confidence===def.confidence)delete conf[id];else conf[id]=confidence;
+  localStorage.setItem('cp2_sentiment_confidence',JSON.stringify(conf));
+  return true;
 }
 function saveSentimentWeight(id,weight){
   let overrides={};
@@ -5014,7 +5059,10 @@ function renderSentimentWeightControls(){
     <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:8px;row-gap:2px;align-items:center">
       <span class="text-xs text-mutet" style="overflow-wrap:anywhere">${r.label}</span>
       <span class="text-xs tnum text-right" style="white-space:nowrap" id="wval-${r.id}" title="base weight · share of the composite when every source answers">${r.weight} · ${r.effectiveSharePct.toFixed(1)}%</span>
-      <input type="range" min="0" max="100" value="${r.weight}" data-id="${r.id}" class="weightSlider" style="grid-column:1 / -1;width:100%;min-width:0;margin:0">
+      <input type="range" min="0" max="100" value="${r.weight}" data-id="${r.id}" class="weightSlider" aria-label="${r.label} weight" style="grid-column:1 / -1;width:100%;min-width:0;margin:0">
+      <label class="text-[10px] text-mutet" style="grid-column:1 / -1;display:flex;align-items:center;gap:6px">Confidence
+        <input type="number" min="0.05" max="1" step="0.05" value="${r.confidence}" data-id="${r.id}" class="confInput bg-panel2 border border-line rounded px-1 tnum" aria-label="${r.label} confidence" style="width:4.5em">
+      </label>
     </div>`).join('');
   host.querySelectorAll('.weightSlider').forEach(slider=>{
     slider.oninput=e=>{
@@ -5023,6 +5071,17 @@ function renderSentimentWeightControls(){
       saveSentimentWeight(id,val);
       // Every share changes when one weight changes.
       sourceWeightTable(COMPOSITE_SOURCES).forEach(r=>{const l=$('#wval-'+r.id);if(l)l.textContent=`${r.weight} · ${r.effectiveSharePct.toFixed(1)}%`;});
+      renderWeightDiagnostics();
+    };
+  });
+  const refreshShares=()=>sourceWeightTable(COMPOSITE_SOURCES).forEach(r=>{const l=$('#wval-'+r.id);if(l)l.textContent=`${r.weight} · ${r.effectiveSharePct.toFixed(1)}%`;});
+  host.querySelectorAll('.confInput').forEach(input=>{
+    input.onchange=e=>{
+      const id=e.target.dataset.id,val=Math.round(parseFloat(e.target.value)*100)/100;
+      const src=COMPOSITE_SOURCES.find(s=>s.id===id);
+      if(!src||!saveSentimentConfidence(id,val)){e.target.value=src?src.confidence:'';return;}
+      src.confidence=val;
+      refreshShares();
       renderWeightDiagnostics();
     };
   });
@@ -5078,8 +5137,9 @@ function applyWeightAdaptation(){
 }
 function renderWeightDiagnostics(){
   const status=$('#sentWeightsStatus'),host=$('#weightsDiagnostics');
-  let overrides={};try{overrides=JSON.parse(localStorage.getItem('cp2_sentiment_weights')||'{}');}catch(e){}
-  const nOver=Object.keys(overrides).filter(k=>COMPOSITE_SOURCES.some(s=>s.id===k)).length;
+  let overrides={},confOver={};try{overrides=JSON.parse(localStorage.getItem('cp2_sentiment_weights')||'{}');}catch(e){}
+  try{confOver=JSON.parse(localStorage.getItem('cp2_sentiment_confidence')||'{}');}catch(e){}
+  const nOver=new Set([...Object.keys(overrides),...Object.keys(confOver)].filter(k=>COMPOSITE_SOURCES.some(s=>s.id===k))).size;
   if(status)status.textContent=`${COMPOSITE_SOURCES.length} sources${nOver?` · ${nOver} custom`:''}`;
   if(!host)return;
   let b=window.__lastCompositeBreakdown;
@@ -5089,7 +5149,7 @@ function renderWeightDiagnostics(){
     const live=b&&b.rows?b.rows.find(x=>x.id===r.id):null;
     const miss=b&&b.missing?b.missing.find(x=>x.id===r.id):null;
     const latest=live?`${live.effectiveWeightPct.toFixed(1)}%${live.driverBoosted?' (boost)':''}`:miss?`excluded: ${String(miss.reason).slice(0,50)}`:'—';
-    return `<div style="display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:8px"><span style="overflow-wrap:anywhere">${r.id}${def&&def.weight!==r.weight?` (default ${def.weight})`:''}</span><span class="tnum text-right">${r.weight}×${r.confidence} → ${r.effectiveSharePct.toFixed(1)}% · latest ${latest}</span></div>`;
+    return `<div style="display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:8px"><span style="overflow-wrap:anywhere">${r.id}${def&&def.weight!==r.weight?` (default ${def.weight})`:''}${def&&def.confidence!==r.confidence?` (default conf ${def.confidence})`:''}</span><span class="tnum text-right">${r.weight}×${r.confidence} → ${r.effectiveSharePct.toFixed(1)}% · latest ${latest}</span></div>`;
   }).join('');
   host.innerHTML=`<div class="mb-1">Per source: base weight × confidence → share when all sources answer · share in the latest reading${b&&b.ts?` (${new Date(b.ts).toLocaleString('en-GB',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'short'})})`:''}. Shares are renormalised over the sources that answered, so a failed source's weight goes to the others; it is never scored as neutral. Default weights version ${COMPOSITE_WEIGHTS_VERSION}${nOver?`; ${nOver} custom override(s) in this browser`:''}. These figures check the arithmetic only — they do not show that a weight is predictive.</div>${rows}`;
 }
@@ -5132,6 +5192,7 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
     ['sosovalue',srcSosoValueNews],
     ['hypefunding',srcHypeFundingForComposite],
     ['hloi',srcHyperliquidOi],
+    ['riskregime',srcRiskRegime],
   ];
   await Promise.all(jobs.map(async([id,fn])=>{
     try{
@@ -5238,10 +5299,12 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
   const composite=computeComposite(active);
   if(composite==null)return{ok:false,activeCount:0};
   try{
-    let overrides={};try{overrides=JSON.parse(localStorage.getItem('cp2_sentiment_weights')||'{}');}catch(e){}
+    let overrides={},confOver={};try{overrides=JSON.parse(localStorage.getItem('cp2_sentiment_weights')||'{}');}catch(e){}
+    try{confOver=JSON.parse(localStorage.getItem('cp2_sentiment_confidence')||'{}');}catch(e){}
+    const overIds=[...new Set([...Object.keys(overrides),...Object.keys(confOver)])];
     const breakdown=computeCompositeBreakdown(active,COMPOSITE_SOURCES,window.__sourceErrors||{});
     breakdown.ts=Date.now();
-    breakdown.weightsSource=(Object.keys(overrides).length?`defaults with your Settings overrides for ${Object.keys(overrides).join(', ')}`:'defaults')+` · version ${COMPOSITE_WEIGHTS_VERSION}`;
+    breakdown.weightsSource=(overIds.length?`defaults with your Settings overrides for ${overIds.join(', ')}`:'defaults')+` · version ${COMPOSITE_WEIGHTS_VERSION}`;
     window.__lastCompositeBreakdown=breakdown;
     try{localStorage.setItem('cp_last_composite_breakdown',JSON.stringify(breakdown));}catch(e){}
     renderCompositeBreakdown();
@@ -10728,6 +10791,20 @@ async function srcHyperliquidOi(){
   if(j.status!=='OK')throw new Error(`hl-oi ${j.status||'error'}: ${j.reason||j.error||'no reason given'}`);
   if(!Number.isFinite(j.score))throw new Error('hl-oi returned no numeric score');
   window.__lastHlOi=j;
+  return{score:j.score};
+}
+// Composite source "riskregime" (Risk Regime Shock, rule rrs-v1): scored and
+// stored hourly by the Pulse Worker from Hyperliquid candles. Any status but
+// OK (markets closed, too few measurable instruments, stale, no data) throws,
+// so the source is excluded this cycle with its reason, never scored 50.
+// A calm market is status OK with a genuine 50.
+async function srcRiskRegime(){
+  const res=await fetch(`${PULSE_WORKER_URL}/risk-regime?history=48`,{cache:'no-store'});
+  if(!res.ok)throw new Error('risk-regime HTTP '+res.status);
+  const j=await res.json();
+  window.__lastRiskRegime=j;
+  if(j.status!=='OK')throw new Error(`risk-regime ${j.status||'error'}: ${j.reason||j.error||'no reason given'}`);
+  if(!Number.isFinite(j.score)||j.score<0||j.score>100)throw new Error('risk-regime returned no valid score');
   return{score:j.score};
 }
 async function srcHypeFundingForComposite(){

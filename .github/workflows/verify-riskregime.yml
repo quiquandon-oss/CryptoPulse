@@ -1,0 +1,27 @@
+name: Verify riskregime (post-deploy)
+# Read-only check of the deployed Risk Regime Shock source after each Pages deploy:
+# live Pulse Worker GET endpoints + the deployed app's real composite cycle in headless Chrome,
+# with POST /history blocked so verification never writes a history row.
+on:
+  workflow_run:
+    workflows: ["Deploy to GitHub Pages"]
+    types: [completed]
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install playwright-core (uses the runner's Chrome, no browser download)
+        run: npm install --no-save --no-package-lock playwright-core@1.48.2
+      - name: Verify
+        env:
+          SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+          CHROME_PATH: /usr/bin/google-chrome
+        run: node scripts/verify-riskregime.mjs

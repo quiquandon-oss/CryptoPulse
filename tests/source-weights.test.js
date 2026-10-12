@@ -3,26 +3,27 @@ import { extractConst, extractFunctions, evalInScope, getFullScriptSource } from
 
 // Source-weight consistency: the weight shown in Settings is the weight the
 // composite uses; unavailable sources (hloi without 24h history) are excluded.
-function scope(overrides = {}) {
+function scope(overrides = {}, confOverrides = {}) {
   return evalInScope(
     [extractConst('COMPOSITE_SOURCES_DEFAULTS'),
-     extractFunctions('loadSentimentWeights', 'computeComposite', 'computeCompositeBreakdown', 'sourceWeightTable')].join('\n\n'),
-    { localStorage: { getItem: (k) => (k === 'cp2_sentiment_weights' ? JSON.stringify(overrides) : null), setItem() {} } }
+     extractFunctions('validConfidence', 'loadSentimentWeights', 'saveSentimentConfidence', 'computeComposite', 'computeCompositeBreakdown', 'sourceWeightTable')].join('\n\n'),
+    { localStorage: { getItem: (k) => (k === 'cp2_sentiment_weights' ? JSON.stringify(overrides) : k === 'cp2_sentiment_confidence' ? JSON.stringify(confOverrides) : null), setItem() {} } }
   );
 }
 
 describe('source registry', () => {
   const { COMPOSITE_SOURCES_DEFAULTS } = scope();
-  it('has unique ids, valid weights/confidence, and hloi at its documented 4 / 0.3', () => {
+  it('has unique ids, valid weights/confidence, and hloi / riskregime at their documented 4 / 0.3', () => {
     const ids = COMPOSITE_SOURCES_DEFAULTS.map(s => s.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids.length).toBe(22);
+    expect(ids.length).toBe(23);
     for (const s of COMPOSITE_SOURCES_DEFAULTS) {
       expect(s.weight).toBeGreaterThan(0);
       expect(s.confidence).toBeGreaterThan(0);
       expect(s.confidence).toBeLessThanOrEqual(1);
     }
     expect(COMPOSITE_SOURCES_DEFAULTS.find(s => s.id === 'hloi')).toMatchObject({ weight: 4, confidence: 0.3 });
+    expect(COMPOSITE_SOURCES_DEFAULTS.find(s => s.id === 'riskregime')).toMatchObject({ weight: 4, confidence: 0.3 });
   });
   it('every configured source has a fetch job in the composite, and no job lacks a configured source', () => {
     const src = getFullScriptSource();
@@ -74,7 +75,9 @@ describe('hloi exclusion', () => {
 describe('automatic weighting apply gate', () => {
   const { weightAdaptationApplicable } = evalInScope(
     [extractConst('COMPOSITE_WEIGHTS_VERSION'), extractFunctions('weightAdaptationApplicable')].join('\n\n'), {});
-  const base = { defaults_version: '2026-10-11-hloi', policy: { minFactor: 0.5, maxFactor: 1.5 }, defaults: { fng: [14, 1], usd: [8, 0.6] },
+  // The gate requires the worker's defaults version to equal this page's current one.
+  const COMPOSITE_WEIGHTS_VERSION = evalInScope(extractConst('COMPOSITE_WEIGHTS_VERSION') + '\nfunction __v(){return COMPOSITE_WEIGHTS_VERSION;}', {}).__v();
+  const base = { defaults_version: COMPOSITE_WEIGHTS_VERSION, policy: { minFactor: 0.5, maxFactor: 1.5 }, defaults: { fng: [14, 1], usd: [8, 0.6] },
     latest: { run_ts: 1, changed: ['fng'], weights: { fng: [15.4, 1], usd: [8, 0.6] } }, evaluation: { verdict: 'IMPROVED', samples_after: 40 } };
   it('allows apply only for an out-of-sample IMPROVED proposal within bounds and matching defaults', () => {
     expect(weightAdaptationApplicable(base).ok).toBe(true);
