@@ -11,7 +11,7 @@ const H = 3600_000;
 function scope() {
   return evalInScope([
     extractConst('EVENT_STATUS_STYLE'), extractConst('EVENT_SEVERITY_COLOR'),
-    extractFunctions('fmtAgeMs', 'eventDetectionView', 'detectorRow', 'renderEventDetection'),
+    extractFunctions('fmtAgeMs', 'eventDetectionView', 'detectorRow', 'renderEventDetection', 'emptyEventsMessage'),
   ].join('\n\n'), { escHtml: (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) });
 }
 const HEALTH = {
@@ -69,6 +69,31 @@ describe('renderEventDetection', () => {
     const html = s.renderEventDetection(s.eventDetectionView({ __http: 404 }, null, NOW));
     expect(html).toMatch(/not deployed/);
     expect(html).not.toMatch(/No events detected/);
+  });
+});
+
+describe('empty states: no events vs nothing could detect', () => {
+  const s = scope();
+  const render = (detectors) => s.renderEventDetection(s.eventDetectionView({ ...HEALTH, detectors }, { ok: true, available: true, events: [] }, NOW));
+  it('never-run detectors are not presented as "no events"', () => {
+    const html = render([{ id: 'a', label: 'A', status: 'NEVER_RUN' }, { id: 'b', label: 'B', status: 'DISABLED' }]);
+    expect(html).toContain('No detector has completed a successful run yet');
+    expect(html).not.toContain('No events detected');
+  });
+  it('names detectors that are collecting a baseline or failing alongside "no events"', () => {
+    const html = render([
+      { id: 'a', label: 'A', status: 'OK', last_success_ts: NOW - H, last_observation_ts: NOW - H },
+      { id: 'b', label: 'B', status: 'INSUFFICIENT_BASELINE', last_success_ts: NOW - H },
+      { id: 'c', label: 'C', status: 'BLOCKED_BY_PROVIDER', last_success_ts: null },
+    ]);
+    expect(html).toContain('No events detected in the last 7 days by the detectors that ran.');
+    expect(html).toContain('1 detector is still collecting the history needed to detect anything');
+    expect(html).toContain('1 detector is stale or failing');
+    expect(html).toContain('Blocked by provider');
+  });
+  it('a clean "no events" when every detector ran and is OK', () => {
+    const html = render([{ id: 'a', label: 'A', status: 'OK', last_success_ts: NOW - H, last_observation_ts: NOW - H }]);
+    expect(html).toContain('No events detected in the last 7 days by the detectors that ran.</p>');
   });
 });
 
