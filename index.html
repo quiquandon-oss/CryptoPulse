@@ -1421,6 +1421,21 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         <div id="compositeBreakdownBody" data-section="compositeBreakdown"></div>
       </div>
 
+      <!-- Event Detection Layer: derived market/corporate/macro EVENTS from Pulse Worker V2 (/api/events). Shown
+           next to the sources but kept separate: these are not composite inputs and never change the score above. -->
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <div class="flex flex-wrap items-center justify-between gap-y-1 mb-2">
+          <h3 class="text-sm font-semibold min-w-0">Event Detection — Detected Events &amp; Detector Health<span id="dotEventDetection" title="—" style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:#94A3B8;margin-left:6px;vertical-align:middle;"></span></h3>
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] text-mutet tnum" id="eventDetectionStatus">—</span>
+            <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleNote(this,'eventDetectionNote')">ⓘ Info</button>
+            <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="toggleSection('eventDetection')" id="eventDetectionChevron">▲ Hide</button>
+          </div>
+        </div>
+        <p class="hidden text-xs text-mutet mb-3" id="eventDetectionNote">Derived events, not sources: liquidation bursts (OKX, one venue), Deribit implied-volatility and options open-interest shifts, US yield shocks and scheduled macro releases (FRED), and SEC filings of tracked crypto-treasury companies. Each detector shows its own health and freshness; stale, missing or unavailable data is shown as such, never as a neutral reading. Severity (how unusual), confidence (data quality) and direction (only when justified, otherwise UNKNOWN) are separate. None of these events feeds the Sentiment composite, its weights or any prediction.</p>
+        <div id="eventDetectionBody" data-section="eventDetection"><p class="text-[10px] text-mutet">Loading…</p></div>
+      </div>
+
       <!-- Self-validation: does past sentiment actually correlate with FUTURE BTC price
            movement? Real Pearson correlation from Pulse's /analysis endpoint, not a
            feature CryptoPulse had before. -->
@@ -2623,7 +2638,7 @@ function setView(v){state.view=v;['dashboard','mycrypto','dca','scenario','cycle
   if(v==='capital'){renderCapital();}
   if(v==='radar'){initRadarTab();}
   if(v==='markets'){initMarketsTab();}
-  if(v==='sentiment'){initSentimentTab();loadHypeFunding();}
+  if(v==='sentiment'){initSentimentTab();loadHypeFunding();loadEventDetection();}
   if(v==='outlook'){initOutlookTab();}
   if(v==='traderanalysis'){renderManualNewsList();}
   if(v==='foufi'){loadFoufiDigest();if(!foufiRecapLoaded){foufiRecapLoaded=true;loadFoufiRecap();}}
@@ -10807,6 +10822,103 @@ async function srcRiskRegime(){
   if(!Number.isFinite(j.score)||j.score<0||j.score>100)throw new Error('risk-regime returned no valid score');
   return{score:j.score};
 }
+// Event Detection Layer (Pulse Worker V2 /api/events + /api/events/health). Display only: nothing here is read
+// by computeComposite, the source weights or any prediction.
+const EVENT_DETECTION_URL='https://pulseworker-v2.quiquandon.workers.dev';
+const EVENT_STATUS_STYLE={OK:['#3BF38B','OK'],INSUFFICIENT_BASELINE:['#F5B843','Collecting baseline'],STALE:['#F5B843','Stale'],DATA_UNAVAILABLE:['#94A3B8','Data unavailable'],NOT_CONFIGURED:['#94A3B8','Not configured'],BLOCKED_BY_PROVIDER:['#F5606C','Blocked by provider'],RATE_LIMITED:['#F5606C','Rate limited'],BUDGET_EXHAUSTED:['#F5606C','Run budget exhausted'],PROVIDER_ERROR:['#F5606C','Provider error'],DISABLED:['#94A3B8','Disabled'],NEVER_RUN:['#94A3B8','Never run']};
+const EVENT_SEVERITY_COLOR={LOW:'#94A3B8',MEDIUM:'#FFD93D',HIGH:'#F5B843',CRITICAL:'#F5606C'};
+function fmtAgeMs(ms){
+  if(ms===null||ms===undefined||!Number.isFinite(ms))return '—';
+  const m=Math.round(ms/60000);
+  if(m<60)return m+' min';
+  const h=Math.round(m/60);
+  return h<48?h+' h':Math.round(h/24)+' d';
+}
+// Pure: API payloads -> what the panel shows. Unavailable states are explicit, never empty-as-neutral.
+function eventDetectionView(health,events,nowTs){
+  if(!health||health.__http===404)return{state:'not_deployed',message:'Event Detection is not deployed on Pulse Worker V2 yet (endpoint not found).',detectors:[],events:[]};
+  if(health.__error)return{state:'error',message:'Event Detection unavailable: '+health.__error,detectors:[],events:[]};
+  if(health.available===false)return{state:'tables_missing',message:health.error||'Event Detection tables are not present yet.',detectors:(health.detectors||[]).map(d=>detectorRow(d,nowTs)),events:[]};
+  const detectors=(health.detectors||[]).map(d=>detectorRow(d,nowTs));
+  const evs=(events&&events.available!==false&&Array.isArray(events.events)?events.events:[]).map(e=>({
+    id:e.event_id,type:e.event_type,asset:e.asset||'',market:e.market||'',source:e.source,severity:e.severity,
+    severityColor:EVENT_SEVERITY_COLOR[e.severity]||'#94A3B8',direction:e.direction||'UNKNOWN',
+    confidence:Number.isFinite(e.confidence)?e.confidence:null,detectedTs:e.detected_ts,sourceTs:e.source_ts,
+    age:fmtAgeMs(nowTs-e.detected_ts),dataAge:fmtAgeMs(e.freshness_ms),explanation:e.explanation||'',url:e.source_url||null,
+    expired:e.status==='EXPIRED',rule:e.rule_id+(e.rule_version?(' · '+e.rule_version):''),
+    evidence:Array.isArray(e.evidence)?e.evidence:[],
+  }));
+  // "No events" only means something if a detector could have seen one: count detectors that have ever
+  // completed a run, and those still collecting their baseline (they cannot fire yet).
+  const everRan=(health.detectors||[]).filter(d=>d.last_success_ts).length;
+  const collecting=detectors.filter(d=>d.status==='INSUFFICIENT_BASELINE').length;
+  const unhealthy=detectors.filter(d=>['STALE','PROVIDER_ERROR','BLOCKED_BY_PROVIDER','RATE_LIMITED','BUDGET_EXHAUSTED'].includes(d.status)).length;
+  return{state:'available',enabled:!!health.enabled,lastRun:health.last_run||null,detectors,events:evs,everRan,collecting,unhealthy,
+    summary:`${evs.filter(e=>!e.expired).length} active event${evs.filter(e=>!e.expired).length===1?'':'s'} · ${detectors.filter(d=>d.status==='OK').length}/${detectors.length} detectors OK`};
+}
+function detectorRow(d,nowTs){
+  const st=EVENT_STATUS_STYLE[d.status]||['#94A3B8',d.status||'Unknown'];
+  return{id:d.id,label:d.label||d.id,status:d.status||'UNKNOWN',statusLabel:st[1],color:st[0],
+    lastSuccess:d.last_success_ts?fmtAgeMs(nowTs-d.last_success_ts)+' ago':'never',
+    dataAge:d.last_observation_ts?fmtAgeMs(nowTs-d.last_observation_ts):'—',coverage:d.coverage||'—',error:d.last_error||null};
+}
+function renderEventDetection(view){
+  if(view.state!=='available'){
+    const rows=view.detectors.length?`<div class="mt-2 text-[10px] text-mutet">Detectors: ${view.detectors.map(d=>escHtml(d.label)+' — '+escHtml(d.statusLabel)).join(' · ')}</div>`:'';
+    return `<p class="text-xs text-mutet">${escHtml(view.message)}</p>${rows}`;
+  }
+  const det=view.detectors.map(d=>`<tr class="border-t border-line/50">
+      <td class="py-1 pr-2"><span style="display:inline-block;width:7px;height:7px;border-radius:9999px;background:${d.color};margin-right:6px"></span>${escHtml(d.label)}</td>
+      <td class="py-1 pr-2" title="${escHtml(d.error||'')}">${escHtml(d.statusLabel)}</td>
+      <td class="py-1 pr-2 tnum">${escHtml(d.lastSuccess)}</td>
+      <td class="py-1 pr-2 tnum">${escHtml(d.dataAge)}</td>
+      <td class="py-1 text-mutet">${escHtml(d.coverage)}</td></tr>`).join('');
+  const ev=view.events.length?view.events.map(e=>`<div class="border-t border-line/50 pt-2 mt-2 ${e.expired?'opacity-60':''}">
+      <div class="flex flex-wrap items-center gap-2 text-xs">
+        <span class="font-semibold">${escHtml(e.type.replace(/_/g,' '))}</span>
+        <span class="text-[10px] rounded px-1.5 py-0.5" style="background:${e.severityColor}22;color:${e.severityColor}">${escHtml(e.severity)}</span>
+        <span class="text-[10px] text-mutet">direction ${escHtml(e.direction)}</span>
+        ${e.confidence!==null?`<span class="text-[10px] text-mutet">confidence ${Math.round(e.confidence*100)}%</span>`:''}
+        <span class="text-[10px] text-mutet">${escHtml(e.asset)}${e.market?' · '+escHtml(e.market):''}</span>
+        <span class="text-[10px] text-mutet">detected ${escHtml(e.age)} ago · data age at detection ${escHtml(e.dataAge)}${e.expired?' · expired':''}</span>
+      </div>
+      <p class="text-[10px] text-mutet mt-1">${escHtml(e.explanation)}</p>
+      <p class="text-[10px] text-mutet mt-0.5">Rule ${escHtml(e.rule)} · source ${escHtml(e.source)}${e.url?` · <a class="underline" href="${escHtml(e.url)}" target="_blank" rel="noopener">evidence</a>`:''}</p>
+    </div>`).join(''):emptyEventsMessage(view);
+  const off=view.enabled?'':'<p class="text-[10px] mt-1" style="color:#F5B843">Scheduled detection is switched off on the worker (EVENT_DETECTION_ENABLED not set); shown data may be old.</p>';
+  return `${off}
+    <div class="overflow-x-auto"><table class="w-full text-[10px]"><thead class="text-mutet text-left"><tr><th class="pr-2">Detector</th><th class="pr-2">Status</th><th class="pr-2">Last success</th><th class="pr-2">Data age</th><th>Coverage</th></tr></thead><tbody>${det}</tbody></table></div>
+    <h4 class="text-xs font-semibold mt-3">Recent events</h4>${ev}`;
+}
+function emptyEventsMessage(view){
+  if(!view.everRan)return '<p class="text-[10px] mt-2" style="color:#F5B843">No detector has completed a successful run yet, so no events can be shown. This is not a "nothing happened" reading.</p>';
+  const notes=[];
+  if(view.collecting)notes.push(`${view.collecting} detector${view.collecting===1?' is':'s are'} still collecting the history needed to detect anything`);
+  if(view.unhealthy)notes.push(`${view.unhealthy} detector${view.unhealthy===1?' is':'s are'} stale or failing`);
+  return `<p class="text-[10px] text-mutet mt-2">No events detected in the last 7 days by the detectors that ran.${notes.length?` <span style="color:#F5B843">${notes.join('; ')} — those could not have detected events.</span>`:''}</p>`;
+}
+async function fetchEventJson(path){
+  try{
+    const res=await fetch(EVENT_DETECTION_URL+path,{cache:'no-store'});
+    if(res.status===404)return{__http:404};      // worker without the Event Detection routes
+    return await res.json();                     // includes 503 {available:false} before migration 0023
+  }catch(err){return{__error:err&&err.message?err.message:String(err)};}
+}
+let eventDetectionLoadedAt=0;
+async function loadEventDetection(force){
+  const host=$('#eventDetectionBody'),statusEl=$('#eventDetectionStatus');
+  if(!host)return;
+  if(!force&&Date.now()-eventDetectionLoadedAt<5*60000)return;
+  eventDetectionLoadedAt=Date.now();
+  const [health,events]=await Promise.all([fetchEventJson('/api/events/health'),fetchEventJson('/api/events?limit=25')]);
+  const view=eventDetectionView(health,events,Date.now());
+  host.innerHTML=renderEventDetection(view);
+  if(statusEl)statusEl.textContent=view.state==='available'?view.summary:view.state.replace(/_/g,' ');
+  const bad=view.detectors.some(d=>['PROVIDER_ERROR','BLOCKED_BY_PROVIDER','RATE_LIMITED','BUDGET_EXHAUSTED'].includes(d.status));
+  const stale=view.detectors.some(d=>['STALE','INSUFFICIENT_BASELINE'].includes(d.status));
+  setHealthDot('dotEventDetection',view.state!=='available'?'error':bad?'error':stale?'stale':'live',view.state==='available'?view.summary:view.message);
+}
+window.loadEventDetection=loadEventDetection;
 async function srcHypeFundingForComposite(){
   const assets=await fetchHyperliquidAssets();
   const c=assets.HYPE;
@@ -10997,7 +11109,7 @@ async function init(){LS.load();buildMobileNav();wire();paintNav();wireSwipeNav(
   }
   loadHypeFunding();
   loadFoufiDigest(); // cheap D1 read, no Gemini cost — safe on every boot
-  setInterval(()=>{getFx();getFG();getPrices().then(render);if(state.view==='sentiment')loadHypeFunding();},60000);
+  setInterval(()=>{getFx();getFG();getPrices().then(render);if(state.view==='sentiment'){loadHypeFunding();loadEventDetection();}},60000);
   // FIX: the composite cycle (score/technicalScore/regimeMag/bottomScore/
   // globalMcap — everything the Dashboard, Cycles tiles, and D1 history rely
   // on) previously only ran on boot, on navigating to the Sentiment tab, or
