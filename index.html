@@ -1832,6 +1832,15 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <div id="alertConfigsList" class="space-y-2 text-xs">Loading…</div>
         </div>
         <div class="border-t border-line/50 pt-3">
+          <h3 class="text-sm font-semibold mb-2">Device access (stored on this device only)</h3>
+          <p class="text-[10px] text-mutet mb-2">Needed once the Worker enforces access (V1_ACCESS_TOKEN). Never shipped in the page; ask the owner for the values.</p>
+          <input id="v1TokenInput" type="password" autocomplete="off" class="w-full bg-panel2 border border-line rounded px-2 py-1 text-xs mb-1" placeholder="V1 access token">
+          <input id="alertSecretInput" type="password" autocomplete="off" class="w-full bg-panel2 border border-line rounded px-2 py-1 text-xs mb-1" placeholder="Alert sheet secret (DCA sync)">
+          <div class="flex gap-2"><button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="saveV1Secrets()">Save</button>
+          <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="clearV1Secrets()">Clear</button></div>
+          <div class="text-[10px] text-mutet mt-1" id="v1SecretsStatus"></div>
+        </div>
+        <div class="border-t border-line/50 pt-3">
           <h3 class="text-sm font-semibold mb-2">Recent activity</h3>
           <div id="alertLogList" class="space-y-1 text-[10px] font-mono max-h-64 overflow-y-auto">Loading…</div>
         </div>
@@ -1902,8 +1911,12 @@ const CG='https://api.coingecko.com/api/v3', FXAPI='https://api.frankfurter.app'
 // account access, same class of key). Raises the rate limit from 5-15/min
 // (keyless public tier) to a stable 30/min, which is what was actually
 // causing the Market Cap Composition chart's rate-limit failures.
-const CG_API_KEY='CG-htHPdmQD85sPMPRFBrqPVYXA';
-function cgFetch(url){return fetch(url,{headers:{'x-cg-demo-api-key':CG_API_KEY}});}
+// sec-v1: the CoinGecko key now lives on the Worker (CG_API_KEY secret); calls go through its allowlisted proxy.
+function cgFetch(url){
+  const u=new URL(url);
+  const qs=new URLSearchParams(u.search);qs.set('path',u.pathname.replace(/^\/api\/v3/,''));
+  return fetch(`${PULSE_WORKER_URL}/api-proxy/coingecko?${qs.toString()}`);
+}
 const START='2026-04-11', TODAY='2026-06-26';
 const META={BTC:{id:'bitcoin',name:'Bitcoin',c:'#F7931A'},ETH:{id:'ethereum',name:'Ethereum',c:'#C8CDD6'},
   SOL:{id:'solana',name:'Solana',c:'#14F195'},LINK:{id:'chainlink',name:'Chainlink',c:'#2A5ADA'},
@@ -1933,7 +1946,7 @@ const LS={load(){try{const t=localStorage.getItem('cp2_txs');state.txs=t?JSON.pa
     // every real change. Never blocks, never surfaces an error to the
     // user (localStorage already succeeded, that's the primary store —
     // this is a safety net, its own failure shouldn't interrupt anything).
-    fetch(`${PULSE_WORKER_URL}/txs-backup`,{method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify({txs:state.txs})}).catch(()=>{});
+    fetch(`${PULSE_WORKER_URL}/txs-backup`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({txs:state.txs})}).catch(()=>{});
   },
   meta(){localStorage.setItem('cp2_meta',JSON.stringify(META));},
   ccy(){localStorage.setItem('cp2_ccy',state.ccy);},
@@ -2227,7 +2240,7 @@ function renderHeader(){const t=totals();const up=t.pnl>=0;
     const tooFastAndBig=lastLoggedPortfolioUsd&&(now-lastLoggedPortfolioTs)<600000&&impliedPct>10; // was 15 — a confirmed-bad 12.66% swing slipped under it
     if(!tooFastAndBig){
       const fx=state.fx||FX0;
-      fetch(`${PULSE_WORKER_URL}/portfolio-log`,{method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify({value_usd:valueUsd,value_eur:valueUsd/fx,fx,prices})}).catch(()=>{});
+      fetch(`${PULSE_WORKER_URL}/portfolio-log`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value_usd:valueUsd,value_eur:valueUsd/fx,fx,prices})}).catch(()=>{});
       lastLoggedPortfolioUsd=valueUsd;lastLoggedPortfolioTs=now;
     }
   }
@@ -2924,7 +2937,8 @@ function computeDcaSuggestions(){
 // just reads the finished numbers — same division of labor as the heatmap. This is
 // a no-op until ALERTCONFIG_WRITE_URL is actually deployed (see the Gemini prompt).
 const ALERTCONFIG_WRITE_URL='https://script.google.com/macros/s/AKfycbwutUzRvBVMjWDMGnxXkhyaPbE-d0lJ2vTlXBKy8OfGUgJekAmUKxn1N_5szDV6aU6o/exec';
-const ALERT_WRITE_SECRET='404bcdd6ab8588a3e4daf5c45e00ec3b';
+// sec-v1: the Apps Script shared secret is entered per device in Settings (never shipped in the page).
+const ALERT_WRITE_SECRET_STORAGE='cp_alert_write_secret';
 async function syncDcaMetricsToSheet(){
   const statusEl=$('#dcaSyncStatus');
   if(ALERTCONFIG_WRITE_URL.includes('REPLACE_ME')){if(statusEl)statusEl.textContent='Sync status: not configured';return;}
@@ -2934,7 +2948,9 @@ async function syncDcaMetricsToSheet(){
   for(const sym of['BTC','LINK']){
     const cache=state.radar.cache[sym];
     const trendPct=cache?.weekly?computeWeeklyTrendPct(cache.prices,cache.weekly.grid):null;
-    const body={secret:ALERT_WRITE_SECRET,asset:sym,avgCost:avg(sym),weeklyTrendPct:trendPct==null?0:trendPct,suggestedDcaEUR:Math.round(dca.alloc[sym]||0)};
+    let alertSecret='';try{alertSecret=localStorage.getItem(ALERT_WRITE_SECRET_STORAGE)||'';}catch(e){}
+    if(!alertSecret){if(statusEl)statusEl.textContent='Sync status: alert sheet secret not set (Settings)';return;}
+    const body={secret:alertSecret,asset:sym,avgCost:avg(sym),weeklyTrendPct:trendPct==null?0:trendPct,suggestedDcaEUR:Math.round(dca.alloc[sym]||0)};
     try{
       // mode:'no-cors' — Apps Script Web Apps internally redirect to a
       // script.googleusercontent.com URL for the actual response, which often lacks
@@ -3056,8 +3072,13 @@ let lastCombinedSentimentRows=[];
 // Gemini/SoSoValue-News sentiment pipeline was removed; this is a separate, working
 // feature that shouldn't have been removed along with it). Same exposure caveat as
 // the other keys in this app: visible in page source, static client-side file.
-const SOSO_API_KEY='SOSO-22e8036211c5416c8faef111de6ba2c1';
+// sec-v1: the SoSoValue key lives on the Worker (SOSO_API_KEY secret); calls go through its allowlisted proxy.
 const SOSO_BASE='https://openapi.sosovalue.com/openapi/v1';
+function sosoFetch(url){
+  const u=new URL(url);
+  const qs=new URLSearchParams(u.search);qs.set('path',u.pathname.replace(/^\/openapi\/v1/,''));
+  return fetch(`${PULSE_WORKER_URL}/api-proxy/sosovalue?${qs.toString()}`);
+}
 // ETF aggregate net-inflow endpoint only supports these symbols (confirmed enum) —
 // HYPE has no spot-ETF aggregate history there yet, so it's simply skipped below.
 const SOSO_ETF_SYMS=['BTC','ETH','SOL','LINK'];
@@ -3109,13 +3130,47 @@ function sentLabelFor(score){
 
 // ---- Pulse (Cloudflare Worker) integration ----
 const PULSE_WORKER_URL='https://sentiment-ff75.quiquandon.workers.dev';
-// Sent as X-App-Secret on the write/AI-cost/sensitive-read routes the
-// Worker protects (see PROTECTED_ROUTES in worker.js). Honest limit: this
-// is a public static site with no login system, so this value is visible
-// to anyone who opens dev tools — it stops automated scanners and casual
-// poking, not a determined attacker who actually looks. Real protection
-// against worst-case cost/abuse is the rate limiter, not this.
-const APP_SECRET='GnI52Z0xeddrPuDdsp9Y0GJKvwPS2WxahRmDCVKCUek';
+// sec-v1: no shared secret in the page. Protected Worker routes need the per-device V1 access token (Settings),
+// added by the fetch wrapper below only to requests for those routes.
+const V1_TOKEN_STORAGE='cp_v1_access_token';
+const V1_PROTECTED_ROUTES=['POST:/whale-analysis','POST:/whale-log','POST:/portfolio-log','POST:/txs-backup','GET:/txs-backup',
+  'GET:/portfolio-history','POST:/liquidation-analysis','POST:/history','POST:/backfill-sources','POST:/alert-configs',
+  'POST:/alert-configs/toggle','POST:/alert-configs/delete','POST:/test-telegram','GET:/run-technical-eval','POST:/run-technical-eval',
+  'POST:/trader-analysis','POST:/trader-analysis-gemini','POST:/gemini-outlook','GET:/foufi-backfill-rss','GET:/foufi-check'];
+function v1TokenFor(input,init){
+  try{
+    const u=new URL(typeof input==='string'?input:input.url,location.href);
+    if(!u.href.startsWith(PULSE_WORKER_URL))return null;
+    const m=((init&&init.method)||(typeof input!=='string'&&input.method)||'GET').toUpperCase();
+    if(!V1_PROTECTED_ROUTES.includes(`${m}:${u.pathname}`))return null;
+    return localStorage.getItem(V1_TOKEN_STORAGE)||null;
+  }catch(e){return null;}
+}
+(function installV1AuthFetch(){
+  if(window.__v1AuthFetchInstalled)return;window.__v1AuthFetchInstalled=true;
+  const orig=window.fetch.bind(window);
+  window.fetch=(input,init)=>{
+    const t=v1TokenFor(input,init);
+    if(!t)return orig(input,init);
+    const headers=new Headers((init&&init.headers)||{});headers.set('X-V1-Token',t);
+    return orig(input,{...(init||{}),headers});
+  };
+})();
+function saveV1Secrets(){
+  for(const[id,key]of[['v1TokenInput',V1_TOKEN_STORAGE],['alertSecretInput',ALERT_WRITE_SECRET_STORAGE]]){
+    const el=$('#'+id);if(!el||!el.value.trim())continue;
+    try{localStorage.setItem(key,el.value.trim());}catch(e){}
+    el.value='';
+  }
+  renderV1SecretsStatus();
+}
+document.addEventListener('DOMContentLoaded',()=>{try{renderV1SecretsStatus();}catch(e){}});
+function clearV1Secrets(){try{localStorage.removeItem(V1_TOKEN_STORAGE);localStorage.removeItem(ALERT_WRITE_SECRET_STORAGE);}catch(e){}renderV1SecretsStatus();}
+function renderV1SecretsStatus(){
+  const el=$('#v1SecretsStatus');if(!el)return;
+  let a=false,b=false;try{a=!!localStorage.getItem(V1_TOKEN_STORAGE);b=!!localStorage.getItem(ALERT_WRITE_SECRET_STORAGE);}catch(e){}
+  el.textContent=`V1 access token: ${a?'set on this device':'not set'} · Alert sheet secret: ${b?'set':'not set'}`;
+}
 
 // FIX: lastLoggedPortfolioUsd used to start at null every page load, so a
 // fresh tab/device/session's FIRST portfolio snapshot was completely
@@ -4134,7 +4189,7 @@ async function fetchPulseTechnicalEval(t){
       const extended={macd:t.macd,bollinger:t.bollinger,obv:t.obv,kumoTwist:t.kumoTwist,
         probSwing:t.probSwing,probSqueeze:t.probSqueeze,probVolBreakout:t.probVolBreakout,probRsiExtreme:t.probRsiExtreme};
       const res=await fetch(`${PULSE_WORKER_URL}/run-technical-eval`,{
-        method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify({closes,extended})
+        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({closes,extended})
       });
       if(res.ok){
         try{localStorage.setItem(throttleKey,String(Date.now()));}catch(e){}
@@ -4186,7 +4241,7 @@ async function fetchSosoEtfFlows(){
   for(const sym of SOSO_ETF_SYMS){
     try{
       const url=`${SOSO_BASE}/etfs/summary-history?symbol=${sym}&country_code=US&limit=30`;
-      const res=await fetch(url,{headers:{'x-soso-api-key':SOSO_API_KEY}});
+      const res=await sosoFetch(url);
       const text=await res.text();
       if(!res.ok){results[sym]={error:'HTTP '+res.status};hadRealError=true;lastErrMsg='HTTP '+res.status;continue;}
       let json;
@@ -4536,7 +4591,7 @@ function renderNineMagnificent(data){
 // uses, then the existing render functions read it back exactly as before.
 // ════════════════════════════════════════════════════════════════
 
-const FRED_KEY='5f8528bd2d41549ffffc98b5bff419de'; // from Pulse's own frontend source (default input value)
+// sec-v1: the FRED key lives on the Worker (FRED_API_KEY secret); /macro-proxy no longer needs one from the page.
 const FRED_CONFIG={
   // oil and usd used to live here (DCOILWTICO/DTWEXBGS) but were removed once
   // both moved to Hyperliquid's live xyz:BRENTOIL/xyz:DXY (see
@@ -4721,7 +4776,7 @@ async function srcFredSeries(key){
   // never varying), which breaks correlation (zero variance = undefined Pearson).
   // Most likely cause: an intermediate cache serving a stale response for this
   // identical URL. Both measures below force a real network hit each time.
-  const res=await fetch(`${PULSE_WORKER_URL}/macro-proxy?series=${cfg.series}&key=${encodeURIComponent(FRED_KEY)}&_=${Date.now()}`,{cache:'no-store'});
+  const res=await fetch(`${PULSE_WORKER_URL}/macro-proxy?series=${cfg.series}&_=${Date.now()}`,{cache:'no-store'});
   if(!res.ok)throw new Error('Worker macro-proxy '+res.status);
   const json=await res.json();
   if(json.error)throw new Error(json.error);
@@ -4831,7 +4886,7 @@ async function srcNewsRss(source){
 }
 async function srcSosoValueNews(){
   const url='https://openapi.sosovalue.com/openapi/v1/news?page_num=1&page_size=15&category_list=1,2,3,4,7,13';
-  const res=await fetch(url,{headers:{'x-soso-api-key':SOSO_API_KEY}});
+  const res=await sosoFetch(url);
   if(!res.ok)throw new Error('SoSoValue API '+res.status);
   const json=await res.json();
   const articles=(json.data?.list||[]).slice(0,15);
@@ -5520,7 +5575,7 @@ async function fetchTraderAnalysis(payload){
     return{analysis:cached.analysis,fromCache:true,cacheAgeMin:Math.round((Date.now()-cached.fetchedAt)/60000)};
   }
   const res=await fetch(`${PULSE_WORKER_URL}/trader-analysis`,{
-    method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify(payload)
+    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
   });
   if(!res.ok){
     // Read the Worker's actual error body instead of just showing the status code —
@@ -5703,7 +5758,7 @@ async function runTraderAnalysisGemini(){
   resultEl.textContent='Asking Gemini for its own independent read…';
   try{
     const res=await fetch(`${PULSE_WORKER_URL}/trader-analysis-gemini`,{
-      method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},
+      method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(traderAnalysisLastPayload)
     });
     if(!res.ok){
@@ -6336,7 +6391,7 @@ function saveOutlookCache(result){
   try{if(result&&result.ts)localStorage.setItem(OUTLOOK_CACHE_KEY,JSON.stringify(result));}catch(e){console.error('Failed to cache Gemini outlook:',e);}
 }
 async function fetchGeminiOutlook(payload){
-  const res=await fetch(`${PULSE_WORKER_URL}/gemini-outlook`,{method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify(payload)});
+  const res=await fetch(`${PULSE_WORKER_URL}/gemini-outlook`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
   if(!res.ok){
     let msg='Worker gemini-outlook '+res.status;
     try{const j=await res.json();if(j.error)msg=j.error;}catch(e){}
@@ -6618,7 +6673,7 @@ async function createAlertConfig(type,params,cooldownMinutes){
   const statusEl=$('#alertCreateStatus');
   if(statusEl)statusEl.textContent='Saving…';
   try{
-    const res=await fetch(`${PULSE_WORKER_URL}/alert-configs`,{method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify({type,params,cooldownMinutes})});
+    const res=await fetch(`${PULSE_WORKER_URL}/alert-configs`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,params,cooldownMinutes})});
     const json=await res.json();
     if(!res.ok||json.error)throw new Error(json.error||('HTTP '+res.status));
     if(statusEl)statusEl.textContent='✓ Alert created.';
@@ -6649,11 +6704,11 @@ async function loadAlertConfigs(){
   }catch(err){host.innerHTML='<p class="text-down">Error loading alerts: '+(err&&err.message?err.message:String(err))+'</p>';}
 }
 async function toggleAlertConfig(id,enabled){
-  try{await fetch(`${PULSE_WORKER_URL}/alert-configs/toggle`,{method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify({id,enabled})});loadAlertConfigs();}catch(e){}
+  try{await fetch(`${PULSE_WORKER_URL}/alert-configs/toggle`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,enabled})});loadAlertConfigs();}catch(e){}
 }
 async function deleteAlertConfig(id){
   if(!confirm('Delete this alert?'))return;
-  try{await fetch(`${PULSE_WORKER_URL}/alert-configs/delete`,{method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify({id})});loadAlertConfigs();}catch(e){}
+  try{await fetch(`${PULSE_WORKER_URL}/alert-configs/delete`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});loadAlertConfigs();}catch(e){}
 }
 async function loadAlertLog(){
   const host=$('#alertLogList');if(!host)return;
@@ -6668,7 +6723,7 @@ async function sendTestTelegram(){
   const statusEl=$('#testTelegramStatus');
   if(statusEl)statusEl.textContent='Sending…';
   try{
-    const res=await fetch(`${PULSE_WORKER_URL}/test-telegram`,{method:'POST',headers:{'X-App-Secret':APP_SECRET}});
+    const res=await fetch(`${PULSE_WORKER_URL}/test-telegram`,{method:'POST'});
     const json=await res.json();
     if(statusEl)statusEl.textContent=json.ok?'✓ Sent — check Telegram.':'Failed: '+(json.detail||'unknown reason');
   }catch(err){if(statusEl)statusEl.textContent='Error: '+(err&&err.message?err.message:String(err));}
@@ -8136,7 +8191,7 @@ function renderWhaleTile(){
     // someone unfamiliar with exchange-flow reading, it never computes or
     // invents which transfers were outflow/inflow or which patterns qualify
     // as elevated. ----
-    fetch(`${PULSE_WORKER_URL}/whale-analysis`,{method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify({transfers:classified,concentration})})
+    fetch(`${PULSE_WORKER_URL}/whale-analysis`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transfers:classified,concentration})})
       .then(r=>r.json())
       .then(res=>{
         const analysisEl=$('#whaleAnalysisBody');if(!analysisEl)return;
@@ -8562,7 +8617,7 @@ async function renderLiquidationTile(){
         };
       }
     }
-    fetch(`${PULSE_WORKER_URL}/liquidation-analysis`,{method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify({assets:perAsset,focus:liqState.asset,chartContext})})
+    fetch(`${PULSE_WORKER_URL}/liquidation-analysis`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({assets:perAsset,focus:liqState.asset,chartContext})})
       .then(r=>r.json())
       .then(res=>{
         if(res.error){analysisEl.textContent='Could not load summary: '+res.error;return;}
@@ -9584,7 +9639,7 @@ function normalizedSlope(values){
   return mean?fit.slope/mean:null;
 }
 async function fetchSectorRotation(){
-  const url=`${PULSE_WORKER_URL}/macro-proxy?series=NASDAQCOM&key=${encodeURIComponent(FRED_KEY)}&limit=35&_=${Date.now()}`;
+  const url=`${PULSE_WORKER_URL}/macro-proxy?series=NASDAQCOM&limit=35&_=${Date.now()}`;
   const res=await fetch(url,{cache:'no-store'});
   if(!res.ok)throw new Error('Worker macro-proxy '+res.status);
   const json=await res.json();
@@ -10712,7 +10767,7 @@ async function backfillGoldUsdHistory(){
     if(!updates.length){setStatus('Nothing to backfill — every row already has gold/usd, or no matching historical dates were found.');return;}
     setStatus(`Patching ${updates.length} row(s)…`);
     const res=await fetch(`${PULSE_WORKER_URL}/backfill-sources`,{
-      method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},
+      method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({updates})
     });
     const json=await res.json();
@@ -11037,7 +11092,7 @@ async function init(){LS.load();buildMobileNav();wire();paintNav();wireSwipeNav(
     // back to SEED_TXS if the server backup is also unreachable or empty.
     let recovered=null;
     try{
-      const r=await fetch(`${PULSE_WORKER_URL}/txs-backup`,{headers:{'X-App-Secret':APP_SECRET}});
+      const r=await fetch(`${PULSE_WORKER_URL}/txs-backup`,{});
       const d=await r.json();
       if(d.ok&&d.found&&Array.isArray(d.txs)&&d.txs.length)recovered=d.txs;
     }catch(e){/* server backup unreachable — fall through to SEED_TXS below, same as before this fix existed */}
@@ -11061,7 +11116,7 @@ async function init(){LS.load();buildMobileNav();wire();paintNav();wireSwipeNav(
     try{
       const lastBackup=parseInt(localStorage.getItem('cp2_last_backup')||'0',10);
       if(Date.now()-lastBackup>=12*3600000){
-        fetch(`${PULSE_WORKER_URL}/txs-backup`,{method:'POST',headers:{'Content-Type':'application/json','X-App-Secret':APP_SECRET},body:JSON.stringify({txs:state.txs})})
+        fetch(`${PULSE_WORKER_URL}/txs-backup`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({txs:state.txs})})
           .then(r=>r.json()).then(d=>{if(d&&d.ok)localStorage.setItem('cp2_last_backup',String(Date.now()));}).catch(()=>{});
       }
     }catch(e){}
