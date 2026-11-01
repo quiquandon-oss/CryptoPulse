@@ -71,10 +71,13 @@ describe('historyWriteHeaders', () => {
 describe('index.html wiring', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   it('the history POST sends provenance, an idempotency key and the token headers', () => {
-    const i = html.indexOf('`${PULSE_WORKER_URL}/history`,{\n        method:\'POST\'');
+    const i = html.indexOf('await postHistory({\n        method:\'POST\'');
     const block = html.slice(i, i + 3000);
     expect(block).toContain('headers:historyWriteHeaders()');
     expect(block).toContain('provenance,idempotencyKey:`cp:${computedAt}:${composite}`');
+  });
+  it('retries once, with the same body, only on 503', () => {
+    expect(html).toContain('if(r.status===503){await new Promise(res=>setTimeout(res,2000));return fetch(`${PULSE_WORKER_URL}/history`,init);}');
   });
   it('a skipped low-completeness reading is recorded as provenance only', () => {
     expect(html).toContain("provenanceOnly:true,skipReason:'low_completeness'");

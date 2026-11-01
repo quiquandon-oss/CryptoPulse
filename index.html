@@ -5423,7 +5423,12 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
   }catch(e){/* throttle check failed — fail open, POST proceeds below as before */}
   if(shouldPost){
     try{
-      await fetch(`${PULSE_WORKER_URL}/history`,{
+      // One retry with the SAME body (same idempotency key) when the Worker answers 503 (transient store failure):
+      // the Worker wrote nothing, and the key makes the retry exactly-once.
+      const postHistory=(init)=>fetch(`${PULSE_WORKER_URL}/history`,init).then(async r=>{
+        if(r.status===503){await new Promise(res=>setTimeout(res,2000));return fetch(`${PULSE_WORKER_URL}/history`,init);}
+        return r;});
+      await postHistory({
         method:'POST',headers:historyWriteHeaders(),
         // FIX: was btcPrice:pxUsd('BTC')||null — pxUsd() silently falls back
         // to histPx('BTC', TODAY) whenever state.prices.BTC.usd isn't
