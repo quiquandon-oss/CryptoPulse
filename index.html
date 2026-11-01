@@ -1789,6 +1789,12 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
         </div>
         <div id="weightAdaptStatus" class="text-[11px] rounded-md px-2 py-1.5" data-section="sentWeights" style="background:rgba(0,0,0,.2)">Automatic weighting: loading…</div>
         <div id="sentWeightControls" class="space-y-3" data-section="sentWeights"></div>
+        <div class="pt-2 border-t border-line" data-section="sentWeights">
+          <label class="text-[11px] text-mutet" for="historyTokenInput">History write token (only if the Worker has one configured; stored on this device only)</label>
+          <div class="flex gap-2 mt-1"><input id="historyTokenInput" type="password" autocomplete="off" class="flex-1 min-w-0 bg-panel2 border border-line rounded px-2 py-1 text-xs" placeholder="paste token, or leave empty to clear">
+          <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="saveHistoryWriteToken()">Save</button></div>
+          <div class="text-[10px] text-mutet mt-1" id="historyTokenStatus"></div>
+        </div>
         <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-line" data-section="sentWeights">
           <span class="text-[10px] text-mutet" id="weightsVersionLabel"></span>
           <button class="text-[10px] text-mutet hover:text-white border border-line rounded-md px-2 py-1" onclick="resetSentimentWeights()">Reset to defaults</button>
@@ -5039,6 +5045,43 @@ function computeCompositeBreakdown(active,allSources,errors){
   const activeBase=active.reduce((a,s)=>a+(s.baseWeight??s.weight),0);
   return{composite:Math.round(rows.reduce((a,r)=>a+r.contribution,0)),rows,missing,completeness:activeBase/totalPossible};
 }
+// ---- History provenance (PulseWorker HISTORY_PROVENANCE, formula v1-composite-1). Records what this composite was
+// made of, so it can be recomputed server-side: per source score, base weight, confidence, boost and observation
+// time where the source exposes one (otherwise null: freshness unknown, never guessed), plus every missing source
+// with its reason. The Worker ignores it unless provenance recording is switched on there. ----
+const HISTORY_FORMULA_VERSION='v1-composite-1';
+function sourceObservedAt(v){
+  for(const k of ['observedAt','ts','asOf','timestamp']){const t=v&&v[k];if(typeof t==='number'&&t>1e12&&t<1e13)return t;}
+  return null;
+}
+function buildCompositeProvenance(active,allSources,errors,computedAt,overIds){
+  const ids=new Set(active.map(s=>s.id));
+  const totalPossible=allSources.reduce((a,s)=>a+s.weight,0)||1;
+  return{formula_version:HISTORY_FORMULA_VERSION,computed_at:computedAt,weights_version:COMPOSITE_WEIGHTS_VERSION,
+    weights_overridden:overIds||[],
+    completeness:active.reduce((a,s)=>a+(s.baseWeight??s.weight),0)/totalPossible,
+    sources:active.map(s=>{const base=s.baseWeight??s.weight;
+      return{id:s.id,score:s.value.score,base_weight:base,confidence:s.confidence??1.0,boost:base>0?s.weight/base:1,observed_at:sourceObservedAt(s.value)};}),
+    missing:allSources.filter(s=>!ids.has(s.id)).map(s=>({id:s.id,base_weight:s.weight,
+      reason:String((errors&&errors[s.id]&&errors[s.id].message)||'No value this cycle').slice(0,200)}))};
+}
+// Optional per-device history write token (PulseWorker HISTORY_WRITE_TOKEN). Entered in Settings, kept only in this
+// browser's localStorage, never in this file.
+function historyWriteHeaders(){
+  const h={'Content-Type':'application/json'};
+  try{const t=localStorage.getItem('cp_history_write_token');if(t)h['X-History-Token']=t;}catch(e){}
+  return h;
+}
+function saveHistoryWriteToken(){
+  const el=$('#historyTokenInput');if(!el)return;
+  try{if(el.value.trim())localStorage.setItem('cp_history_write_token',el.value.trim());else localStorage.removeItem('cp_history_write_token');}catch(e){}
+  el.value='';renderHistoryTokenStatus();
+}
+function renderHistoryTokenStatus(){
+  const st=$('#historyTokenStatus');if(!st)return;
+  let set=false;try{set=!!localStorage.getItem('cp_history_write_token');}catch(e){}
+  st.textContent=set?'Token set on this device':'No token on this device (writes are accepted only while the Worker has no token configured)';
+}
 function renderCompositeBreakdown(){
   const host=$('#compositeBreakdownBody'),status=$('#compositeBreakdownStatus');if(!host)return;
   let b=window.__lastCompositeBreakdown;
@@ -5068,6 +5111,7 @@ function sourceWeightTable(sources){
     effectiveSharePct:s.weight*(s.confidence??1.0)/total*100}));
 }
 function renderSentimentWeightControls(){
+  renderHistoryTokenStatus();
   const host=$('#sentWeightControls');if(!host)return;
   const table=sourceWeightTable(COMPOSITE_SOURCES);
   host.innerHTML=table.map(r=>`
@@ -5313,12 +5357,14 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
   });
   const composite=computeComposite(active);
   if(composite==null)return{ok:false,activeCount:0};
+  const computedAt=Date.now();
+  let overIds=[];
   try{
     let overrides={},confOver={};try{overrides=JSON.parse(localStorage.getItem('cp2_sentiment_weights')||'{}');}catch(e){}
     try{confOver=JSON.parse(localStorage.getItem('cp2_sentiment_confidence')||'{}');}catch(e){}
-    const overIds=[...new Set([...Object.keys(overrides),...Object.keys(confOver)])];
+    overIds=[...new Set([...Object.keys(overrides),...Object.keys(confOver)])];
     const breakdown=computeCompositeBreakdown(active,COMPOSITE_SOURCES,window.__sourceErrors||{});
-    breakdown.ts=Date.now();
+    breakdown.ts=computedAt;
     breakdown.weightsSource=(overIds.length?`defaults with your Settings overrides for ${overIds.join(', ')}`:'defaults')+` · version ${COMPOSITE_WEIGHTS_VERSION}`;
     window.__lastCompositeBreakdown=breakdown;
     try{localStorage.setItem('cp_last_composite_breakdown',JSON.stringify(breakdown));}catch(e){}
@@ -5340,7 +5386,19 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
   const activeWeight=active.reduce((s,src)=>s+src.baseWeight,0);
   const sourceCompleteness=activeWeight/totalPossibleWeight;
   const COMPLETENESS_FLOOR=0.5;
+  let provenance=null;
+  try{provenance=buildCompositeProvenance(active,COMPOSITE_SOURCES,window.__sourceErrors||{},computedAt,overIds);}catch(e){console.warn('provenance build failed:',e.message);}
   if(sourceCompleteness<COMPLETENESS_FLOOR){
+    // Still not written to history, but the skipped reading and its missing sources are recorded as provenance
+    // (at most once per 15 min) so coverage gaps have a recorded reason.
+    try{
+      const last=+(localStorage.getItem('cp_last_skip_provenance_ts')||0);
+      if(provenance&&computedAt-last>=15*60000){
+        localStorage.setItem('cp_last_skip_provenance_ts',String(computedAt));
+        fetch(`${PULSE_WORKER_URL}/history`,{method:'POST',headers:historyWriteHeaders(),
+          body:JSON.stringify({provenanceOnly:true,skipReason:'low_completeness',score:composite,provenance,idempotencyKey:`cp:skip:${computedAt}`})}).catch(()=>{});
+      }
+    }catch(e){}
     console.warn('Composite computed from only '+Math.round(sourceCompleteness*100)+'% of possible source weight ('+active.length+'/'+COMPOSITE_SOURCES.length+' sources) — not written to D1 this cycle to avoid polluting history with an unrepresentative reading.');
     return{ok:false,activeCount:active.length,lowCompleteness:true,composite};
   }
@@ -5366,7 +5424,7 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
   if(shouldPost){
     try{
       await fetch(`${PULSE_WORKER_URL}/history`,{
-        method:'POST',headers:{'Content-Type':'application/json'},
+        method:'POST',headers:historyWriteHeaders(),
         // FIX: was btcPrice:pxUsd('BTC')||null — pxUsd() silently falls back
         // to histPx('BTC', TODAY) whenever state.prices.BTC.usd isn't
         // populated yet this cycle, and histPx walks the static embedded
@@ -5380,7 +5438,8 @@ async function computeAndSyncCompositeScore(etfResultsFromPanel,technicalScore){
         // straight from state.prices bypasses that fallback chain entirely
         // — genuinely missing this cycle now writes null (filterable),
         // never a stale guess dressed up as real.
-        body:JSON.stringify({score:composite,technicalScore:typeof technicalScore==='number'?technicalScore:null,btcPrice:state.prices.BTC?.usd||null,sources:sourcesSnapshot,goldRegime:window.__lastGoldRegime||null,regimeMag:window.__lastRegimeScorecard?.overallMag??null,bottomScore:calcBottomScore(false).score,globalMcap:window.__lastGlobalMcapUsd??null})
+        body:JSON.stringify({score:composite,technicalScore:typeof technicalScore==='number'?technicalScore:null,btcPrice:state.prices.BTC?.usd||null,sources:sourcesSnapshot,goldRegime:window.__lastGoldRegime||null,regimeMag:window.__lastRegimeScorecard?.overallMag??null,bottomScore:calcBottomScore(false).score,globalMcap:window.__lastGlobalMcapUsd??null,
+          provenance,idempotencyKey:`cp:${computedAt}:${composite}`})
       });
     }catch(e){console.warn('Failed to POST composite score to /history:',e.message);}
   }
