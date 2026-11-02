@@ -53,8 +53,11 @@ describe('fetch wrapper and proxies', () => {
     await api.fetch(`${W}/history`);
     await api.fetch(`${W}/history`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     await api.fetch('https://api.hyperliquid.xyz/info', { method: 'POST' });
+    await api.cgFetch('https://api.coingecko.com/api/v3/global');
+    await api.fetch(`${W}/macro-proxy?series=DGS10`);
+    await api.fetch(`${W}/news-proxy?source=crypto`);
     const tok = calls.map(([, init]) => init && init.headers instanceof Headers ? init.headers.get('X-V1-Token') : null);
-    expect(tok).toEqual(['tok', 'tok', null, 'tok', null]);
+    expect(tok).toEqual(['tok', 'tok', null, 'tok', null, 'tok', 'tok', null]);
     expect(calls[1][1].headers.get('Content-Type')).toBe('application/json');
   });
   it('sends nothing extra when this device has no token', async () => {

@@ -3136,7 +3136,8 @@ const V1_TOKEN_STORAGE='cp_v1_access_token';
 const V1_PROTECTED_ROUTES=['POST:/whale-analysis','POST:/whale-log','POST:/portfolio-log','POST:/txs-backup','GET:/txs-backup',
   'GET:/portfolio-history','POST:/liquidation-analysis','POST:/history','POST:/backfill-sources','POST:/alert-configs',
   'POST:/alert-configs/toggle','POST:/alert-configs/delete','POST:/test-telegram','GET:/run-technical-eval','POST:/run-technical-eval',
-  'POST:/trader-analysis','POST:/trader-analysis-gemini','POST:/gemini-outlook','GET:/foufi-backfill-rss','GET:/foufi-check'];
+  'POST:/trader-analysis','POST:/trader-analysis-gemini','POST:/gemini-outlook','GET:/foufi-backfill-rss','GET:/foufi-check',
+  'GET:/macro-proxy','GET:/api-proxy/coingecko','GET:/api-proxy/sosovalue'];
 function v1TokenFor(input,init){
   try{
     const u=new URL(typeof input==='string'?input:input.url,location.href);
