@@ -1223,6 +1223,7 @@ const SEED_TXS=[{"date":"2026-04-11","asset":"BTC","acct":"Neverless","type":"bu
           <span id="pulseLabel" class="text-xs font-semibold px-3 py-1.5 rounded-full whitespace-nowrap">—</span>
         </div>
         <p class="text-xs text-mutet" id="pulseMeta">—</p>
+        <p class="text-[10px] text-mutet" id="pulseServerMeta"></p>
         <div class="hidden mt-2 rounded-lg px-3 py-2 text-xs border" id="pulseExtremeCallout"></div>
         <div class="flex items-center justify-end gap-2 text-xs">
           <button id="pulseZoomResetBtn" class="px-2 py-1 rounded-md text-mutet hover:text-white" title="Reset zoom" onclick="resetMainChartZoom()">
@@ -3220,6 +3221,33 @@ function bucketHistoryByDate(history){
   history.forEach(h=>{byDate[new Date(h.ts).toISOString().slice(0,10)]=h;});
   return byDate;
 }
+// Hourly server-side composite (Pulse /server-composite/readings, collector scomp-v1): recorded every hour by the
+// Worker whether or not this app is open. Shown as its own line, never merged into Sentiment (that line stays the
+// /history readings this app writes) and never written to /history. Server readings use the default weights and only
+// the sources a Worker can reach, so the two lines can differ by a few points. Below-floor readings are not shown.
+let pulseServerReadings=null; // [{ts,score}] once loaded; null = not loaded / unavailable
+function usableServerReadings(readings){
+  return (readings||[]).filter(r=>r&&Number.isFinite(r.ts)&&typeof r.score==='number'&&r.score>=0&&r.score<=100&&!r.below_floor);
+}
+async function fetchServerReadings(hours){
+  const res=await fetch(`${PULSE_WORKER_URL}/server-composite/readings?hours=${hours||2160}`);
+  if(!res.ok)throw new Error('Pulse /server-composite/readings responded '+res.status);
+  const j=await res.json();
+  if(!j||!j.ok)throw new Error((j&&j.error)||'server readings unavailable');
+  return usableServerReadings(j.readings);
+}
+function loadServerReadingsIntoChart(){
+  fetchServerReadings(2160).then(r=>{
+    pulseServerReadings=r;
+    const meta=$('#pulseServerMeta');
+    if(meta){
+      const last=r.length?r[r.length-1]:null;
+      meta.textContent=last?`Server reading (hourly, app closed or open): ${last.score} at ${new Date(last.ts).toLocaleString('en-GB',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'short'})} · ${r.filter(x=>Date.now()-x.ts<=86400000).length} in the last 24h`:'No hourly server reading yet.';
+    }
+    if(pulseLastHistory)renderCombinedHistoryChart(pulseLastHistory,pulseLastTechnicals);
+    const modal=$('#pulseChartFullscreen');if(modal&&!modal.classList.contains('hidden'))openHistoryChartFullscreen();
+  }).catch(e=>{console.warn('Hourly server readings unavailable:',e.message);});
+}
 // Combined chart: Sentiment, Technical, Combined (all 0-100, left axis) plus
 // BTC Price overlay (right axis). Sentiment's real accumulated history comes
 // from Pulse's /history; Technical's real history is computed retroactively
@@ -3264,6 +3292,7 @@ function buildCombinedChartConfig(history,technicalsData,isFullscreen){
   const RANGE_DAYS={DAY:1,WEEK:7,'30D':30,ALL:(dates0?dates0.length:365)};
   const lookbackDays=RANGE_DAYS[pulseRange]||90;
   const sentByDate=bucketHistoryByDate(history);
+  const serverByDate=bucketHistoryByDate(usableServerReadings(pulseServerReadings));
   const closes=closes0,dates=dates0;
   const techByDate=(closes&&dates)?computeTechnicalScoreSeries(closes,dates,lookbackDays):{};
   const priceByDate={};
@@ -3274,7 +3303,7 @@ function buildCombinedChartConfig(history,technicalsData,isFullscreen){
   // range) fit once, then evaluated only across whatever's currently visible —
   // this is what makes it stay a stable long-run line instead of jumping
   // around every time the range toggle changes, unlike the short-term one.
-  const allDates=[...new Set([...Object.keys(sentByDate),...Object.keys(techByDate)])].sort();
+  const allDates=[...new Set([...Object.keys(sentByDate),...Object.keys(techByDate),...Object.keys(serverByDate)])].sort();
   const allComb=allDates.map(d=>{
     const s=sentByDate[d]?sentByDate[d].score:null;
     const t=techByDate[d]!=null?techByDate[d]:null;
@@ -3287,9 +3316,10 @@ function buildCombinedChartConfig(history,technicalsData,isFullscreen){
   const priceLongTermFit=linearRegressionFit(allPrice);
 
   const plotDates=allDates.filter(d=>d>=cutoff);
-  const sentSeries=[],techSeries=[],combSeries=[],priceSeries=[],longTermTrend=[],priceLongTermTrend=[];
+  const sentSeries=[],serverSeries=[],techSeries=[],combSeries=[],priceSeries=[],longTermTrend=[],priceLongTermTrend=[];
   plotDates.forEach(d=>{
     const s=sentByDate[d]?sentByDate[d].score:null;
+    serverSeries.push(serverByDate[d]?serverByDate[d].score:null);
     const t=techByDate[d]!=null?techByDate[d]:null;
     sentSeries.push(s);techSeries.push(t);
     combSeries.push(computeCombinedScore(s,t,weight));
@@ -3308,6 +3338,8 @@ function buildCombinedChartConfig(history,technicalsData,isFullscreen){
   // time-series, zooming the y-axis (0-100 score scale) wouldn't mean anything.
   return{type:'line',data:{labels:plotDates,datasets:[
     {label:'Sentiment',data:sentSeries,borderColor:'#4F7DFB',backgroundColor:'transparent',fill:false,tension:0.3,pointRadius:0,borderWidth:2,spanGaps:true,yAxisID:'y'},
+    // Hourly server composite (last reading of each day, like Sentiment); empty until /server-composite/readings answers.
+    {label:'Sentiment (server, hourly)',data:serverSeries,borderColor:'#22D3EE',backgroundColor:'transparent',fill:false,tension:0.3,pointRadius:0,borderWidth:1.5,borderDash:[5,3],spanGaps:true,yAxisID:'y',hidden:!serverSeries.some(v=>v!=null)},
     {label:'Technical',data:techSeries,borderColor:'#F5B843',backgroundColor:'transparent',fill:false,tension:0.3,pointRadius:0,borderWidth:2,spanGaps:true,yAxisID:'y',hidden:true},
     {label:'Combined',data:combSeries,borderColor:'#3BF38B',backgroundColor:'transparent',fill:false,tension:0.3,pointRadius:0,borderWidth:2,borderDash:[4,3],spanGaps:true,yAxisID:'y',hidden:true},
     {label:'BTC Price',data:priceSeries,borderColor:'#8891A8',backgroundColor:'transparent',fill:false,tension:0.3,pointRadius:0,borderWidth:1.5,spanGaps:true,yAxisID:'y1'},
@@ -6356,6 +6388,8 @@ async function _initSentimentTabImpl(){
   }catch(err){
     console.error('Error rendering combined history chart:',err);
   }
+  // Hourly server readings: loaded after the chart so a slow or missing endpoint never delays it.
+  try{loadServerReadingsIntoChart();}catch(err){console.warn('Server readings load failed:',err);}
   // ---- TEMPORARY: raw FRED observation dates, to diagnose the oil/usd
   // frozen-value bug (see srcFredSeries for what's captured and why) ----
   try{
